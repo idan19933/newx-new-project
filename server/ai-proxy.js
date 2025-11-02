@@ -1110,21 +1110,79 @@ function buildDynamicQuestionPrompt(topic, subtopic, difficulty, studentProfile,
 // ==================== GENERATE QUESTION ENDPOINT WITH RETRY LOGIC ====================
 // ==================== GENERATE QUESTION ====================
 // ==================== GENERATE QUESTION ====================
+// ==================== SMART QUESTION GENERATION (Enhanced with all features) ====================
 app.post('/api/ai/generate-question', async (req, res) => {
     console.log('============================================================');
-    console.log('📝 GENERATING QUESTION');
+    console.log('📝 SMART QUESTION GENERATION (DB + AI)');
     console.log('============================================================');
 
     try {
-        const { topic, subtopic, difficulty = 'medium', grade = 'grade_8', previousQuestions = [] } = req.body;
+        const {
+            topic,
+            subtopic,
+            difficulty = 'medium',
+            grade = 'grade_8',
+            previousQuestions = [],
+            studentProfile = {}
+        } = req.body;
 
         if (!topic) {
             return res.status(400).json({ success: false, error: 'Topic required' });
         }
 
-        console.log('📊 Request:', { topic, subtopic, difficulty, grade });
+        const topicName = typeof topic === 'object' ? topic.name : topic;
+        const topicId = typeof topic === 'object' ? topic.id : topic;
+        const subtopicName = typeof subtopic === 'object' ? subtopic.name : subtopic;
+        const subtopicId = typeof subtopic === 'object' ? subtopic.id : subtopic;
 
-        // Build personality-aware prompt with CORRECT property paths
+        console.log('📊 Request:', {
+            topic: topicName,
+            subtopic: subtopicName,
+            difficulty,
+            grade
+        });
+
+        const userId = studentProfile.studentId || studentProfile.id;
+        const gradeLevel = parseInt(grade.replace('grade_', '')) || 8;
+
+        // 🎯 STEP 1: Try to get from database cache first
+        console.log('🔍 Checking database cache...');
+        const smartResult = await smartQuestionService.getQuestion({
+            topicId,
+            topicName,
+            subtopicId,
+            subtopicName,
+            difficulty,
+            gradeLevel,
+            userId,
+            excludeQuestionIds: previousQuestions.map(q => q.id).filter(Boolean)
+        });
+
+        // ✅ Found in database - return immediately (FAST & FREE!)
+        if (smartResult.cached) {
+            console.log('✅ Serving cached question from database');
+            console.log('📝 Question:', smartResult.question.substring(0, 100));
+
+            return res.json({
+                success: true,
+                question: smartResult.question,
+                correctAnswer: smartResult.correctAnswer,
+                hints: smartResult.hints || [],
+                explanation: smartResult.explanation || '',
+                visualData: smartResult.visualData,
+                cached: true,
+                questionId: smartResult.id,
+                source: 'database',
+                model: 'cached',
+                topic: topicName,
+                subtopic: subtopicName
+            });
+        }
+
+        // 🤖 STEP 2: No cached question found - generate with AI
+        console.log('🤖 No suitable cached question - generating with Claude AI...');
+
+        // ==================== BUILD PERSONALITY-AWARE PROMPT (EXISTING LOGIC) ====================
         const personalityContext = personalitySystem?.loaded ? `
 אתה ${personalitySystem.data.corePersonality.teacherName}, ${personalitySystem.data.corePersonality.role}.
 תכונות האישיות שלך:
@@ -1139,11 +1197,8 @@ app.post('/api/ai/generate-question', async (req, res) => {
 ` : 'אתה נקסון, מורה למתמטיקה ישראלי מנוסה וידידותי.';
 
         const previousQuestionsText = previousQuestions.length > 0
-            ? `\n\nשאלות קודמות (צור שאלה שונה לחלוטין!):\n${previousQuestions.map((q, i) => `${i + 1}. ${q.substring(0, 100)}...`).join('\n')}`
+            ? `\n\nשאלות קודמות (צור שאלה שונה לחלוטין!):\n${previousQuestions.map((q, i) => `${i + 1}. ${typeof q === 'string' ? q.substring(0, 100) : q.question?.substring(0, 100) || 'N/A'}...`).join('\n')}`
             : '';
-
-        const topicName = typeof topic === 'object' ? topic.name : topic;
-        const subtopicName = typeof subtopic === 'object' ? subtopic.name : subtopic;
 
         const prompt = `${personalityContext}
 
@@ -1173,6 +1228,7 @@ ${previousQuestionsText}
 
 חשוב: השתמש ב\\n לשורה חדשה, לא Enter אמיתי. החזר רק JSON, ללא טקסט נוסף.`;
 
+        // ==================== CALL CLAUDE API (EXISTING LOGIC) ====================
         console.log('🔄 Calling Claude API...');
 
         const response = await fetch('https://api.anthropic.com/v1/messages', {
@@ -1204,7 +1260,7 @@ ${previousQuestionsText}
 
         console.log('📄 Raw response (first 200):', rawText.substring(0, 200));
 
-        // Clean and parse JSON
+        // ==================== PARSE JSON (EXISTING LOGIC) ====================
         let jsonText = rawText.trim();
 
         // Remove markdown code blocks if present
@@ -1232,15 +1288,42 @@ ${previousQuestionsText}
             questionData.explanation = 'הסבר מפורט זמין בהמשך.';
         }
 
-        console.log('✅ Question generated successfully');
+        console.log('✅ AI Question generated successfully');
         console.log('📝 Question:', questionData.question.substring(0, 100));
 
+        // 💾 STEP 3: Cache the AI-generated question for future use
+        console.log('💾 Caching question for future use...');
+        const cachedId = await smartQuestionService.cacheQuestion({
+            question: questionData.question,
+            correctAnswer: questionData.correctAnswer,
+            hints: questionData.hints,
+            explanation: questionData.explanation,
+            visualData: questionData.visualData || null,
+            topicId,
+            topicName,
+            subtopicId,
+            subtopicName,
+            difficulty,
+            gradeLevel
+        });
+
+        if (cachedId) {
+            console.log(`✅ Question cached with ID: ${cachedId}`);
+        } else {
+            console.log('⚠️ Question could not be cached (might be duplicate)');
+        }
+
+        // ==================== RETURN RESPONSE ====================
         res.json({
             success: true,
             question: questionData.question,
             correctAnswer: questionData.correctAnswer,
             hints: questionData.hints,
             explanation: questionData.explanation,
+            visualData: questionData.visualData,
+            cached: false,
+            questionId: cachedId,
+            source: 'ai_generated',
             model: 'claude-sonnet-4-5-20250929',
             topic: topicName,
             subtopic: subtopicName
