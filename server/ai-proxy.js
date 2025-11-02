@@ -27,8 +27,10 @@ import enhancedQuestionsRouter from './routes/enhancedQuestions.js';
 import * as cronManager from './services/cronJobs.js';
 import israeliSourcesRoutes from './routes/israeliSourcesRoutes.js';
 import notebookService from './services/notebookService.js';
+import smartQuestionService from './services/smartQuestionService.js';
 import userRoutes from './routes/userRoutes.js';
 import pool from './config/database.js';
+
 
 import ISRAELI_CURRICULUM, {
     getGradeConfig,
