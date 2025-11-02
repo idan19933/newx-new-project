@@ -1344,9 +1344,10 @@ ${previousQuestionsText}
 
 // Replace your existing endpoint with this:
 // ==================== VERIFY ANSWER ====================
+// ==================== ENHANCED VERIFY ANSWER WITH PRECISE MATH VALIDATION ====================
 app.post('/api/ai/verify-answer', async (req, res) => {
     console.log('============================================================');
-    console.log('🔍 VERIFYING ANSWER');
+    console.log('🔍 VERIFYING ANSWER - ENHANCED');
     console.log('============================================================');
 
     const startTime = Date.now();
@@ -1359,14 +1360,16 @@ app.post('/api/ai/verify-answer', async (req, res) => {
             topic = '',
             subtopic = '',
             userId = null,
+            questionId = null,
             difficulty = 'medium'
         } = req.body;
 
         console.log('📝 Request:', {
             question: question?.substring(0, 50),
-            userAnswer,
+            userAnswer: userAnswer?.substring(0, 100),
             correctAnswer,
             userId,
+            questionId,
             topic,
             subtopic
         });
@@ -1384,85 +1387,237 @@ app.post('/api/ai/verify-answer', async (req, res) => {
         let explanation = '';
         let model = '';
 
-        // AI verification using Anthropic API
-        if (process.env.ANTHROPIC_API_KEY) {
-            const prompt = `אתה מורה למתמטיקה מומחה. בדוק האם תשובת התלמיד נכונה.
+        // ==================== ENHANCED VERIFICATION PROMPT ====================
+        const verificationPrompt = `אתה מורה למתמטיקה מומחה. בדוק האם תשובת התלמיד נכונה מבחינה מתמטית.
 
-חשוב מאוד:
-1. ענה רקעברית בלבד - אסור לכתוב באנגלית!
-2. תשובות מתמטיות שוות ערך נחשבות נכונות (למשל: 1/2 = 0.5, 2x = x+x)
-3. התעלם משגיאות כתיב קלות או פורמט
-4. בדוק אם התשובה נכונה מבחינה מתמטית, לא רק זהה טקסטואלית
+🎯 השאלה המקורית:
+${question}
 
-שאלה: ${question}
-תשובת התלמיד: ${userAnswer}
-התשובה הנכונה: ${correctAnswer}
+📝 תשובת התלמיד:
+${userAnswer}
 
-השב בפורמט JSON בדיוק כך (בעברית בלבד!):
+✅ התשובה הנכונה:
+${correctAnswer}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🔍 כללי בדיקה חשובים:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. **שקילות מתמטית** - התשובות הבאות זהות:
+   • 8π = 25.13 = 8*3.14 = 25.132741
+   • 1/2 = 0.5 = 50%
+   • 2x = x + x = x*2
+   • √4 = 2
+   • x² + 2x + 1 = (x+1)²
+
+2. **יחידות מידה** - אלה שקולות:
+   • מ"ר = מטר רבוע = m²
+   • ס"מ = סנטימטר = cm
+   • התעלם מהבדלים ביחידות אם הערך מספרי נכון
+
+3. **דיוק מספרי**:
+   • 8π מקובל גם כ-25.13 (שתי ספרות אחרי נקודה)
+   • 25.132741228... = 25.13 = 8π
+   • הבדל של עד 0.01 נחשב נכון
+
+4. **פורמט תשובה**:
+   • התעלם מרווחים מיותרים
+   • "x=5" = "x = 5"
+   • התעלם מסימני פיסוק (נקודה, פסיק)
+
+5. **תשובות חלקיות**:
+   • אם התלמיד נתן רק חלק מהתשובה (לדוגמה: הוא כתב "8π" אבל התשובה המלאה היא "8π מ\\"ר"), זה עדיין נכון
+   • אם התלמיד הציג את השלבים נכון אבל עשה טעות חישוב קטנה בסוף, ציין זאת
+
+6. **בדיקת שלבי פתרון** (אם התלמיד הראה שלבים):
+   • בדוק אם השיטה נכונה
+   • בדוק אם היו טעויות חישוב
+   • אם השיטה נכונה אבל יש טעות חישוב, ציין זאת במפורש
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+⚠️ דוגמאות לשקילות:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+תשובה נכונה: "8π מ\\"ר"
+✅ מקובל: "8π", "25.13", "8*3.14", "25.132741", "25.13 מטר רבוע"
+❌ לא נכון: "16π", "42.666667", "12.56"
+
+תשובה נכונה: "x = 5"
+✅ מקובל: "x=5", "5", "x equals 5"
+❌ לא נכון: "x = 4", "x = 10"
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+**המשימה שלך:**
+1. בדוק אם התשובה **מתמטית שקולה** לתשובה הנכונה
+2. אם התלמיד הראה שלבים - נתח אותם
+3. תן משוב ברור ומועיל בעברית
+
+**פורמט תשובה חובה (JSON תקין בלבד!):**
+
 {
-  "isCorrect": true/false,
-  "feedback": "משוב קצר בעברית לתלמיד (1-2 משפטים)",
-  "explanation": "הסבר מפורט בעברית למה התשובה נכונה או לא נכונה"
-}`;
+  "isCorrect": true או false,
+  "confidence": מספר בין 0-100,
+  "feedback": "משוב קצר לתלמיד - 1-2 משפטים בעברית",
+  "explanation": "הסבר מפורט למה התשובה נכונה או לא נכונה",
+  "equivalentValues": ["ערכים שקולים לתשובה"] או null
+}
 
-            const response = await fetch('https://api.anthropic.com/v1/messages', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'x-api-key': process.env.ANTHROPIC_API_KEY,
-                    'anthropic-version': '2023-06-01'
-                },
-                body: JSON.stringify({
-                    model: 'claude-sonnet-4-5-20250929',
-                    max_tokens: 2048,
-                    temperature: 0.3,
-                    system: 'אתה מורה למתמטיקה ישראלי מנוסה. כל התשובות שלך חייבות להיות בעברית בלבד! אסור לך לענות באנגלית או בשפה אחרת.',
-                    messages: [{
-                        role: 'user',
-                        content: prompt
-                    }]
-                })
-            });
+**חשוב ביותר:**
+- השתמש ב\\n (backslash-n) לשורות חדשות, לא Enter אמיתי!
+- אל תשתמש בגרשיים כפולים בתוך מחרוזות - השתמש ב\\" במקום "
+- החזר רק JSON תקין, ללא טקסט לפני או אחרי
+- ודא שכל הגרשיים סגורים נכון`;
 
-            if (!response.ok) {
-                const errorData = await response.json();
-                throw new Error(`API error: ${response.status} - ${errorData.error?.message || 'Unknown error'}`);
+        console.log('🤖 Calling Claude API for verification...');
+
+        // API Call with retry logic
+        let apiResponse = null;
+        let lastError = null;
+
+        for (let attempt = 0; attempt < 2; attempt++) {
+            try {
+                if (attempt > 0) {
+                    console.log(`   🔄 Retry attempt ${attempt + 1}/2...`);
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                }
+
+                const response = await fetch('https://api.anthropic.com/v1/messages', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'x-api-key': process.env.ANTHROPIC_API_KEY,
+                        'anthropic-version': '2023-06-01'
+                    },
+                    body: JSON.stringify({
+                        model: 'claude-sonnet-4-5-20250929',
+                        max_tokens: 2048,
+                        temperature: 0.3,
+                        system: 'אתה מורה למתמטיקה מומחה. תפקידך לבדוק תשובות מתמטיות בדיוק. החזר תמיד JSON תקין בלבד, בעברית. השתמש ב-\\n לשורות חדשות ו-\\" לגרשיים בתוך טקסט.',
+                        messages: [{
+                            role: 'user',
+                            content: verificationPrompt
+                        }]
+                    })
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(`API error: ${response.status} - ${errorData.error?.message || 'Unknown'}`);
+                }
+
+                apiResponse = await response.json();
+                break; // Success!
+
+            } catch (error) {
+                lastError = error;
+                console.error(`   ❌ Attempt ${attempt + 1} failed:`, error.message);
+
+                if (attempt === 1) {
+                    throw error;
+                }
             }
-
-            const data = await response.json();
-            const rawText = data.content[0].text;
-
-            console.log('📄 Raw AI response:', rawText.substring(0, 200));
-
-            // Clean and parse JSON
-            let jsonText = rawText.trim();
-
-            // Remove markdown code blocks if present
-            jsonText = jsonText.replace(/```json\n?/g, '').replace(/```\n?/g, '');
-
-            // Find JSON object
-            const jsonMatch = jsonText.match(/\{[\s\S]*\}/);
-            if (jsonMatch) {
-                jsonText = jsonMatch[0];
-            }
-
-            const parsed = JSON.parse(jsonText);
-
-            isCorrect = parsed.isCorrect === true;
-            confidence = 95;
-            feedback = parsed.feedback || 'בדיקה הושלמה';
-            explanation = parsed.explanation || '';
-            model = 'claude-sonnet-4-5-20250929';
-
-            console.log('✅ Verification complete:', { isCorrect, feedback: feedback.substring(0, 50) });
-        } else {
-            throw new Error('No AI API configured');
         }
 
-        // ✨ NOTE: Notebook saves are handled by frontend calling POST /api/notebook
-        // Frontend (MathTutor.jsx) will call the API endpoint after verification
-        // This keeps the verification endpoint focused and prevents duplicate saves
-        console.log('✅ Verification complete - frontend will handle notebook save');
+        if (!apiResponse) {
+            throw lastError || new Error('API call failed');
+        }
+
+        const rawText = apiResponse.content[0].text;
+        console.log('📄 Raw AI response (first 300):', rawText.substring(0, 300));
+
+        // ==================== ENHANCED JSON PARSING ====================
+        let parsed = null;
+
+        try {
+            // Step 1: Clean the JSON text
+            let jsonText = rawText.trim();
+
+            // Remove markdown code blocks
+            jsonText = jsonText.replace(/```json\n?/gi, '').replace(/```\n?/g, '');
+
+            // Find JSON object boundaries
+            const jsonStart = jsonText.indexOf('{');
+            const jsonEnd = jsonText.lastIndexOf('}');
+
+            if (jsonStart === -1 || jsonEnd === -1 || jsonEnd <= jsonStart) {
+                throw new Error('No valid JSON found in response');
+            }
+
+            jsonText = jsonText.substring(jsonStart, jsonEnd + 1);
+
+            // Fix common issues
+            jsonText = jsonText
+                // Remove control characters except \n, \r, \t
+                .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F]/g, '')
+                // Fix unescaped quotes in Hebrew text
+                .replace(/: "([^"]*)"([^"]*?)"/g, (match, p1, p2) => {
+                    if (p2 && !p2.match(/^[\s,}\]]/)) {
+                        return `: "${p1}\\"${p2}"`;
+                    }
+                    return match;
+                })
+                // Fix trailing commas
+                .replace(/,(\s*[}\]])/g, '$1')
+                // Ensure proper escaping of backslashes
+                .replace(/\\(?!["\\/bfnrtu])/g, '\\\\');
+
+            console.log('🔧 Cleaned JSON (first 300):', jsonText.substring(0, 300));
+
+            // Try to parse
+            parsed = JSON.parse(jsonText);
+            console.log('✅ JSON parsed successfully');
+
+        } catch (parseError) {
+            console.error('❌ JSON parse error:', parseError.message);
+            console.error('   Failed JSON:', rawText.substring(0, 500));
+
+            // Fallback: Try to extract values manually
+            const isCorrectMatch = rawText.match(/"isCorrect"\s*:\s*(true|false)/i);
+            const feedbackMatch = rawText.match(/"feedback"\s*:\s*"([^"]+)"/i);
+
+            parsed = {
+                isCorrect: isCorrectMatch ? isCorrectMatch[1] === 'true' : false,
+                confidence: 70,
+                feedback: feedbackMatch ? feedbackMatch[1] : 'בדיקת התשובה הושלמה',
+                explanation: 'לא ניתן היה לנתח את התשובה המלאה',
+                equivalentValues: null
+            };
+
+            console.log('⚠️ Using fallback parsing');
+        }
+
+        // Validate and clean the parsed response
+        isCorrect = Boolean(parsed.isCorrect);
+        confidence = Math.min(100, Math.max(0, parseInt(parsed.confidence) || 85));
+        feedback = String(parsed.feedback || 'בדיקה הושלמה').trim();
+        explanation = String(parsed.explanation || '').trim();
+        model = 'claude-sonnet-4-5-20250929';
+
+        console.log('✅ Verification complete:', {
+            isCorrect,
+            confidence,
+            feedbackPreview: feedback.substring(0, 50)
+        });
+
+        // ✅ Track question usage if available
+        if (questionId && userId) {
+            try {
+                await smartQuestionService.trackUsage(
+                    questionId,
+                    userId,
+                    {
+                        isCorrect: isCorrect,
+                        timeSpent: 0,
+                        hintsUsed: 0,
+                        attempts: 1
+                    }
+                );
+                console.log('✅ Question usage tracked');
+            } catch (trackError) {
+                console.error('⚠️ Failed to track usage:', trackError.message);
+            }
+        }
 
         const duration = Date.now() - startTime;
 
@@ -1472,15 +1627,19 @@ app.post('/api/ai/verify-answer', async (req, res) => {
             confidence,
             feedback,
             explanation,
+            equivalentValues: parsed.equivalentValues || null,
             model,
             duration
         });
 
     } catch (error) {
         console.error('❌ Verify answer error:', error);
+        console.error('   Stack:', error.stack);
+
         return res.status(500).json({
             success: false,
-            error: error.message
+            error: 'שגיאה בבדיקת התשובה. נסה שוב.',
+            details: process.env.NODE_ENV === 'development' ? error.message : undefined
         });
     }
 });
