@@ -1,13 +1,13 @@
 -- server/migrations/002_wrong_answers_tracking.sql
 -- Wrong Answer Detection & Auto-Fix System
--- This enables the AI to detect and fix wrong stored answers
+-- SAFE VERSION - Works even if questions table doesn't exist yet
 
 -- =====================================================
--- WRONG ANSWER LOG TABLE
+-- WRONG ANSWER LOG TABLE (Core - No Dependencies)
 -- =====================================================
 CREATE TABLE IF NOT EXISTS wrong_answer_log (
                                                 id SERIAL PRIMARY KEY,
-                                                question_id VARCHAR(255) UNIQUE,
+                                                question_id VARCHAR(255),
     question_text TEXT NOT NULL,
     wrong_stored_answer TEXT NOT NULL,
     correct_calculated_answer TEXT NOT NULL,
@@ -23,14 +23,14 @@ CREATE TABLE IF NOT EXISTS wrong_answer_log (
     fix_applied_at TIMESTAMP
     );
 
--- Indexes for quick lookups
+-- Indexes
 CREATE INDEX IF NOT EXISTS idx_wrong_answer_log_question_id ON wrong_answer_log(question_id);
 CREATE INDEX IF NOT EXISTS idx_wrong_answer_log_reviewed ON wrong_answer_log(reviewed);
 CREATE INDEX IF NOT EXISTS idx_wrong_answer_log_created_at ON wrong_answer_log(created_at);
 CREATE INDEX IF NOT EXISTS idx_wrong_answer_log_topic ON wrong_answer_log(topic);
 
 -- =====================================================
--- QUESTION FIXES LOG TABLE (Track all fixes)
+-- QUESTION FIXES LOG TABLE (Core - No Dependencies)
 -- =====================================================
 CREATE TABLE IF NOT EXISTS question_fixes_log (
                                                   id SERIAL PRIMARY KEY,
@@ -46,43 +46,67 @@ CREATE INDEX IF NOT EXISTS idx_question_fixes_log_question_id ON question_fixes_
 CREATE INDEX IF NOT EXISTS idx_question_fixes_log_fixed_at ON question_fixes_log(fixed_at);
 
 -- =====================================================
--- ADD NEEDS_REVIEW COLUMN TO QUESTIONS TABLE
+-- CONDITIONAL: Add columns to questions table IF IT EXISTS
 -- =====================================================
--- Add column to mark questions that need manual review
 DO $$
 BEGIN
-    IF EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'questions') THEN
-ALTER TABLE questions
-    ADD COLUMN IF NOT EXISTS needs_review BOOLEAN DEFAULT FALSE;
-
+    -- Check if questions table exists
+    IF EXISTS (
+        SELECT FROM information_schema.tables
+        WHERE table_schema = 'public'
+        AND table_name = 'questions'
+    ) THEN
+        -- Add needs_review column
+        IF NOT EXISTS (
+            SELECT FROM information_schema.columns
+            WHERE table_name = 'questions'
+            AND column_name = 'needs_review'
+        ) THEN
+ALTER TABLE questions ADD COLUMN needs_review BOOLEAN DEFAULT FALSE;
 CREATE INDEX IF NOT EXISTS idx_questions_needs_review ON questions(needs_review);
-
-COMMENT ON COLUMN questions.needs_review IS 'Flagged by AI when stored answer is wrong';
+RAISE NOTICE 'Added needs_review column to questions table';
 END IF;
-END $$;
 
--- =====================================================
--- ADD VERIFICATION METADATA TO QUESTIONS
--- =====================================================
-DO $$
-BEGIN
-    IF EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'questions') THEN
-ALTER TABLE questions
-    ADD COLUMN IF NOT EXISTS last_verified_at TIMESTAMP,
-    ADD COLUMN IF NOT EXISTS verification_count INTEGER DEFAULT 0,
-    ADD COLUMN IF NOT EXISTS ai_confidence INTEGER DEFAULT 0;
-
+        -- Add verification metadata
+        IF NOT EXISTS (
+            SELECT FROM information_schema.columns
+            WHERE table_name = 'questions'
+            AND column_name = 'last_verified_at'
+        ) THEN
+ALTER TABLE questions ADD COLUMN last_verified_at TIMESTAMP;
 CREATE INDEX IF NOT EXISTS idx_questions_last_verified ON questions(last_verified_at);
+RAISE NOTICE 'Added last_verified_at column to questions table';
+END IF;
 
-COMMENT ON COLUMN questions.last_verified_at IS 'Last time AI verified this answer';
-        COMMENT ON COLUMN questions.verification_count IS 'How many times this was verified';
-        COMMENT ON COLUMN questions.ai_confidence IS 'AI confidence in answer (0-100)';
+        IF NOT EXISTS (
+            SELECT FROM information_schema.columns
+            WHERE table_name = 'questions'
+            AND column_name = 'verification_count'
+        ) THEN
+ALTER TABLE questions ADD COLUMN verification_count INTEGER DEFAULT 0;
+RAISE NOTICE 'Added verification_count column to questions table';
+END IF;
+
+        IF NOT EXISTS (
+            SELECT FROM information_schema.columns
+            WHERE table_name = 'questions'
+            AND column_name = 'ai_confidence'
+        ) THEN
+ALTER TABLE questions ADD COLUMN ai_confidence INTEGER DEFAULT 0;
+RAISE NOTICE 'Added ai_confidence column to questions table';
+END IF;
+
+        RAISE NOTICE 'Successfully added columns to questions table';
+ELSE
+        RAISE NOTICE 'Questions table does not exist yet - skipping column additions';
 END IF;
 END $$;
 
 -- =====================================================
--- FUNCTION: AUTO-UPDATE REVIEWED TIMESTAMP
+-- HELPER FUNCTIONS (Always Created)
 -- =====================================================
+
+-- Function: Auto-update reviewed timestamp
 CREATE OR REPLACE FUNCTION update_reviewed_timestamp()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -93,16 +117,14 @@ RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
 
--- Apply trigger
+-- Apply trigger to wrong_answer_log
 DROP TRIGGER IF EXISTS update_wrong_answer_reviewed ON wrong_answer_log;
 CREATE TRIGGER update_wrong_answer_reviewed
     BEFORE UPDATE ON wrong_answer_log
     FOR EACH ROW
     EXECUTE FUNCTION update_reviewed_timestamp();
 
--- =====================================================
--- FUNCTION: LOG QUESTION FIX
--- =====================================================
+-- Function: Log question fixes (conditional application)
 CREATE OR REPLACE FUNCTION log_question_fix()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -120,24 +142,37 @@ RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
 
--- Apply trigger to questions table if it exists
+-- Apply trigger to questions table IF IT EXISTS
 DO $$
 BEGIN
-    IF EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'questions') THEN
+    IF EXISTS (
+        SELECT FROM information_schema.tables
+        WHERE table_schema = 'public'
+        AND table_name = 'questions'
+    ) THEN
 DROP TRIGGER IF EXISTS log_question_answer_change ON questions;
 CREATE TRIGGER log_question_answer_change
     AFTER UPDATE ON questions
     FOR EACH ROW
     EXECUTE FUNCTION log_question_fix();
+RAISE NOTICE 'Created trigger on questions table';
+ELSE
+        RAISE NOTICE 'Questions table does not exist - trigger will be created later';
 END IF;
 END $$;
 
 -- =====================================================
--- VERIFICATION VIEWS (For Admin Dashboard)
+-- VIEWS (Conditional - Only if questions table exists)
 -- =====================================================
-
--- View: Questions needing review
-CREATE OR REPLACE VIEW questions_needing_review AS
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT FROM information_schema.tables
+        WHERE table_schema = 'public'
+        AND table_name = 'questions'
+    ) THEN
+        -- View: Questions needing review
+        CREATE OR REPLACE VIEW questions_needing_review AS
 SELECT
     q.id,
     q.topic,
@@ -181,32 +216,14 @@ FROM wrong_answer_log
 GROUP BY topic, difficulty
 ORDER BY total_wrong_answers DESC;
 
--- =====================================================
--- GRANT PERMISSIONS (If using role-based access)
--- =====================================================
--- Uncomment if you have specific roles
--- GRANT SELECT, INSERT, UPDATE ON wrong_answer_log TO app_user;
--- GRANT SELECT, INSERT ON question_fixes_log TO app_user;
--- GRANT SELECT ON questions_needing_review TO admin_user;
+RAISE NOTICE 'Created views for wrong answer tracking';
+ELSE
+        RAISE NOTICE 'Questions table does not exist - views will be created later';
+END IF;
+END $$;
 
 -- =====================================================
--- HELPFUL QUERIES FOR DEBUGGING
--- =====================================================
-
--- Show all wrong answers that need review
--- SELECT * FROM questions_needing_review LIMIT 10;
-
--- Show recent fixes
--- SELECT * FROM recent_question_fixes LIMIT 10;
-
--- Show statistics by topic
--- SELECT * FROM wrong_answer_stats;
-
--- Find specific question that was flagged
--- SELECT * FROM wrong_answer_log WHERE question_id = 'your-question-id';
-
--- =====================================================
--- CLEANUP FUNCTION (Optional - for testing)
+-- CLEANUP FUNCTION (Always Available)
 -- =====================================================
 CREATE OR REPLACE FUNCTION cleanup_old_logs(days_to_keep INTEGER DEFAULT 90)
 RETURNS void AS $$
@@ -223,9 +240,25 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- =====================================================
--- INITIALIZATION
+-- COMMENTS & DOCUMENTATION
 -- =====================================================
 COMMENT ON TABLE wrong_answer_log IS 'Tracks questions where AI detected wrong stored answers';
 COMMENT ON TABLE question_fixes_log IS 'Audit log of all question answer changes';
+COMMENT ON FUNCTION cleanup_old_logs IS 'Removes old reviewed logs - run periodically';
+
+-- Success message
+DO $$
+BEGIN
+    RAISE NOTICE '✅ Wrong answer tracking system installed successfully!';
+    RAISE NOTICE '   - wrong_answer_log table created';
+    RAISE NOTICE '   - question_fixes_log table created';
+    RAISE NOTICE '   - Helper functions created';
+
+    IF EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'questions') THEN
+        RAISE NOTICE '   - Questions table integration: ENABLED';
+ELSE
+        RAISE NOTICE '   - Questions table integration: PENDING (will activate when table is created)';
+END IF;
+END $$;
 
 COMMIT;
