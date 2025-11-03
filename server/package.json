@@ -6,7 +6,8 @@
   "main": "server/ai-proxy.js",
   "scripts": {
     "migrate": "node db/run-sql-migrations.js",
-    "start": "npm run migrate && node index.js"
+    "start": "npm run migrate && node index.js",
+    "dev": "nodemon index.js"
   },
   "engines": {
     "node": ">=18.0.0",
@@ -21,16 +22,17 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.20.0",
+    "axios": "^1.6.0",
     "cors": "^2.8.5",
     "dotenv": "^16.3.1",
     "express": "^4.18.2",
     "firebase-admin": "^13.5.0",
     "multer": "^2.0.2",
-    "pg": "^8.16.3",
-    "xlsx": "^0.18.5",
+    "node-cron": "^3.0.3",
     "node-fetch": "^3.3.2",
-    "pdf2json": "^3.0.5",
-    "axios": "^1.6.0"
+    "pg": "^8.16.3",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "nodemon": "^3.0.1"
