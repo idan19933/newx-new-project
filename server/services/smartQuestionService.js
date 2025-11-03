@@ -234,20 +234,45 @@ class SmartQuestionService {
     /**
      * ✅ Get Hebrew topic names from English topic/subtopic
      */
+    // תחליף את getHebrewTopics:
     getHebrewTopics(topicName, subtopicName) {
         const topics = new Set();
 
-        // Add topics from main topic
+        // ✅ FIX 1: אם הנושא כבר בעברית, החזר אותו ישירות!
+        const isHebrew = /[\u0590-\u05FF]/.test(topicName);
+
+        if (isHebrew) {
+            console.log(`   ✅ Topic already in Hebrew: ${topicName}`);
+            if (topicName) topics.add(topicName);
+            if (subtopicName) topics.add(subtopicName);
+
+            // גם חפש נושאים דומים:
+            if (topicName?.includes('משוואות')) {
+                topics.add('אלגברה');
+                topics.add('משוואות');
+            }
+            if (topicName?.includes('גיאומטריה')) {
+                topics.add('גיאומטריה');
+                topics.add('גאומטריה');
+            }
+            if (topicName?.includes('פונקציות')) {
+                topics.add('פונקציות');
+                topics.add('פונקציות לינאריות');
+            }
+
+            return Array.from(topics);
+        }
+
+        // ✅ FIX 2: אם אנגלית, השתמש במיפוי:
         if (topicName && TOPIC_MAPPING[topicName]) {
             TOPIC_MAPPING[topicName].forEach(t => topics.add(t));
         }
 
-        // Add topics from subtopic
         if (subtopicName && TOPIC_MAPPING[subtopicName]) {
             TOPIC_MAPPING[subtopicName].forEach(t => topics.add(t));
         }
 
-        // Fallback: try partial matching
+        // Fallback: partial matching
         if (topics.size === 0) {
             const searchTerm = subtopicName || topicName;
             Object.entries(TOPIC_MAPPING).forEach(([key, values]) => {
@@ -259,7 +284,6 @@ class SmartQuestionService {
 
         return Array.from(topics);
     }
-
     /**
      * Get question from question_cache with STRICT filtering
      */
