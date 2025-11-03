@@ -1,4 +1,4 @@
-// server/services/israeliSourcesProcessor.js - WITH CORRECT MODEL
+// server/services/israeliSourcesProcessor.js - FULLY FIXED VERSION
 import Anthropic from '@anthropic-ai/sdk';
 import pool from '../config/database.js';
 
@@ -126,28 +126,131 @@ class IsraeliSourcesProcessor {
         return result;
     }
 
+    // ✅ IMPROVED JSON PARSING - 8 STRATEGIES!
     safeParseJSON(text) {
-        try { return JSON.parse(text); } catch (e) { }
+        console.log(`   🔍 Parsing JSON from ${text.length} chars...`);
+
+        // Strategy 1: Direct parse
         try {
-            const jsonMatch = text.match(/\[\s*\{[\s\S]*\}\s*\]/);
-            if (jsonMatch) return JSON.parse(jsonMatch[0]);
-        } catch (e) { }
+            const parsed = JSON.parse(text);
+            console.log('   ✅ Strategy 1: Direct parse succeeded');
+            return parsed;
+        } catch (e) {
+            console.log('   ⚠️ Strategy 1 failed');
+        }
+
+        // Strategy 2: Remove markdown code blocks
         try {
-            let cleaned = text.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
-            const jsonMatch = cleaned.match(/\[\s*\{[\s\S]*\}\s*\]/);
-            if (jsonMatch) return JSON.parse(jsonMatch[0]);
-        } catch (e) { }
+            const cleaned = text.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
+            const parsed = JSON.parse(cleaned);
+            console.log('   ✅ Strategy 2: Markdown removal succeeded');
+            return parsed;
+        } catch (e) {
+            console.log('   ⚠️ Strategy 2 failed');
+        }
+
+        // Strategy 3: Extract array with regex
+        try {
+            const arrayMatch = text.match(/\[\s*\{[\s\S]*\}\s*\]/);
+            if (arrayMatch) {
+                const parsed = JSON.parse(arrayMatch[0]);
+                console.log('   ✅ Strategy 3: Array regex succeeded');
+                return parsed;
+            }
+        } catch (e) {
+            console.log('   ⚠️ Strategy 3 failed');
+        }
+
+        // Strategy 4: Find first [ to last ]
+        try {
+            const firstBracket = text.indexOf('[');
+            const lastBracket = text.lastIndexOf(']');
+            if (firstBracket !== -1 && lastBracket !== -1 && lastBracket > firstBracket) {
+                const jsonStr = text.substring(firstBracket, lastBracket + 1);
+                const parsed = JSON.parse(jsonStr);
+                console.log('   ✅ Strategy 4: Bracket extraction succeeded');
+                return parsed;
+            }
+        } catch (e) {
+            console.log('   ⚠️ Strategy 4 failed');
+        }
+
+        // Strategy 5: Find first { to last }
+        try {
+            const firstBrace = text.indexOf('{');
+            const lastBrace = text.lastIndexOf('}');
+            if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+                const jsonStr = text.substring(firstBrace, lastBrace + 1);
+                const parsed = JSON.parse(jsonStr);
+                console.log('   ✅ Strategy 5: Brace extraction succeeded');
+                return parsed;
+            }
+        } catch (e) {
+            console.log('   ⚠️ Strategy 5 failed');
+        }
+
+        // Strategy 6: Fix incomplete JSON (missing closing bracket)
         try {
             if (text.includes('[') && !text.trim().endsWith(']')) {
                 let attempt = text.trim();
                 const lastComma = attempt.lastIndexOf(',');
                 if (lastComma > 0) {
                     attempt = attempt.substring(0, lastComma) + ']';
-                    return JSON.parse(attempt);
+                    const parsed = JSON.parse(attempt);
+                    console.log('   ✅ Strategy 6: Incomplete JSON fix succeeded');
+                    return parsed;
                 }
             }
-        } catch (e) { }
-        console.error('   ⚠️ All JSON parsing strategies failed');
+        } catch (e) {
+            console.log('   ⚠️ Strategy 6 failed');
+        }
+
+        // Strategy 7: Extract between specific markers
+        try {
+            const lines = text.split('\n');
+            let jsonStart = -1;
+            let jsonEnd = -1;
+
+            for (let i = 0; i < lines.length; i++) {
+                if (lines[i].trim().startsWith('[')) jsonStart = i;
+                if (lines[i].trim().endsWith(']')) jsonEnd = i;
+            }
+
+            if (jsonStart !== -1 && jsonEnd !== -1 && jsonEnd >= jsonStart) {
+                const jsonStr = lines.slice(jsonStart, jsonEnd + 1).join('\n');
+                const parsed = JSON.parse(jsonStr);
+                console.log('   ✅ Strategy 7: Line-by-line extraction succeeded');
+                return parsed;
+            }
+        } catch (e) {
+            console.log('   ⚠️ Strategy 7 failed');
+        }
+
+        // Strategy 8: Aggressive cleanup and retry
+        try {
+            let cleaned = text
+                .replace(/```json/g, '')
+                .replace(/```/g, '')
+                .replace(/^\s+/gm, '')
+                .replace(/[\u0000-\u001F\u007F-\u009F]/g, '') // Remove control chars
+                .trim();
+
+            // Find array
+            const match = cleaned.match(/\[[\s\S]*\]/);
+            if (match) {
+                const parsed = JSON.parse(match[0]);
+                console.log('   ✅ Strategy 8: Aggressive cleanup succeeded');
+                return parsed;
+            }
+        } catch (e) {
+            console.log('   ⚠️ Strategy 8 failed');
+        }
+
+        // All failed - log for debugging
+        console.error('   ❌ All JSON parsing strategies failed');
+        console.error('   📄 First 500 chars:', text.substring(0, 500));
+        console.error('   📄 Last 500 chars:', text.substring(Math.max(0, text.length - 500)));
+
         return null;
     }
 
@@ -158,29 +261,30 @@ class IsraeliSourcesProcessor {
 
         const prompt = `אתה מומחה לחילוץ שאלות מתמטיקה ממקורות ישראליים.
 
-חלץ עד ${maxQuestions} שאלות **קיימות** מהתוכן הבא:
+חלץ עד ${maxQuestions} שאלות **קיימות** מהתוכן הבא. אם אין שאלות מפורשות, צור שאלות מתאימות מהתוכן.
 
 ${contentPreview}
 
-החזר JSON array בלבד:
+חשוב: החזר **רק** JSON array, ללא טקסט נוסף לפני או אחרי!
+
 [
   {
-    "question": "השאלה",
-    "correctAnswer": "תשובה",
-    "explanation": "הסבר",
-    "hints": ["רמז"],
-    "solution_steps": ["שלב"],
-    "topic": "נושא",
+    "question": "השאלה המלאה",
+    "correctAnswer": "התשובה הנכונה",
+    "explanation": "הסבר קצר",
+    "hints": ["רמז 1"],
+    "solution_steps": ["שלב פתרון 1"],
+    "topic": "אלגברה/גיאומטריה/וכו",
     "subtopic": "תת-נושא",
     "grade": ${targetGrade || 8},
-    "difficulty": "medium",
-    "keywords": ["מילה"]
+    "difficulty": "easy/medium/hard",
+    "keywords": ["מילת מפתח"]
   }
 ]`;
 
         try {
             const response = await anthropic.messages.create({
-                model: 'claude-sonnet-4-5-20250929',  // ✅ CORRECT MODEL!
+                model: 'claude-sonnet-4-5-20250929',
                 max_tokens: 4000,
                 messages: [{ role: 'user', content: prompt }]
             });
@@ -189,16 +293,24 @@ ${contentPreview}
             console.log(`   📤 Claude response: ${responseText.length} chars`);
 
             const questions = this.safeParseJSON(responseText);
-            if (!questions || !Array.isArray(questions)) {
+
+            if (!questions) {
                 console.log('   ⚠️ No questions found');
                 return [];
             }
+
+            if (!Array.isArray(questions)) {
+                console.log('   ⚠️ Response is not an array');
+                return [];
+            }
+
+            console.log(`   ✅ Parsed ${questions.length} questions successfully`);
 
             return questions
                 .filter(q => q.question && q.difficulty)
                 .map(q => this.normalizeExtractedQuestion(q, source, false));
         } catch (error) {
-            console.error('   ❌ Claude extraction error:', error.message);
+            console.error('   ❌ Claude extraction error:', error.response?.status || error.message);
             return [];
         }
     }
@@ -208,29 +320,30 @@ ${contentPreview}
         const contentPreview = content.substring(0, 15000);
         const targetGrade = source.grade_level || 8;
 
-        const prompt = `צור ${targetCount} שאלות מתמטיקה חדשות לכיתה ${targetGrade} בהתבסס על:
+        const prompt = `צור ${targetCount} שאלות מתמטיקה **חדשות** לכיתה ${targetGrade} בהתבסס על התוכן הבא:
 
 ${contentPreview}
 
-החזר JSON array בלבד:
+חשוב: החזר **רק** JSON array, ללא טקסט נוסף!
+
 [
   {
-    "question": "שאלה",
-    "correctAnswer": "תשובה",
-    "explanation": "הסבר",
+    "question": "שאלה מלאה ומפורטת",
+    "correctAnswer": "תשובה נכונה",
+    "explanation": "הסבר מפורט",
     "hints": ["רמז 1", "רמז 2"],
     "solution_steps": ["שלב 1", "שלב 2"],
-    "topic": "נושא",
+    "topic": "נושא ראשי",
     "subtopic": "תת-נושא",
     "grade": ${targetGrade},
-    "difficulty": "medium",
+    "difficulty": "easy/medium/hard",
     "keywords": ["מילה 1", "מילה 2"]
   }
 ]`;
 
         try {
             const response = await anthropic.messages.create({
-                model: 'claude-sonnet-4-5-20250929',  // ✅ CORRECT MODEL!
+                model: 'claude-sonnet-4-5-20250929',
                 max_tokens: 8000,
                 temperature: 0.8,
                 messages: [{ role: 'user', content: prompt }]
@@ -240,17 +353,24 @@ ${contentPreview}
             console.log(`   📤 Claude response: ${responseText.length} chars`);
 
             const questions = this.safeParseJSON(responseText);
-            if (!questions || !Array.isArray(questions)) {
-                console.log('   ⚠️ Generation failed');
+
+            if (!questions) {
+                console.log('   ⚠️ Generation failed - no valid JSON');
                 return [];
             }
 
-            console.log(`   ✅ Parsed ${questions.length} questions`);
+            if (!Array.isArray(questions)) {
+                console.log('   ⚠️ Generation failed - not an array');
+                return [];
+            }
+
+            console.log(`   ✅ Generated ${questions.length} questions successfully`);
+
             return questions
                 .filter(q => q.question && q.correctAnswer && q.difficulty)
                 .map(q => this.normalizeExtractedQuestion(q, source, true));
         } catch (error) {
-            console.error('   ❌ Claude generation error:', error.message);
+            console.error('   ❌ Claude generation error:', error.response?.status || error.message);
             return [];
         }
     }
@@ -258,7 +378,7 @@ ${contentPreview}
     normalizeExtractedQuestion(rawQuestion, source, isGenerated = false) {
         const finalGrade = source.grade_level || rawQuestion.grade || 8;
         return {
-            question: rawQuestion.question.trim(),
+            question: (rawQuestion.question || '').trim(),
             correctAnswer: (rawQuestion.correctAnswer || '').trim(),
             explanation: rawQuestion.explanation || '',
             hints: Array.isArray(rawQuestion.hints) ? rawQuestion.hints : [],
@@ -282,18 +402,36 @@ ${contentPreview}
                            RETURNING id`;
 
         const result = await pool.query(query, [
-            questionData.question, 'open_ended', questionData.topic, questionData.subtopic || null,
-            questionData.grade, questionData.difficulty, questionData.correctAnswer, JSON.stringify([]),
-            questionData.explanation, JSON.stringify(questionData.solution_steps || []),
-            JSON.stringify(questionData.hints || []), 'israeli_source', 'apply', questionData.keywords || [],
-            ['nexon'], isGenerated ? 65 : 70, false, true,
+            questionData.question,
+            'open_ended',
+            questionData.topic,
+            questionData.subtopic || null,
+            questionData.grade,
+            questionData.difficulty,
+            questionData.correctAnswer,
+            JSON.stringify([]),
+            questionData.explanation,
+            JSON.stringify(questionData.solution_steps || []),
+            JSON.stringify(questionData.hints || []),
+            'israeli_source',
+            'apply',
+            questionData.keywords || [],
+            ['nexon'],
+            isGenerated ? 65 : 70,
+            false,
+            true,
             JSON.stringify({
-                sourceId: source.id, sourceTitle: source.title, sourceType: source.source_type,
-                sourceUrl: source.source_url, sourceGrade: source.grade_level,
-                extractedAt: new Date().toISOString(), isGenerated: isGenerated,
+                sourceId: source.id,
+                sourceTitle: source.title,
+                sourceType: source.source_type,
+                sourceUrl: source.source_url,
+                sourceGrade: source.grade_level,
+                extractedAt: new Date().toISOString(),
+                isGenerated: isGenerated,
                 generationMethod: isGenerated ? 'claude_curriculum_based' : 'claude_extraction'
             })
         ]);
+
         return result.rows[0].id;
     }
 }
