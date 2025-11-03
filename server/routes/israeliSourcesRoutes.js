@@ -1,4 +1,4 @@
-// server/routes/israeliSourcesRoutes.js - CLEAN VERSION
+// server/routes/israeliSourcesRoutes.js - WITH RECLASSIFICATION
 import express from 'express';
 import pool from '../config/database.js';
 import israeliSourcesFetcher from '../services/israeliSourcesFetcher.js';
@@ -16,14 +16,14 @@ router.get('/status', async (req, res) => {
         console.log('📊 Checking system status...');
 
         const sourcesResult = await pool.query(
-            `SELECT COALESCE(COUNT(*), 0) as count 
-             FROM israeli_sources 
+            `SELECT COALESCE(COUNT(*), 0) as count
+             FROM israeli_sources
              WHERE status IN ('active', 'processed')`
         );
 
         const questionsResult = await pool.query(
-            `SELECT COALESCE(COUNT(*), 0) as count 
-             FROM question_bank 
+            `SELECT COALESCE(COUNT(*), 0) as count
+             FROM question_bank
              WHERE source = 'israeli_source'`
         );
 
@@ -114,6 +114,108 @@ router.post('/process/:sourceId', async (req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════════════
+// ✅ NEW: RECLASSIFICATION ENDPOINT
+// ═══════════════════════════════════════════════════════════════
+
+router.post('/reclassify-all', async (req, res) => {
+    try {
+        console.log('🔄 Starting reclassification of all questions...');
+
+        const { rows: questions } = await pool.query(`
+            SELECT id, question_text, grade_level, topic, subtopic
+            FROM question_bank 
+            WHERE source = 'israeli_source' 
+            AND is_active = true
+        `);
+
+        console.log(`📊 Found ${questions.length} questions to reclassify`);
+
+        // Import classifier dynamically
+        const { default: QuestionClassifier } = await import('../services/questionClassifier.js');
+
+        let updated = 0;
+        let failed = 0;
+        const sampleResults = [];
+
+        for (const q of questions) {
+            try {
+                const classification = QuestionClassifier.classifyQuestion(
+                    q.question_text,
+                    {
+                        grade: q.grade_level,
+                        topic: q.topic,
+                        subtopic: q.subtopic
+                    }
+                );
+
+                await pool.query(`
+                    UPDATE question_bank 
+                    SET 
+                        grade_level = $1,
+                        units = $2,
+                        topic = $3,
+                        subtopic = $4,
+                        difficulty = $5
+                    WHERE id = $6
+                `, [
+                    classification.grade,
+                    classification.units,
+                    classification.topic,
+                    classification.subtopic,
+                    classification.difficulty,
+                    q.id
+                ]);
+
+                updated++;
+
+                // Save first 5 for sample output
+                if (sampleResults.length < 5) {
+                    sampleResults.push({
+                        id: q.id,
+                        question: q.question_text.substring(0, 60) + '...',
+                        before: {
+                            grade: q.grade_level,
+                            topic: q.topic,
+                            subtopic: q.subtopic
+                        },
+                        after: classification
+                    });
+                }
+
+                if (updated % 50 === 0) {
+                    console.log(`   ✅ Processed ${updated}/${questions.length}...`);
+                }
+
+            } catch (error) {
+                console.error(`   ❌ Failed question ${q.id}:`, error.message);
+                failed++;
+            }
+        }
+
+        console.log(`✅ Reclassification complete: ${updated} updated, ${failed} failed`);
+
+        res.json({
+            success: true,
+            message: 'Reclassification completed successfully',
+            stats: {
+                total: questions.length,
+                updated,
+                failed
+            },
+            sample: sampleResults
+        });
+
+    } catch (error) {
+        console.error('❌ Reclassification error:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Reclassification failed',
+            details: error.message
+        });
+    }
+});
+
+// ═══════════════════════════════════════════════════════════════
 // SOURCE MANAGEMENT
 // ═══════════════════════════════════════════════════════════════
 
@@ -172,10 +274,10 @@ router.post('/add-source', async (req, res) => {
         console.log(`➕ Adding: ${title}`);
 
         const result = await pool.query(`
-            INSERT INTO israeli_sources 
+            INSERT INTO israeli_sources
             (title, source_type, source_url, content, grade_level, subject, status, notes, created_at)
             VALUES ($1, $2, $3, $4, $5, $6, 'active', $7, CURRENT_TIMESTAMP)
-            RETURNING id, title, source_type, grade_level, status
+                RETURNING id, title, source_type, grade_level, status
         `, [
             title,
             source_type || 'manual',
