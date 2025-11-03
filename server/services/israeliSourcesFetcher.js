@@ -1,10 +1,54 @@
-// server/services/israeliSourcesFetcher.js - HTML ONLY (Skip PDF for now)
+// server/services/israeliSourcesFetcher.js - COMPLETE VERSION
 import pool from '../config/database.js';
 
 class IsraeliSourcesFetcher {
     /**
-     * Fetch content from URL - HTML text extraction only
-     * PDF support temporarily disabled due to Node.js compatibility issues
+     * Get all sources from database
+     */
+    async getAllSources() {
+        try {
+            const query = `
+                SELECT 
+                    id,
+                    title,
+                    source_type,
+                    source_url,
+                    grade_level,
+                    subject,
+                    status,
+                    LENGTH(content) as content_length,
+                    notes,
+                    last_scraped_at,
+                    created_at,
+                    updated_at
+                FROM israeli_sources
+                ORDER BY created_at DESC
+            `;
+
+            const result = await pool.query(query);
+            return result.rows;
+        } catch (error) {
+            console.error('❌ [GetAllSources] Error:', error);
+            throw error;
+        }
+    }
+
+    /**
+     * Get source by ID
+     */
+    async getSourceById(sourceId) {
+        try {
+            const query = `SELECT * FROM israeli_sources WHERE id = $1`;
+            const result = await pool.query(query, [sourceId]);
+            return result.rows[0] || null;
+        } catch (error) {
+            console.error('❌ [GetSourceById] Error:', error);
+            throw error;
+        }
+    }
+
+    /**
+     * Fetch content from URL - HTML only
      */
     async fetchAndStore(url, metadata = {}) {
         console.log(`📥 Fetching content from: ${url}`);
@@ -21,109 +65,47 @@ class IsraeliSourcesFetcher {
             }
 
             const contentType = response.headers.get('content-type') || '';
-            console.log(`   📄 Content-Type: ${contentType}`);
 
-            let content = '';
-            let extractionMethod = 'html';
-
-            // Check if it's a PDF
             if (contentType.includes('application/pdf')) {
-                console.log(`   ⚠️ PDF detected - skipping for now (provide HTML URL or manual content instead)`);
-                throw new Error('PDF extraction not available - please provide HTML page URL or add content manually');
+                throw new Error('PDF extraction not available - please add content manually');
             }
 
-            // Extract from HTML
             const html = await response.text();
-            console.log(`   ✅ Fetched ${html.length} characters of HTML`);
-
-            // Extract text from HTML
-            content = this.extractTextFromHTML(html);
-            extractionMethod = 'html_text';
-
-            console.log(`   ✅ Extracted ${content.length} characters of text`);
-
-            if (content.length < 100) {
-                console.warn(`   ⚠️ Warning: Very short content (${content.length} chars) - page might be JavaScript-rendered`);
-            }
-
-            // Extract metadata
+            const content = this.extractTextFromHTML(html);
             const title = metadata.title || this.extractTitle(html, content) || 'Untitled Source';
             const detectedGrade = metadata.grade || this.detectGrade(url, content);
             const sourceType = this.detectSourceType(url);
 
-            // Store in database
             const query = `
                 INSERT INTO israeli_sources (
-                    title,
-                    source_type,
-                    source_url,
-                    content,
-                    grade_level,
-                    subject,
-                    status,
-                    notes,
-                    created_at
+                    title, source_type, source_url, content, grade_level, 
+                    subject, status, notes, created_at
                 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CURRENT_TIMESTAMP)
-                    RETURNING id
+                RETURNING id
             `;
 
             const result = await pool.query(query, [
-                title,
-                sourceType,
-                url,
-                content,
-                detectedGrade,
-                metadata.subject || 'מתמטיקה',
-                'active',
-                `Extraction method: ${extractionMethod}`
+                title, sourceType, url, content, detectedGrade,
+                metadata.subject || 'מתמטיקה', 'active', 'HTML extraction'
             ]);
 
             const sourceId = result.rows[0].id;
             console.log(`   ✅ Stored as source ID: ${sourceId}`);
-
-            // Log the fetch
-            await pool.query(
-                `INSERT INTO israeli_sources_log (
-                    source_id, action, result, details, created_at
-                ) VALUES ($1, 'fetch', 'success', $2, CURRENT_TIMESTAMP)`,
-                [sourceId, JSON.stringify({
-                    url,
-                    contentLength: content.length,
-                    extractionMethod,
-                    contentType
-                })]
-            );
 
             return {
                 success: true,
                 sourceId,
                 title,
                 grade: detectedGrade,
-                contentLength: content.length,
-                extractionMethod
+                contentLength: content.length
             };
 
         } catch (error) {
             console.error(`   ❌ Fetch failed:`, error.message);
-
-            // Log the error
-            await pool.query(
-                `INSERT INTO israeli_sources_log (
-                    source_id, action, result, error_message, created_at
-                ) VALUES (NULL, 'fetch', 'error', $1, CURRENT_TIMESTAMP)`,
-                [error.message]
-            );
-
-            return {
-                success: false,
-                error: error.message
-            };
+            return { success: false, error: error.message };
         }
     }
 
-    /**
-     * Extract text from HTML
-     */
     extractTextFromHTML(html) {
         return html
             .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
@@ -135,39 +117,27 @@ class IsraeliSourcesFetcher {
             .trim();
     }
 
-    /**
-     * Extract title from HTML or content
-     */
     extractTitle(html, content) {
-        // Try to get title from HTML <title> tag
         const titleMatch = html.match(/<title[^>]*>(.*?)<\/title>/i);
         if (titleMatch && titleMatch[1].trim()) {
             return titleMatch[1].trim();
         }
-
-        // Fallback to first line of content
         const contentTitleMatch = content.match(/^(.{10,100}?)(?:\n|$)/);
         return contentTitleMatch ? contentTitleMatch[1].trim() : null;
     }
 
-    /**
-     * Detect grade from URL or content
-     */
     detectGrade(url, content) {
-        // From URL
         const urlGradeMatch = url.match(/[\-_](\d+)[\-_]/i);
         if (urlGradeMatch) {
             const grade = parseInt(urlGradeMatch[1]);
             if (grade >= 7 && grade <= 12) return grade;
         }
 
-        // From content - Hebrew
         const hebrewGradeMatch = content.match(/כיתה ([א-יאבגדהוזחט]|[\d]+)/i);
         if (hebrewGradeMatch) {
             return this.parseHebrewGrade(hebrewGradeMatch[1]);
         }
 
-        // From content - English
         const gradeMatch = content.match(/grade (\d+)/i);
         if (gradeMatch) {
             const grade = parseInt(gradeMatch[1]);
@@ -177,22 +147,13 @@ class IsraeliSourcesFetcher {
         return null;
     }
 
-    /**
-     * Fetch multiple sources
-     */
     async fetchMultiple(sources) {
         console.log(`📥 Fetching ${sources.length} sources...`);
-
         const results = [];
 
         for (const source of sources) {
             const result = await this.fetchAndStore(source.url, source.metadata || {});
-            results.push({
-                url: source.url,
-                ...result
-            });
-
-            // Wait between requests
+            results.push({ url: source.url, ...result });
             await new Promise(resolve => setTimeout(resolve, 2000));
         }
 
@@ -204,9 +165,6 @@ class IsraeliSourcesFetcher {
         };
     }
 
-    /**
-     * Detect source type from URL
-     */
     detectSourceType(url) {
         if (url.includes('rama.edu.gov.il') || url.includes('rama.cet.ac.il')) {
             return 'rama';
@@ -219,20 +177,61 @@ class IsraeliSourcesFetcher {
         }
     }
 
-    /**
-     * Parse Hebrew grade notation
-     */
     parseHebrewGrade(gradeStr) {
         const hebrewToNumber = {
             'א': 1, 'ב': 2, 'ג': 3, 'ד': 4, 'ה': 5, 'ו': 6,
             'ז': 7, 'ח': 8, 'ט': 9, 'י': 10, 'יא': 11, 'יב': 12
         };
-
-        if (!isNaN(gradeStr)) {
-            return parseInt(gradeStr);
-        }
-
+        if (!isNaN(gradeStr)) return parseInt(gradeStr);
         return hebrewToNumber[gradeStr] || null;
+    }
+
+    async updateSource(sourceId, updates) {
+        try {
+            const allowedFields = ['title', 'content', 'grade_level', 'subject', 'status', 'notes'];
+            const setClauses = [];
+            const values = [];
+            let paramCount = 1;
+
+            for (const [key, value] of Object.entries(updates)) {
+                if (allowedFields.includes(key)) {
+                    setClauses.push(`${key} = $${paramCount}`);
+                    values.push(value);
+                    paramCount++;
+                }
+            }
+
+            if (setClauses.length === 0) {
+                throw new Error('No valid fields to update');
+            }
+
+            setClauses.push(`updated_at = CURRENT_TIMESTAMP`);
+
+            const query = `
+                UPDATE israeli_sources
+                SET ${setClauses.join(', ')}
+                WHERE id = $${paramCount}
+                RETURNING *
+            `;
+
+            values.push(sourceId);
+            const result = await pool.query(query, values);
+            return result.rows[0];
+        } catch (error) {
+            console.error('❌ [UpdateSource] Error:', error);
+            throw error;
+        }
+    }
+
+    async deleteSource(sourceId) {
+        try {
+            const query = `DELETE FROM israeli_sources WHERE id = $1 RETURNING id`;
+            const result = await pool.query(query, [sourceId]);
+            return result.rowCount > 0;
+        } catch (error) {
+            console.error('❌ [DeleteSource] Error:', error);
+            throw error;
+        }
     }
 }
 
