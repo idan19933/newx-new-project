@@ -285,7 +285,7 @@ ${contentPreview}
         try {
             const response = await anthropic.messages.create({
                 model: 'claude-sonnet-4-5-20250929',
-                max_tokens: 4000,
+                max_tokens: 10000,
                 messages: [{ role: 'user', content: prompt }]
             });
 
@@ -344,7 +344,7 @@ ${contentPreview}
         try {
             const response = await anthropic.messages.create({
                 model: 'claude-sonnet-4-5-20250929',
-                max_tokens: 8000,
+                max_tokens: 12000,
                 temperature: 0.8,
                 messages: [{ role: 'user', content: prompt }]
             });

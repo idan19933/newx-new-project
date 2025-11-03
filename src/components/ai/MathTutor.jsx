@@ -1,4 +1,4 @@
-// src/components/ai/MathTutor.jsx - COMPLETE MODERN ENHANCED UI WITH ADAPTIVE DIFFICULTY 🎨✨
+// src/components/ai/MathTutor.jsx - COMPLETE MODERN ENHANCED UI WITH ADAPTIVE DIFFICULTY + NOTIFICATION 🎨✨
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -88,6 +88,192 @@ const scaleIn = {
             damping: 20
         }
     }
+};
+
+// ==================== 🎯 DIFFICULTY CHANGE NOTIFICATION COMPONENT ====================
+const DifficultyChangeNotification = ({ change, onClose }) => {
+    if (!change) return null;
+
+    const getDifficultyInfo = (level) => {
+        const info = {
+            easy: { emoji: '🌱', label: 'קל', color: 'from-green-400 to-emerald-500', textColor: 'text-green-900' },
+            medium: { emoji: '⚡', label: 'בינוני', color: 'from-blue-400 to-cyan-500', textColor: 'text-blue-900' },
+            hard: { emoji: '🔥', label: 'מאתגר', color: 'from-orange-400 to-red-500', textColor: 'text-red-900' }
+        };
+        return info[level] || info.medium;
+    };
+
+    const fromInfo = getDifficultyInfo(change.from);
+    const toInfo = getDifficultyInfo(change.to);
+
+    return (
+        <AnimatePresence>
+            <motion.div
+                initial={{ opacity: 0, scale: 0.8, y: -100 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.8, y: -100 }}
+                transition={{ type: "spring", stiffness: 300, damping: 25 }}
+                className="fixed top-24 left-1/2 -translate-x-1/2 z-[100] max-w-lg w-full mx-4"
+                dir="rtl"
+            >
+                <motion.div
+                    initial={{ boxShadow: "0 10px 40px rgba(0,0,0,0.1)" }}
+                    animate={{
+                        boxShadow: [
+                            "0 10px 40px rgba(59, 130, 246, 0.3)",
+                            "0 10px 60px rgba(59, 130, 246, 0.5)",
+                            "0 10px 40px rgba(59, 130, 246, 0.3)"
+                        ]
+                    }}
+                    transition={{ duration: 2, repeat: Infinity }}
+                    className="bg-white rounded-3xl p-6 shadow-2xl border-4 border-blue-300 relative overflow-hidden"
+                >
+                    {/* Animated Background */}
+                    <motion.div
+                        className="absolute inset-0 opacity-10"
+                        animate={{
+                            background: [
+                                'linear-gradient(45deg, #3b82f6 0%, #06b6d4 100%)',
+                                'linear-gradient(135deg, #06b6d4 0%, #3b82f6 100%)',
+                                'linear-gradient(225deg, #3b82f6 0%, #06b6d4 100%)',
+                                'linear-gradient(315deg, #06b6d4 0%, #3b82f6 100%)'
+                            ]
+                        }}
+                        transition={{ duration: 4, repeat: Infinity }}
+                    />
+
+                    {/* Close Button */}
+                    <button
+                        onClick={onClose}
+                        className="absolute top-3 left-3 p-2 hover:bg-gray-100 rounded-full transition-colors z-10"
+                    >
+                        <X className="w-5 h-5 text-gray-600" />
+                    </button>
+
+                    {/* Content */}
+                    <div className="relative z-10">
+                        {/* Title */}
+                        <motion.div
+                            initial={{ y: -20, opacity: 0 }}
+                            animate={{ y: 0, opacity: 1 }}
+                            transition={{ delay: 0.2 }}
+                            className="text-center mb-6"
+                        >
+                            <motion.div
+                                animate={{ rotate: [0, 10, -10, 0], scale: [1, 1.2, 1] }}
+                                transition={{ duration: 0.6, repeat: 2 }}
+                                className="text-6xl mb-3"
+                            >
+                                🎯
+                            </motion.div>
+                            <h3 className="text-3xl font-black text-gray-800 mb-2">
+                                רמת הקושי השתנתה!
+                            </h3>
+                            <p className="text-gray-600 font-medium">
+                                המערכת התאימה את הקושי בהתאם לביצועים שלך
+                            </p>
+                        </motion.div>
+
+                        {/* Difficulty Change Animation */}
+                        <motion.div
+                            initial={{ scale: 0.8, opacity: 0 }}
+                            animate={{ scale: 1, opacity: 1 }}
+                            transition={{ delay: 0.4, type: "spring" }}
+                            className="flex items-center justify-center gap-6 mb-6"
+                        >
+                            {/* From Difficulty */}
+                            <motion.div
+                                animate={{ x: [0, -5, 0] }}
+                                transition={{ duration: 1, repeat: Infinity }}
+                                className={`bg-gradient-to-br ${fromInfo.color} text-white rounded-2xl p-6 shadow-lg min-w-[140px]`}
+                            >
+                                <div className="text-5xl mb-2 text-center">{fromInfo.emoji}</div>
+                                <div className="text-xl font-black text-center">{fromInfo.label}</div>
+                            </motion.div>
+
+                            {/* Arrow */}
+                            <motion.div
+                                animate={{
+                                    x: [0, 10, 0],
+                                    scale: [1, 1.2, 1]
+                                }}
+                                transition={{ duration: 1, repeat: Infinity }}
+                                className="text-5xl"
+                            >
+                                ➜
+                            </motion.div>
+
+                            {/* To Difficulty */}
+                            <motion.div
+                                animate={{
+                                    x: [0, 5, 0],
+                                    scale: [1, 1.1, 1]
+                                }}
+                                transition={{ duration: 1, repeat: Infinity }}
+                                className={`bg-gradient-to-br ${toInfo.color} text-white rounded-2xl p-6 shadow-lg min-w-[140px] ring-4 ring-white`}
+                            >
+                                <div className="text-5xl mb-2 text-center">{toInfo.emoji}</div>
+                                <div className="text-xl font-black text-center">{toInfo.label}</div>
+                            </motion.div>
+                        </motion.div>
+
+                        {/* Reason */}
+                        {change.reason && (
+                            <motion.div
+                                initial={{ y: 20, opacity: 0 }}
+                                animate={{ y: 0, opacity: 1 }}
+                                transition={{ delay: 0.6 }}
+                                className="bg-blue-50 rounded-2xl p-4 border-2 border-blue-200"
+                            >
+                                <div className="flex items-start gap-3">
+                                    <Sparkles className="w-6 h-6 text-blue-600 flex-shrink-0 mt-1" />
+                                    <div>
+                                        <div className="font-bold text-blue-900 mb-1">למה?</div>
+                                        <div className="text-blue-800 text-sm leading-relaxed">
+                                            {change.reason}
+                                        </div>
+                                    </div>
+                                </div>
+                            </motion.div>
+                        )}
+
+                        {/* Encouragement */}
+                        <motion.div
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            transition={{ delay: 0.8 }}
+                            className="text-center mt-6"
+                        >
+                            <div className="text-lg font-bold text-gray-700">
+                                {change.to === 'hard' ? '🚀 אתגר חדש מחכה לך!' :
+                                    change.to === 'easy' ? '💪 בואו נחזק את היסודות!' :
+                                        '⚡ מצוין! ממשיכים להתקדם!'}
+                            </div>
+                        </motion.div>
+
+                        {/* Progress Dots */}
+                        <div className="flex justify-center gap-2 mt-4">
+                            {[0, 1, 2].map((i) => (
+                                <motion.div
+                                    key={i}
+                                    animate={{
+                                        scale: [1, 1.3, 1],
+                                        opacity: [0.5, 1, 0.5]
+                                    }}
+                                    transition={{
+                                        duration: 1.5,
+                                        repeat: Infinity,
+                                        delay: i * 0.2
+                                    }}
+                                    className="w-2 h-2 bg-blue-500 rounded-full"
+                                />
+                            ))}
+                        </div>
+                    </div>
+                </motion.div>
+            </motion.div>
+        </AnimatePresence>
+    );
 };
 
 // ==================== 🎤 VOICE SUPPORT HOOK ====================
@@ -1217,6 +1403,7 @@ const MathTutor = ({
     const [performance, setPerformance] = useState(null);
     const [adjustmentHistory, setAdjustmentHistory] = useState([]);
     const [isCheckingAdaptive, setIsCheckingAdaptive] = useState(false);
+    const [showDifficultyChange, setShowDifficultyChange] = useState(null); // ✅ FOR NOTIFICATION
 
     // Difficulty display helpers
     const difficultyEmoji = useMemo(() => {
@@ -1259,7 +1446,7 @@ const MathTutor = ({
         };
     }, [propGradeId, nexonProfile?.grade, nexonProfile?.track, user?.grade, user?.track]);
 
-    // ✅ TRACK ANSWER FOR ADAPTIVE DIFFICULTY
+    // ✅ TRACK ANSWER FOR ADAPTIVE DIFFICULTY (UPDATED WITH NOTIFICATION)
     const trackAnswer = useCallback(async (isCorrect, timeTaken) => {
         const userId = getUserId();
         if (!userId) return;
@@ -1290,6 +1477,17 @@ const MathTutor = ({
                     setRecommendation(rec);
 
                     if (rec.newDifficulty !== currentDifficulty) {
+                        // ✅ Show visual notification FIRST
+                        setShowDifficultyChange({
+                            from: currentDifficulty,
+                            to: rec.newDifficulty,
+                            reason: rec.reason
+                        });
+
+                        // Auto-hide after 5 seconds
+                        setTimeout(() => setShowDifficultyChange(null), 5000);
+
+                        // THEN update difficulty
                         setCurrentDifficulty(rec.newDifficulty);
                         setAdjustmentHistory(prev => [...prev, {
                             timestamp: Date.now(),
@@ -1298,8 +1496,9 @@ const MathTutor = ({
                             reason: rec.reason
                         }]);
 
+                        // Also show toast for redundancy
                         toast.success(
-                            `רמת קושי שונתה ל-${rec.newDifficulty === 'easy' ? 'קל' : rec.newDifficulty === 'hard' ? 'מאתגר' : 'בינוני'}! ${difficultyEmoji}`,
+                            `רמת קושי שונתה ל-${rec.newDifficulty === 'easy' ? 'קל 🌱' : rec.newDifficulty === 'hard' ? 'מאתגר 🔥' : 'בינוני ⚡'}!`,
                             { duration: 3000, icon: '🎯' }
                         );
                     }
@@ -1316,7 +1515,7 @@ const MathTutor = ({
                 setIsCheckingAdaptive(false);
             }
         }
-    }, [getUserId, selectedTopic, selectedSubtopic, currentDifficulty, hintCount, attemptCount, adaptiveQuestionsCount, difficultyEmoji]);
+    }, [getUserId, selectedTopic, selectedSubtopic, currentDifficulty, hintCount, attemptCount, adaptiveQuestionsCount]);
 
     useEffect(() => {
         if (propTopicId && availableTopics.length > 0 && !selectedTopic && !initStartedRef.current) {
@@ -2261,6 +2460,12 @@ const MathTutor = ({
                 />
 
                 <div className="max-w-5xl mx-auto">
+                    {/* ✅ DIFFICULTY CHANGE NOTIFICATION */}
+                    <DifficultyChangeNotification
+                        change={showDifficultyChange}
+                        onClose={() => setShowDifficultyChange(null)}
+                    />
+
                     {/* Top Bar */}
                     <div className="flex items-center justify-between mb-6 bg-white rounded-2xl p-4 shadow-lg">
                         <button
