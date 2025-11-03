@@ -1,7 +1,10 @@
 // server/services/israeliQuestionParser.js
-import pdfParse from 'pdf-parse';
+import { createRequire } from 'module';
 import fs from 'fs';
 import pool from '../config/database.js';
+
+const require = createRequire(import.meta.url);
+const pdfParse = require('pdf-parse');
 
 class IsraeliQuestionParser {
     constructor() {
