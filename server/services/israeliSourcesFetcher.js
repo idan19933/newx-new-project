@@ -4,6 +4,7 @@ import pool from '../config/database.js';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import israeliQuestionParser from './israeliQuestionParser.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -240,7 +241,6 @@ export async function downloadPdf(url, filename) {
 }
 
 // ==================== FETCH AND STORE ====================
-// ==================== FETCH AND STORE ====================
 export async function fetchAndStore(sourceId) {
     try {
         console.log(`\n🔄 Fetching source: ${sourceId}`);
@@ -265,7 +265,7 @@ export async function fetchAndStore(sourceId) {
             throw new Error(`Source not accessible: ${verification.error || verification.status}`);
         }
 
-        // Save source info to database - FIXED VERSION
+        // Save source info to database
         const query = `
             INSERT INTO scraping_sources (
                 url, name, source_type, last_scraped, is_active
@@ -303,7 +303,8 @@ export async function fetchAndStore(sourceId) {
                     sourceId: result.rows[0].id,
                     downloaded: true,
                     filepath: downloadResult.filepath,
-                    message: 'PDF downloaded successfully'
+                    message: 'PDF downloaded successfully',
+                    source: source
                 };
             }
         }
@@ -312,7 +313,8 @@ export async function fetchAndStore(sourceId) {
             success: true,
             sourceId: result.rows[0].id,
             downloaded: false,
-            message: 'Source registered successfully'
+            message: 'Source registered successfully',
+            source: source
         };
 
     } catch (error) {
@@ -323,6 +325,60 @@ export async function fetchAndStore(sourceId) {
         };
     }
 }
+
+// ==================== FETCH AND PROCESS (NEW) ====================
+export async function fetchAndProcess(sourceId) {
+    try {
+        console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+        console.log('🚀 COMPLETE PIPELINE: FETCH + PROCESS');
+        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+
+        // Step 1: Fetch and download
+        const fetchResult = await fetchAndStore(sourceId);
+
+        if (!fetchResult.success) {
+            return fetchResult;
+        }
+
+        // Step 2: If PDF was downloaded, process it
+        if (fetchResult.downloaded && fetchResult.filepath) {
+            const processResult = await israeliQuestionParser.processPdf(
+                fetchResult.filepath,
+                {
+                    source: fetchResult.source.source || 'RAMA',
+                    grade: fetchResult.source.grade || null,
+                    year: fetchResult.source.year || 2024
+                }
+            );
+
+            return {
+                success: true,
+                fetch: fetchResult,
+                process: processResult,
+                summary: {
+                    downloaded: true,
+                    extracted: processResult.extracted || 0,
+                    saved: processResult.saved || 0,
+                    skipped: processResult.skipped || 0
+                }
+            };
+        }
+
+        return {
+            success: true,
+            fetch: fetchResult,
+            message: 'Fetched but no PDF to process'
+        };
+
+    } catch (error) {
+        console.error('❌ Pipeline error:', error);
+        return {
+            success: false,
+            error: error.message
+        };
+    }
+}
+
 // ==================== GET ALL SOURCES ====================
 export function getAllSources() {
     return ISRAELI_SOURCES;
@@ -333,5 +389,6 @@ export default {
     verifyAllSources,
     downloadPdf,
     fetchAndStore,
+    fetchAndProcess,
     getAllSources
 };
