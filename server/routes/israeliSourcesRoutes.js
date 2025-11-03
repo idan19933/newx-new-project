@@ -1,8 +1,57 @@
 // server/routes/israeliSourcesRoutes.js
 import express from 'express';
 import israeliSourcesFetcher from '../services/israeliSourcesFetcher.js';
+import pool from '../config/database.js';
 
 const router = express.Router();
+
+/**
+ * GET /api/israeli-sources/status
+ * Get system status and statistics
+ */
+router.get('/status', async (req, res) => {
+    try {
+        console.log('📊 Israeli sources status check...');
+
+        // Get database statistics
+        const sourcesCount = await pool.query(`
+            SELECT COUNT(*) as total FROM scraping_sources
+        `);
+
+        const logsCount = await pool.query(`
+            SELECT COUNT(*) as total FROM scraping_logs
+        `);
+
+        // Get available sources
+        const sources = israeliSourcesFetcher.getAllSources();
+        const totalAvailable = sources.rama.length +
+            sources.merchatPedagogi.length +
+            sources.meydaPdfs.length;
+
+        res.json({
+            success: true,
+            status: 'operational',
+            database: {
+                sourcesStored: parseInt(sourcesCount.rows[0].total),
+                logsRecorded: parseInt(logsCount.rows[0].total)
+            },
+            available: {
+                rama: sources.rama.length,
+                merchatPedagogi: sources.merchatPedagogi.length,
+                meydaPdfs: sources.meydaPdfs.length,
+                total: totalAvailable
+            },
+            timestamp: new Date().toISOString()
+        });
+
+    } catch (error) {
+        console.error('❌ Status error:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
 
 /**
  * GET /api/israeli-sources/verify-all
@@ -65,7 +114,7 @@ router.post('/fetch/:sourceId', async (req, res) => {
     try {
         const { sourceId } = req.params;
 
-        console.log(`🔄 Fetching source: ${sourceId}`);
+        console.log(`📥 Fetching source: ${sourceId}`);
 
         const result = await israeliSourcesFetcher.fetchAndStore(sourceId);
 
