@@ -18,7 +18,7 @@ class IsraeliSourcesProcessor {
         try {
             // Get sources to process
             let query = `
-                SELECT * FROM israeli_sources 
+                SELECT * FROM israeli_sources
                 WHERE status = 'active'
             `;
 
@@ -56,8 +56,8 @@ class IsraeliSourcesProcessor {
 
                     // Update last_scraped_at
                     await pool.query(
-                        `UPDATE israeli_sources 
-                         SET last_scraped_at = CURRENT_TIMESTAMP 
+                        `UPDATE israeli_sources
+                         SET last_scraped_at = CURRENT_TIMESTAMP
                          WHERE id = $1`,
                         [source.id]
                     );
@@ -289,7 +289,7 @@ ${contentPreview}
                 is_active,
                 source_metadata
             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
-            RETURNING id
+                RETURNING id
         `;
 
         const result = await pool.query(query, [
