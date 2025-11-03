@@ -1,16 +1,15 @@
-// server/services/israeliSourcesFetcher.js - WORKING PDF SUPPORT
+// server/services/israeliSourcesFetcher.js - HTML ONLY (Skip PDF for now)
 import pool from '../config/database.js';
-import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs';
 
 class IsraeliSourcesFetcher {
     /**
-     * Fetch content from URL - handles both HTML pages and downloadable PDFs
+     * Fetch content from URL - HTML text extraction only
+     * PDF support temporarily disabled due to Node.js compatibility issues
      */
     async fetchAndStore(url, metadata = {}) {
         console.log(`📥 Fetching content from: ${url}`);
 
         try {
-            // Step 1: Fetch the main page
             const response = await fetch(url, {
                 headers: {
                     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
@@ -27,44 +26,28 @@ class IsraeliSourcesFetcher {
             let content = '';
             let extractionMethod = 'html';
 
-            // CASE 1: Direct PDF download
+            // Check if it's a PDF
             if (contentType.includes('application/pdf')) {
-                console.log(`   📑 Detected direct PDF download`);
-                const arrayBuffer = await response.arrayBuffer();
-                content = await this.extractPDFText(arrayBuffer);
-                extractionMethod = 'pdf_direct';
-            }
-            // CASE 2: HTML page (might contain PDF links)
-            else {
-                const html = await response.text();
-                console.log(`   ✅ Fetched ${html.length} characters of HTML`);
-
-                // Look for PDF download links
-                const pdfLinks = this.findPDFLinks(html, url);
-
-                if (pdfLinks.length > 0) {
-                    console.log(`   🔗 Found ${pdfLinks.length} PDF link(s)`);
-                    console.log(`   📥 Downloading first PDF: ${pdfLinks[0]}`);
-
-                    // Download and extract first PDF
-                    content = await this.downloadAndExtractPDF(pdfLinks[0]);
-                    extractionMethod = 'pdf_from_link';
-                } else {
-                    // No PDF found, extract text from HTML
-                    console.log(`   📝 No PDF links found, extracting HTML text`);
-                    content = this.extractTextFromHTML(html);
-                    extractionMethod = 'html_text';
-                }
+                console.log(`   ⚠️ PDF detected - skipping for now (provide HTML URL or manual content instead)`);
+                throw new Error('PDF extraction not available - please provide HTML page URL or add content manually');
             }
 
-            console.log(`   ✅ Extracted ${content.length} characters of text (method: ${extractionMethod})`);
+            // Extract from HTML
+            const html = await response.text();
+            console.log(`   ✅ Fetched ${html.length} characters of HTML`);
+
+            // Extract text from HTML
+            content = this.extractTextFromHTML(html);
+            extractionMethod = 'html_text';
+
+            console.log(`   ✅ Extracted ${content.length} characters of text`);
 
             if (content.length < 100) {
-                console.warn(`   ⚠️ Warning: Very short content (${content.length} chars)`);
+                console.warn(`   ⚠️ Warning: Very short content (${content.length} chars) - page might be JavaScript-rendered`);
             }
 
             // Extract metadata
-            const title = metadata.title || this.extractTitle(content) || 'Untitled Source';
+            const title = metadata.title || this.extractTitle(html, content) || 'Untitled Source';
             const detectedGrade = metadata.grade || this.detectGrade(url, content);
             const sourceType = this.detectSourceType(url);
 
@@ -139,133 +122,6 @@ class IsraeliSourcesFetcher {
     }
 
     /**
-     * Find PDF links in HTML
-     */
-    findPDFLinks(html, baseUrl) {
-        const pdfLinks = [];
-
-        // Pattern 1: Direct .pdf links
-        const directPdfRegex = /href=["']([^"']*\.pdf[^"']*)["']/gi;
-        let match;
-        while ((match = directPdfRegex.exec(html)) !== null) {
-            pdfLinks.push(this.resolveUrl(match[1], baseUrl));
-        }
-
-        // Pattern 2: Links with "download" or "file" keywords
-        const downloadRegex = /href=["']([^"']*(?:download|file|doc)[^"']*)["']/gi;
-        while ((match = downloadRegex.exec(html)) !== null) {
-            const link = match[1];
-            if (link.includes('.pdf') || link.includes('file')) {
-                pdfLinks.push(this.resolveUrl(link, baseUrl));
-            }
-        }
-
-        // Pattern 3: data-href or data-url attributes (for JS-loaded links)
-        const dataRegex = /data-(?:href|url|file)=["']([^"']*\.pdf[^"']*)["']/gi;
-        while ((match = dataRegex.exec(html)) !== null) {
-            pdfLinks.push(this.resolveUrl(match[1], baseUrl));
-        }
-
-        // Remove duplicates
-        return [...new Set(pdfLinks)];
-    }
-
-    /**
-     * Resolve relative URLs to absolute
-     */
-    resolveUrl(link, baseUrl) {
-        try {
-            if (link.startsWith('http://') || link.startsWith('https://')) {
-                return link;
-            }
-            const base = new URL(baseUrl);
-            if (link.startsWith('//')) {
-                return base.protocol + link;
-            }
-            if (link.startsWith('/')) {
-                return base.origin + link;
-            }
-            return new URL(link, baseUrl).href;
-        } catch (e) {
-            return link;
-        }
-    }
-
-    /**
-     * Download and extract text from PDF
-     */
-    async downloadAndExtractPDF(pdfUrl) {
-        try {
-            console.log(`   📥 Downloading PDF: ${pdfUrl}`);
-
-            const response = await fetch(pdfUrl, {
-                headers: {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-                }
-            });
-
-            if (!response.ok) {
-                throw new Error(`PDF download failed: ${response.status}`);
-            }
-
-            const arrayBuffer = await response.arrayBuffer();
-            console.log(`   ✅ Downloaded ${arrayBuffer.byteLength} bytes`);
-
-            return await this.extractPDFText(arrayBuffer);
-
-        } catch (error) {
-            console.error(`   ❌ PDF download failed:`, error.message);
-            throw error;
-        }
-    }
-
-    /**
-     * Extract text from PDF using pdfjs-dist
-     */
-    async extractPDFText(arrayBuffer) {
-        try {
-            // Load PDF document
-            const loadingTask = pdfjsLib.getDocument({
-                data: new Uint8Array(arrayBuffer),
-                useSystemFonts: true,
-                disableFontFace: true
-            });
-
-            const pdf = await loadingTask.promise;
-            const numPages = pdf.numPages;
-
-            console.log(`   📄 PDF has ${numPages} pages`);
-
-            let fullText = '';
-
-            // Extract text from each page
-            for (let pageNum = 1; pageNum <= numPages; pageNum++) {
-                const page = await pdf.getPage(pageNum);
-                const textContent = await page.getTextContent();
-
-                // Combine text items
-                const pageText = textContent.items
-                    .map(item => item.str)
-                    .join(' ');
-
-                fullText += pageText + '\n';
-            }
-
-            const cleanedText = fullText
-                .replace(/\s+/g, ' ')
-                .trim();
-
-            console.log(`   📄 Extracted ${cleanedText.length} characters from PDF (${numPages} pages)`);
-
-            return cleanedText;
-
-        } catch (error) {
-            console.error(`   ❌ PDF extraction failed:`, error.message);
-            throw new Error(`Failed to extract PDF text: ${error.message}`);
-        }
-    }
-
-    /**
      * Extract text from HTML
      */
     extractTextFromHTML(html) {
@@ -280,12 +136,18 @@ class IsraeliSourcesFetcher {
     }
 
     /**
-     * Extract title from content
+     * Extract title from HTML or content
      */
-    extractTitle(content) {
-        // Look for Hebrew title patterns
-        const titleMatch = content.match(/^(.{10,100}?)(?:\n|$)/);
-        return titleMatch ? titleMatch[1].trim() : null;
+    extractTitle(html, content) {
+        // Try to get title from HTML <title> tag
+        const titleMatch = html.match(/<title[^>]*>(.*?)<\/title>/i);
+        if (titleMatch && titleMatch[1].trim()) {
+            return titleMatch[1].trim();
+        }
+
+        // Fallback to first line of content
+        const contentTitleMatch = content.match(/^(.{10,100}?)(?:\n|$)/);
+        return contentTitleMatch ? contentTitleMatch[1].trim() : null;
     }
 
     /**
