@@ -398,6 +398,142 @@ router.post('/process', async (req, res) => {
         });
     }
 });
+// ADD THESE ROUTES TO YOUR israeliSourcesRoutes.js
+
+/**
+ * POST /api/israeli-sources/fetch-from-url
+ * Fetch content from a URL and store in israeli_sources table
+ */
+router.post('/fetch-from-url', async (req, res) => {
+    try {
+        const { url, title, grade, subject } = req.body;
+
+        if (!url) {
+            return res.status(400).json({
+                success: false,
+                error: 'URL is required'
+            });
+        }
+
+        console.log(`📥 Fetching from URL: ${url}`);
+
+        // Dynamic import of fetcher
+        const { default: israeliSourcesFetcher } = await import('../services/israeliSourcesFetcher.js');
+
+        const result = await israeliSourcesFetcher.fetchAndStore(url, {
+            title,
+            grade,
+            subject
+        });
+
+        res.json(result);
+
+    } catch (error) {
+        console.error('❌ Fetch error:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+/**
+ * POST /api/israeli-sources/fetch-multiple
+ * Fetch multiple sources at once
+ *
+ * Body format:
+ * {
+ *   "sources": [
+ *     { "url": "https://...", "metadata": { "title": "...", "grade": 8 } },
+ *     { "url": "https://...", "metadata": { "title": "...", "grade": 9 } }
+ *   ]
+ * }
+ */
+router.post('/fetch-multiple', async (req, res) => {
+    try {
+        const { sources } = req.body;
+
+        if (!sources || !Array.isArray(sources)) {
+            return res.status(400).json({
+                success: false,
+                error: 'sources array is required'
+            });
+        }
+
+        console.log(`📥 Fetching ${sources.length} sources...`);
+
+        const { default: israeliSourcesFetcher } = await import('../services/israeliSourcesFetcher.js');
+
+        const results = await israeliSourcesFetcher.fetchMultiple(sources);
+
+        res.json(results);
+
+    } catch (error) {
+        console.error('❌ Fetch multiple error:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+/**
+ * POST /api/israeli-sources/fetch-and-process
+ * Complete pipeline: Fetch URL + Extract + Generate questions
+ */
+router.post('/fetch-and-process', async (req, res) => {
+    try {
+        const { url, title, grade, subject, maxQuestions = 30, generateExtra = true } = req.body;
+
+        if (!url) {
+            return res.status(400).json({
+                success: false,
+                error: 'URL is required'
+            });
+        }
+
+        console.log(`🚀 Complete pipeline for: ${url}`);
+
+        // Step 1: Fetch
+        console.log('   📥 Step 1: Fetching content...');
+        const { default: israeliSourcesFetcher } = await import('../services/israeliSourcesFetcher.js');
+        const fetchResult = await israeliSourcesFetcher.fetchAndStore(url, { title, grade, subject });
+
+        if (!fetchResult.success) {
+            return res.status(500).json({
+                success: false,
+                error: 'Failed to fetch URL',
+                details: fetchResult.error
+            });
+        }
+
+        console.log(`   ✅ Fetched and stored as source ID: ${fetchResult.sourceId}`);
+
+        // Step 2: Process (Extract + Generate)
+        console.log('   🤖 Step 2: Processing with Claude...');
+        const { default: israeliSourcesProcessor } = await import('../services/israeliSourcesProcessor.js');
+
+        const processResult = await israeliSourcesProcessor.processAllSources({
+            sourceIds: [fetchResult.sourceId],
+            maxQuestionsPerSource: maxQuestions,
+            generateExtra
+        });
+
+        res.json({
+            success: true,
+            fetch: fetchResult,
+            process: processResult,
+            timestamp: new Date().toISOString()
+        });
+
+    } catch (error) {
+        console.error('❌ Pipeline error:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
 
 /**
  * GET /api/israeli-sources/stored-sources

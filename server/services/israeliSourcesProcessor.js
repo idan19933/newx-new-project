@@ -1,4 +1,4 @@
-// server/services/israeliSourcesProcessor.js - PROCESS & NORMALIZE SCRAPED QUESTIONS
+// server/services/israeliSourcesProcessor.js - EXTRACT + GENERATE QUESTIONS
 import Anthropic from '@anthropic-ai/sdk';
 import pool from '../config/database.js';
 
@@ -8,12 +8,13 @@ const anthropic = new Anthropic({
 
 class IsraeliSourcesProcessor {
     /**
-     * Scrape and process questions from all Israeli sources
+     * Process all Israeli sources
      */
     async processAllSources(options = {}) {
-        const { sourceIds, maxQuestionsPerSource = 30 } = options;
+        const { sourceIds, maxQuestionsPerSource = 30, generateExtra = true } = options;
 
         console.log('🔍 Starting Israeli sources processing...');
+        console.log(`   Mode: Extract existing + ${generateExtra ? 'Generate new' : 'No generation'}`);
 
         try {
             // Get sources to process
@@ -39,6 +40,7 @@ class IsraeliSourcesProcessor {
             const results = {
                 totalSources: sources.length,
                 totalQuestionsExtracted: 0,
+                totalQuestionsGenerated: 0,
                 totalQuestionsSaved: 0,
                 sourceResults: []
             };
@@ -47,11 +49,15 @@ class IsraeliSourcesProcessor {
             for (const source of sources) {
                 try {
                     console.log(`\n📖 Processing: ${source.title}`);
+                    if (source.grade_level) {
+                        console.log(`   🎓 Target Grade: ${source.grade_level}`);
+                    }
 
-                    const sourceResult = await this.processSource(source, maxQuestionsPerSource);
+                    const sourceResult = await this.processSource(source, maxQuestionsPerSource, generateExtra);
 
                     results.sourceResults.push(sourceResult);
                     results.totalQuestionsExtracted += sourceResult.questionsExtracted;
+                    results.totalQuestionsGenerated += sourceResult.questionsGenerated || 0;
                     results.totalQuestionsSaved += sourceResult.questionsSaved;
 
                     // Update last_scraped_at
@@ -77,6 +83,7 @@ class IsraeliSourcesProcessor {
                         sourceId: source.id,
                         title: source.title,
                         questionsExtracted: 0,
+                        questionsGenerated: 0,
                         questionsSaved: 0,
                         success: false,
                         error: error.message
@@ -86,6 +93,7 @@ class IsraeliSourcesProcessor {
 
             console.log('\n✅ Processing complete!');
             console.log(`📊 Total extracted: ${results.totalQuestionsExtracted}`);
+            console.log(`🎨 Total generated: ${results.totalQuestionsGenerated}`);
             console.log(`💾 Total saved: ${results.totalQuestionsSaved}`);
 
             return results;
@@ -97,31 +105,45 @@ class IsraeliSourcesProcessor {
     }
 
     /**
-     * Process a single source
+     * Process a single source - EXTRACT + GENERATE
      */
-    async processSource(source, maxQuestions) {
+    async processSource(source, maxQuestions, generateExtra) {
         const result = {
             sourceId: source.id,
             title: source.title,
             sourceType: source.source_type,
+            targetGrade: source.grade_level || 'auto-detect',
             questionsExtracted: 0,
+            questionsGenerated: 0,
             questionsSaved: 0,
             duplicatesSkipped: 0,
             success: true
         };
 
         try {
-            // Extract questions using Claude
-            const extractedQuestions = await this.extractQuestionsWithClaude(
-                source,
-                maxQuestions
-            );
+            // STEP 1: Extract existing questions from content
+            console.log(`   📝 Step 1: Extracting existing questions...`);
+            const extractedQuestions = await this.extractQuestionsWithClaude(source, maxQuestions);
 
-            console.log(`   📝 Extracted ${extractedQuestions.length} questions`);
+            console.log(`   ✅ Extracted ${extractedQuestions.length} existing questions`);
             result.questionsExtracted = extractedQuestions.length;
 
-            // Save each question with UNIFIED FORMAT
-            for (const questionData of extractedQuestions) {
+            // STEP 2: Generate NEW questions based on curriculum instructions
+            let generatedQuestions = [];
+            if (generateExtra) {
+                console.log(`   🎨 Step 2: Generating additional questions based on curriculum...`);
+                const targetCount = Math.max(maxQuestions - extractedQuestions.length, 10);
+                generatedQuestions = await this.generateQuestionsFromCurriculum(source, targetCount);
+
+                console.log(`   ✅ Generated ${generatedQuestions.length} new questions`);
+                result.questionsGenerated = generatedQuestions.length;
+            }
+
+            // STEP 3: Combine and save all questions
+            const allQuestions = [...extractedQuestions, ...generatedQuestions];
+            console.log(`   💾 Saving ${allQuestions.length} total questions...`);
+
+            for (const questionData of allQuestions) {
                 try {
                     // Check for duplicates
                     const dupCheck = await pool.query(
@@ -135,7 +157,7 @@ class IsraeliSourcesProcessor {
                     }
 
                     // Save with UNIFIED FORMAT
-                    await this.saveNormalizedQuestion(questionData, source);
+                    await this.saveNormalizedQuestion(questionData, source, questionData.isGenerated || false);
 
                     result.questionsSaved++;
 
@@ -152,57 +174,64 @@ class IsraeliSourcesProcessor {
         } catch (error) {
             result.success = false;
             result.error = error.message;
-            console.error(`   ❌ Extraction failed:`, error.message);
+            console.error(`   ❌ Processing failed:`, error.message);
         }
 
         return result;
     }
 
     /**
-     * Extract questions from source using Claude
+     * STEP 1: Extract existing questions from content using Claude
      */
     async extractQuestionsWithClaude(source, maxQuestions) {
         const content = source.content || '';
         const contentPreview = content.substring(0, 15000);
 
+        const targetGrade = source.grade_level || null;
+        const gradeInstruction = targetGrade
+            ? `כל השאלות חייבות להיות מתאימות לכיתה ${targetGrade}`
+            : `זהה את הכיתה המתאימה (7-12)`;
+
         const prompt = `אתה מומחה לחילוץ שאלות מתמטיות ממקורות חינוכיים ישראליים.
 
-חלץ עד ${maxQuestions} שאלות תרגול מהמקור הבא:
+🎯 משימה: חלץ שאלות **קיימות** מהמקור הבא (לא להמציא חדשות!)
 
 📚 כותרת: ${source.title}
 📁 סוג: ${source.source_type}
+${targetGrade ? `🎓 כיתה יעד: ${targetGrade}` : ''}
 
 תוכן:
 ${contentPreview}
 
-לכל שאלה, זהה:
-1. נוסח השאלה המלא
-2. התשובה הנכונה
-3. רמת קושי (easy/medium/hard)
-4. נושא (אלגברה, גיאומטריה, משוואות, פונקציות, וכו')
-5. תת-נושא אם קיים
-6. כיתה מתאימה (7-12)
-7. הסבר לפתרון
-8. רמזים (2-3)
-9. צעדי פתרון
+חלץ עד ${maxQuestions} שאלות **שכבר כתובות בתוכן**.
+אם יש פחות שאלות - זה בסדר! אל תמציא שאלות חדשות.
 
-החזר **רק** JSON array בפורמט זה (בדיוק!):
+לכל שאלה שאתה מוצא, זהה:
+1. נוסח השאלה המלא (בדיוק כמו שכתוב)
+2. התשובה הנכונה (אם כתובה)
+3. רמת קושי (easy/medium/hard)
+4. נושא ותת-נושא
+5. ${gradeInstruction}
+
+${targetGrade ? `⚠️ חשוב: רק שאלות מכיתה ${targetGrade}!` : ''}
+
+החזר **רק** JSON array:
 [
   {
-    "question": "נוסח השאלה המלא",
-    "correctAnswer": "התשובה הנכונה המדויקת",
-    "explanation": "הסבר מפורט של הפתרון",
-    "hints": ["רמז 1", "רמז 2", "רמז 3"],
-    "solution_steps": ["שלב 1", "שלב 2", "שלב 3"],
-    "topic": "נושא ראשי",
-    "subtopic": "תת-נושא (או ריק)",
-    "grade": 9,
+    "question": "השאלה המלאה כמו שכתובה",
+    "correctAnswer": "התשובה (או ריק אם אין)",
+    "explanation": "הסבר אם יש",
+    "hints": ["רמז 1", "רמז 2"],
+    "solution_steps": ["שלב 1", "שלב 2"],
+    "topic": "נושא",
+    "subtopic": "תת-נושא",
+    "grade": ${targetGrade || 9},
     "difficulty": "medium",
-    "keywords": ["מילת מפתח 1", "מילת מפתח 2"]
+    "keywords": ["מילה 1", "מילה 2"]
   }
 ]
 
-אם לא ניתן לחלץ שאלות, החזר: []`;
+אם אין שאלות בתוכן, החזר: []`;
 
         try {
             const response = await anthropic.messages.create({
@@ -216,28 +245,25 @@ ${contentPreview}
 
             const responseText = response.content[0].text;
 
-            // Parse JSON
             let cleanedText = responseText.trim()
                 .replace(/```json\s*/g, '')
                 .replace(/```\s*/g, '');
 
             const jsonMatch = cleanedText.match(/\[[\s\S]*\]/);
             if (!jsonMatch) {
-                console.log('   ⚠️ No questions found in source');
+                console.log('   ⚠️ No existing questions found in content');
                 return [];
             }
 
             const questions = JSON.parse(jsonMatch[0]);
 
             if (!Array.isArray(questions)) {
-                console.log('   ⚠️ Invalid response format');
                 return [];
             }
 
-            // Validate and clean questions
             return questions
-                .filter(q => q.question && q.correctAnswer && q.difficulty)
-                .map(q => this.normalizeExtractedQuestion(q));
+                .filter(q => q.question && q.difficulty)
+                .map(q => this.normalizeExtractedQuestion(q, source, false));
 
         } catch (error) {
             console.error('   ❌ Claude extraction error:', error);
@@ -246,27 +272,121 @@ ${contentPreview}
     }
 
     /**
-     * Normalize extracted question to unified format
+     * STEP 2: Generate NEW questions based on curriculum instructions in content
      */
-    normalizeExtractedQuestion(rawQuestion) {
+    async generateQuestionsFromCurriculum(source, targetCount) {
+        const content = source.content || '';
+        const contentPreview = content.substring(0, 15000);
+
+        const targetGrade = source.grade_level || 9;
+
+        const prompt = `אתה מומחה ליצירת שאלות מתמטיקות לתכנית הלימודים הישראלית.
+
+🎯 משימה: צור ${targetCount} שאלות **חדשות ומקוריות** בהתבסס על תכנית הלימודים שבמקור.
+
+📚 מקור: ${source.title}
+🎓 כיתה: ${targetGrade}
+
+תוכן תכנית הלימודים:
+${contentPreview}
+
+קרא את תכנית הלימודים וזהה:
+- אילו נושאים נלמדים?
+- אילו מיומנויות נדרשות?
+- אילו סוגי שאלות מתאימים?
+- מה רמת הקושי הנדרשת?
+
+עכשיו צור ${targetCount} שאלות **חדשות** שמתאימות לתכנית זו.
+
+דרישות:
+✅ שאלות מקוריות (לא להעתיק מהתוכן!)
+✅ מגוונות - סוגים ורמות שונות
+✅ מתאימות לכיתה ${targetGrade}
+✅ מכסות את הנושאים בתכנית
+✅ כל שאלה עם תשובה מלאה + הסבר + רמזים
+
+פורמט JSON:
+[
+  {
+    "question": "שאלה מקורית וברורה",
+    "correctAnswer": "התשובה המלאה",
+    "explanation": "הסבר מפורט איך פותרים",
+    "hints": ["רמז 1", "רמז 2", "רמז 3"],
+    "solution_steps": ["שלב 1", "שלב 2", "שלב 3"],
+    "topic": "נושא ראשי",
+    "subtopic": "תת-נושא",
+    "grade": ${targetGrade},
+    "difficulty": "easy/medium/hard",
+    "keywords": ["מילה 1", "מילה 2"]
+  }
+]
+
+צור ${targetCount} שאלות איכותיות!`;
+
+        try {
+            const response = await anthropic.messages.create({
+                model: 'claude-sonnet-4-5-20250929',
+                max_tokens: 8000,
+                temperature: 0.8,  // Higher creativity for generation
+                messages: [{
+                    role: 'user',
+                    content: prompt
+                }]
+            });
+
+            const responseText = response.content[0].text;
+
+            let cleanedText = responseText.trim()
+                .replace(/```json\s*/g, '')
+                .replace(/```\s*/g, '');
+
+            const jsonMatch = cleanedText.match(/\[[\s\S]*\]/);
+            if (!jsonMatch) {
+                console.log('   ⚠️ Failed to generate questions');
+                return [];
+            }
+
+            const questions = JSON.parse(jsonMatch[0]);
+
+            if (!Array.isArray(questions)) {
+                return [];
+            }
+
+            return questions
+                .filter(q => q.question && q.correctAnswer && q.difficulty)
+                .map(q => this.normalizeExtractedQuestion(q, source, true));
+
+        } catch (error) {
+            console.error('   ❌ Claude generation error:', error);
+            return [];
+        }
+    }
+
+    /**
+     * Normalize question to unified format
+     */
+    normalizeExtractedQuestion(rawQuestion, source, isGenerated = false) {
+        const finalGrade = source.grade_level || rawQuestion.grade || 9;
+
         return {
             question: rawQuestion.question.trim(),
-            correctAnswer: rawQuestion.correctAnswer.trim(),
+            correctAnswer: (rawQuestion.correctAnswer || '').trim(),
             explanation: rawQuestion.explanation || '',
             hints: Array.isArray(rawQuestion.hints) ? rawQuestion.hints : [],
             solution_steps: Array.isArray(rawQuestion.solution_steps) ? rawQuestion.solution_steps : [],
             topic: rawQuestion.topic || 'כללי',
             subtopic: rawQuestion.subtopic || '',
-            grade: rawQuestion.grade || 9,
+            grade: finalGrade,
             difficulty: rawQuestion.difficulty || 'medium',
-            keywords: Array.isArray(rawQuestion.keywords) ? rawQuestion.keywords : []
+            keywords: Array.isArray(rawQuestion.keywords) ? rawQuestion.keywords : [],
+            isGenerated: isGenerated  // Mark if it's extracted or generated
         };
     }
 
     /**
      * Save normalized question to question_bank
      */
-    async saveNormalizedQuestion(questionData, source) {
+    async saveNormalizedQuestion(questionData, source, isGenerated) {
         const query = `
             INSERT INTO question_bank (
                 question_text,
@@ -289,7 +409,7 @@ ${contentPreview}
                 is_active,
                 source_metadata
             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
-                RETURNING id
+            RETURNING id
         `;
 
         const result = await pool.query(query, [
@@ -308,15 +428,18 @@ ${contentPreview}
             'apply',
             questionData.keywords || [],
             ['nexon'],
-            70, // Initial quality score
-            false, // Needs verification
-            true, // Is active
+            isGenerated ? 65 : 70,  // Slightly lower score for generated
+            false,
+            true,
             JSON.stringify({
                 sourceId: source.id,
                 sourceTitle: source.title,
                 sourceType: source.source_type,
                 sourceUrl: source.source_url,
-                extractedAt: new Date().toISOString()
+                sourceGrade: source.grade_level,
+                extractedAt: new Date().toISOString(),
+                isGenerated: isGenerated,  // Track extraction vs generation
+                generationMethod: isGenerated ? 'claude_curriculum_based' : 'claude_extraction'
             })
         ]);
 
