@@ -180,7 +180,7 @@ ${contentPreview}
 
         try {
             const response = await anthropic.messages.create({
-                model: 'claude-sonnet-4-20241022',  // ✅ CORRECT MODEL!
+                model: 'claude-sonnet-4-5-20250929',  // ✅ CORRECT MODEL!
                 max_tokens: 4000,
                 messages: [{ role: 'user', content: prompt }]
             });
