@@ -1,6 +1,6 @@
 // server/services/israeliSourcesFetcher.js - ENHANCED WITH PDF DOWNLOAD
 import pool from '../config/database.js';
-import pdf from 'pdf-parse';
+
 class IsraeliSourcesFetcher {
     /**
      * Fetch content from URL - handles both HTML pages and downloadable PDFs
@@ -226,7 +226,9 @@ class IsraeliSourcesFetcher {
      */
     async extractPDFText(buffer) {
         try {
-            const data = await pdf(buffer);
+            // Dynamic import for CommonJS module
+            const pdfParse = (await import('pdf-parse')).default;
+            const data = await pdfParse(buffer);
             const text = data.text;
 
             console.log(`   📄 Extracted ${text.length} characters from PDF (${data.numpages} pages)`);
