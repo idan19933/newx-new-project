@@ -1,4 +1,4 @@
-// server/services/israeliSourcesProcessor.js - EXTRACT + GENERATE QUESTIONS
+// server/services/israeliSourcesProcessor.js - FIXED VERSION
 import Anthropic from '@anthropic-ai/sdk';
 import pool from '../config/database.js';
 
@@ -181,6 +181,62 @@ class IsraeliSourcesProcessor {
     }
 
     /**
+     * IMPROVED: Safe JSON parsing with multiple fallback strategies
+     */
+    safeParseJSON(text) {
+        // Strategy 1: Direct parse
+        try {
+            return JSON.parse(text);
+        } catch (e) {
+            // Continue to next strategy
+        }
+
+        // Strategy 2: Find JSON array in text
+        try {
+            const jsonMatch = text.match(/\[\s*\{[\s\S]*\}\s*\]/);
+            if (jsonMatch) {
+                return JSON.parse(jsonMatch[0]);
+            }
+        } catch (e) {
+            // Continue to next strategy
+        }
+
+        // Strategy 3: Clean markdown code blocks
+        try {
+            let cleaned = text
+                .replace(/```json\s*/g, '')
+                .replace(/```\s*/g, '')
+                .trim();
+
+            const jsonMatch = cleaned.match(/\[\s*\{[\s\S]*\}\s*\]/);
+            if (jsonMatch) {
+                return JSON.parse(jsonMatch[0]);
+            }
+        } catch (e) {
+            // Continue to next strategy
+        }
+
+        // Strategy 4: Try to fix truncated JSON
+        try {
+            // If array starts but doesn't end, try to close it
+            if (text.includes('[') && !text.trim().endsWith(']')) {
+                let attempt = text.trim();
+                // Remove incomplete last object
+                const lastComma = attempt.lastIndexOf(',');
+                if (lastComma > 0) {
+                    attempt = attempt.substring(0, lastComma) + ']';
+                    return JSON.parse(attempt);
+                }
+            }
+        } catch (e) {
+            // All strategies failed
+        }
+
+        console.error('   ⚠️ All JSON parsing strategies failed');
+        return null;
+    }
+
+    /**
      * STEP 1: Extract existing questions from content using Claude
      */
     async extractQuestionsWithClaude(source, maxQuestions) {
@@ -215,27 +271,27 @@ ${contentPreview}
 
 ${targetGrade ? `⚠️ חשוב: רק שאלות מכיתה ${targetGrade}!` : ''}
 
-החזר **רק** JSON array:
+החזר **רק** JSON array תקין, ללא טקסט נוסף:
 [
   {
-    "question": "השאלה המלאה כמו שכתובה",
-    "correctAnswer": "התשובה (או ריק אם אין)",
-    "explanation": "הסבר אם יש",
-    "hints": ["רמז 1", "רמז 2"],
-    "solution_steps": ["שלב 1", "שלב 2"],
+    "question": "השאלה המלאה",
+    "correctAnswer": "התשובה",
+    "explanation": "הסבר",
+    "hints": ["רמז 1"],
+    "solution_steps": ["שלב 1"],
     "topic": "נושא",
     "subtopic": "תת-נושא",
     "grade": ${targetGrade || 9},
     "difficulty": "medium",
-    "keywords": ["מילה 1", "מילה 2"]
+    "keywords": ["מילה 1"]
   }
 ]
 
-אם אין שאלות בתוכן, החזר: []`;
+אם אין שאלות, החזר: []`;
 
         try {
             const response = await anthropic.messages.create({
-                model: 'claude-sonnet-4-5-20250929',
+                model: 'claude-sonnet-4-20250514',
                 max_tokens: 4000,
                 messages: [{
                     role: 'user',
@@ -244,20 +300,12 @@ ${targetGrade ? `⚠️ חשוב: רק שאלות מכיתה ${targetGrade}!` : 
             });
 
             const responseText = response.content[0].text;
+            console.log(`   📤 Claude response length: ${responseText.length} chars`);
 
-            let cleanedText = responseText.trim()
-                .replace(/```json\s*/g, '')
-                .replace(/```\s*/g, '');
+            const questions = this.safeParseJSON(responseText);
 
-            const jsonMatch = cleanedText.match(/\[[\s\S]*\]/);
-            if (!jsonMatch) {
+            if (!questions || !Array.isArray(questions)) {
                 console.log('   ⚠️ No existing questions found in content');
-                return [];
-            }
-
-            const questions = JSON.parse(jsonMatch[0]);
-
-            if (!Array.isArray(questions)) {
                 return [];
             }
 
@@ -266,13 +314,13 @@ ${targetGrade ? `⚠️ חשוב: רק שאלות מכיתה ${targetGrade}!` : 
                 .map(q => this.normalizeExtractedQuestion(q, source, false));
 
         } catch (error) {
-            console.error('   ❌ Claude extraction error:', error);
+            console.error('   ❌ Claude extraction error:', error.message);
             return [];
         }
     }
 
     /**
-     * STEP 2: Generate NEW questions based on curriculum instructions in content
+     * STEP 2: Generate NEW questions - FIXED with better parsing
      */
     async generateQuestionsFromCurriculum(source, targetCount) {
         const content = source.content || '';
@@ -282,52 +330,38 @@ ${targetGrade ? `⚠️ חשוב: רק שאלות מכיתה ${targetGrade}!` : 
 
         const prompt = `אתה מומחה ליצירת שאלות מתמטיקות לתכנית הלימודים הישראלית.
 
-🎯 משימה: צור ${targetCount} שאלות **חדשות ומקוריות** בהתבסס על תכנית הלימודים שבמקור.
+🎯 משימה: צור ${targetCount} שאלות **חדשות** מתאימות לכיתה ${targetGrade}.
 
 📚 מקור: ${source.title}
 🎓 כיתה: ${targetGrade}
 
-תוכן תכנית הלימודים:
+תוכן לימודים:
 ${contentPreview}
 
-קרא את תכנית הלימודים וזהה:
-- אילו נושאים נלמדים?
-- אילו מיומנויות נדרשות?
-- אילו סוגי שאלות מתאימים?
-- מה רמת הקושי הנדרשת?
+צור ${targetCount} שאלות מקוריות ומגוונות.
 
-עכשיו צור ${targetCount} שאלות **חדשות** שמתאימות לתכנית זו.
+⚠️ חשוב: החזר **רק** JSON array תקין, ללא הסברים או טקסט נוסף!
 
-דרישות:
-✅ שאלות מקוריות (לא להעתיק מהתוכן!)
-✅ מגוונות - סוגים ורמות שונות
-✅ מתאימות לכיתה ${targetGrade}
-✅ מכסות את הנושאים בתכנית
-✅ כל שאלה עם תשובה מלאה + הסבר + רמזים
-
-פורמט JSON:
 [
   {
-    "question": "שאלה מקורית וברורה",
-    "correctAnswer": "התשובה המלאה",
-    "explanation": "הסבר מפורט איך פותרים",
-    "hints": ["רמז 1", "רמז 2", "רמז 3"],
-    "solution_steps": ["שלב 1", "שלב 2", "שלב 3"],
-    "topic": "נושא ראשי",
+    "question": "שאלה מקורית",
+    "correctAnswer": "תשובה מלאה",
+    "explanation": "הסבר פתרון",
+    "hints": ["רמז 1", "רמז 2"],
+    "solution_steps": ["שלב 1", "שלב 2"],
+    "topic": "נושא",
     "subtopic": "תת-נושא",
     "grade": ${targetGrade},
-    "difficulty": "easy/medium/hard",
+    "difficulty": "medium",
     "keywords": ["מילה 1", "מילה 2"]
   }
-]
-
-צור ${targetCount} שאלות איכותיות!`;
+]`;
 
         try {
             const response = await anthropic.messages.create({
-                model: 'claude-sonnet-4-5-20250929',
+                model: 'claude-sonnet-4-20250514',
                 max_tokens: 8000,
-                temperature: 0.8,  // Higher creativity for generation
+                temperature: 0.8,
                 messages: [{
                     role: 'user',
                     content: prompt
@@ -335,29 +369,23 @@ ${contentPreview}
             });
 
             const responseText = response.content[0].text;
+            console.log(`   📤 Claude response length: ${responseText.length} chars`);
 
-            let cleanedText = responseText.trim()
-                .replace(/```json\s*/g, '')
-                .replace(/```\s*/g, '');
+            const questions = this.safeParseJSON(responseText);
 
-            const jsonMatch = cleanedText.match(/\[[\s\S]*\]/);
-            if (!jsonMatch) {
-                console.log('   ⚠️ Failed to generate questions');
+            if (!questions || !Array.isArray(questions)) {
+                console.log('   ⚠️ Failed to generate questions - invalid JSON response');
                 return [];
             }
 
-            const questions = JSON.parse(jsonMatch[0]);
-
-            if (!Array.isArray(questions)) {
-                return [];
-            }
+            console.log(`   ✅ Parsed ${questions.length} questions from response`);
 
             return questions
                 .filter(q => q.question && q.correctAnswer && q.difficulty)
                 .map(q => this.normalizeExtractedQuestion(q, source, true));
 
         } catch (error) {
-            console.error('   ❌ Claude generation error:', error);
+            console.error('   ❌ Claude generation error:', error.message);
             return [];
         }
     }
@@ -379,7 +407,7 @@ ${contentPreview}
             grade: finalGrade,
             difficulty: rawQuestion.difficulty || 'medium',
             keywords: Array.isArray(rawQuestion.keywords) ? rawQuestion.keywords : [],
-            isGenerated: isGenerated  // Mark if it's extracted or generated
+            isGenerated: isGenerated
         };
     }
 
@@ -428,7 +456,7 @@ ${contentPreview}
             'apply',
             questionData.keywords || [],
             ['nexon'],
-            isGenerated ? 65 : 70,  // Slightly lower score for generated
+            isGenerated ? 65 : 70,
             false,
             true,
             JSON.stringify({
@@ -438,7 +466,7 @@ ${contentPreview}
                 sourceUrl: source.source_url,
                 sourceGrade: source.grade_level,
                 extractedAt: new Date().toISOString(),
-                isGenerated: isGenerated,  // Track extraction vs generation
+                isGenerated: isGenerated,
                 generationMethod: isGenerated ? 'claude_curriculum_based' : 'claude_extraction'
             })
         ]);
