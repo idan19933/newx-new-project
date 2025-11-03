@@ -1,6 +1,7 @@
-// server/services/israeliSourcesProcessor.js - FULLY FIXED VERSION
+// server/services/israeliSourcesProcessor.js - WITH SMART CLASSIFIER
 import Anthropic from '@anthropic-ai/sdk';
 import pool from '../config/database.js';
+import QuestionClassifier from './questionClassifier.js';
 
 const anthropic = new Anthropic({
     apiKey: process.env.ANTHROPIC_API_KEY
@@ -126,7 +127,6 @@ class IsraeliSourcesProcessor {
         return result;
     }
 
-    // ✅ IMPROVED JSON PARSING - 8 STRATEGIES!
     safeParseJSON(text) {
         console.log(`   🔍 Parsing JSON from ${text.length} chars...`);
 
@@ -232,10 +232,9 @@ class IsraeliSourcesProcessor {
                 .replace(/```json/g, '')
                 .replace(/```/g, '')
                 .replace(/^\s+/gm, '')
-                .replace(/[\u0000-\u001F\u007F-\u009F]/g, '') // Remove control chars
+                .replace(/[\u0000-\u001F\u007F-\u009F]/g, '')
                 .trim();
 
-            // Find array
             const match = cleaned.match(/\[[\s\S]*\]/);
             if (match) {
                 const parsed = JSON.parse(match[0]);
@@ -246,7 +245,6 @@ class IsraeliSourcesProcessor {
             console.log('   ⚠️ Strategy 8 failed');
         }
 
-        // All failed - log for debugging
         console.error('   ❌ All JSON parsing strategies failed');
         console.error('   📄 First 500 chars:', text.substring(0, 500));
         console.error('   📄 Last 500 chars:', text.substring(Math.max(0, text.length - 500)));
@@ -375,30 +373,48 @@ ${contentPreview}
         }
     }
 
+    // ✅ UPDATED: Use smart classifier
     normalizeExtractedQuestion(rawQuestion, source, isGenerated = false) {
-        const finalGrade = source.grade_level || rawQuestion.grade || 8;
+        // Run smart classification
+        const classification = QuestionClassifier.classifyQuestion(
+            rawQuestion.question,
+            {
+                grade: source.grade_level || rawQuestion.grade,
+                units: rawQuestion.units,
+                topic: rawQuestion.topic,
+                subtopic: rawQuestion.subtopic
+            }
+        );
+
+        console.log(`   🏷️  Classified: Grade ${classification.grade}${classification.units ? ', ' + classification.units + ' units' : ''}, ${classification.topic}${classification.subtopic ? ' → ' + classification.subtopic : ''}, ${classification.difficulty}`);
+
         return {
             question: (rawQuestion.question || '').trim(),
             correctAnswer: (rawQuestion.correctAnswer || '').trim(),
             explanation: rawQuestion.explanation || '',
             hints: Array.isArray(rawQuestion.hints) ? rawQuestion.hints : [],
             solution_steps: Array.isArray(rawQuestion.solution_steps) ? rawQuestion.solution_steps : [],
-            topic: rawQuestion.topic || 'כללי',
-            subtopic: rawQuestion.subtopic || '',
-            grade: finalGrade,
-            difficulty: rawQuestion.difficulty || 'medium',
+
+            // Use classification results
+            topic: classification.topic,
+            subtopic: classification.subtopic,
+            grade: classification.grade,
+            units: classification.units,
+            difficulty: classification.difficulty,
+
             keywords: Array.isArray(rawQuestion.keywords) ? rawQuestion.keywords : [],
             isGenerated: isGenerated
         };
     }
 
+    // ✅ UPDATED: Save with units
     async saveNormalizedQuestion(questionData, source, isGenerated) {
         const query = `INSERT INTO question_bank (
-            question_text, question_type, topic, subtopic, grade_level, difficulty,
+            question_text, question_type, topic, subtopic, grade_level, units, difficulty,
             correct_answer, wrong_answers, explanation, solution_steps, hints, source,
             cognitive_level, keywords, suitable_for_personalities, quality_score,
             is_verified, is_active, source_metadata
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
                            RETURNING id`;
 
         const result = await pool.query(query, [
@@ -407,6 +423,7 @@ ${contentPreview}
             questionData.topic,
             questionData.subtopic || null,
             questionData.grade,
+            questionData.units || null, // NEW: units column
             questionData.difficulty,
             questionData.correctAnswer,
             JSON.stringify([]),

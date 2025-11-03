@@ -1,4 +1,4 @@
-// server/services/smartQuestionService.js - WITH ISRAELI QUESTIONS INTEGRATION
+// server/services/smartQuestionService.js - WITH GRADE FILTERING FIX
 import pool from '../config/database.js';
 import crypto from 'crypto';
 
@@ -18,6 +18,13 @@ const TOPIC_MAPPING = {
     'volume-surface-area': ['נפח', 'מדידה', 'גיאומטריה'],
     'data-analysis': ['סטטיסטיקה', 'ניתוח נתונים'],
     'probability': ['הסתברות']
+};
+
+// ✅ NEW: Grade-sensitive topic detection
+const ADVANCED_TOPICS = {
+    12: ['נגזרת', 'אינטגרל', 'חשבון דיפרנציאלי', 'dy/dx', 'לימיט', 'גבול'],
+    11: ['לוגריתם', 'אקספוננט', 'טריגונומטריה מתקדמת'],
+    10: ['משוואות ריבועיות', 'פרבולה', 'פונקציה ריבועית']
 };
 
 class SmartQuestionService {
@@ -134,7 +141,7 @@ class SmartQuestionService {
     }
 
     /**
-     * ✅ NEW: Get question from Israeli question bank
+     * ✅ FIXED: Get question from Israeli question bank with STRICT grade filtering
      */
     async getIsraeliQuestion(params) {
         const {
@@ -182,17 +189,22 @@ class SmartQuestionService {
             queryParams.push(hebrewTopics);
             paramIndex++;
 
+            // ✅ FIX 1: STRICT grade filtering with range
+            if (gradeLevel) {
+                // Allow questions from requested grade OR one grade below
+                // (e.g., Grade 8 can get Grade 7-8, but NOT Grade 12!)
+                const minGrade = Math.max(7, gradeLevel - 1);
+                const maxGrade = gradeLevel;
+
+                query += ` AND grade_level >= $${paramIndex} AND grade_level <= $${paramIndex + 1}`;
+                queryParams.push(minGrade, maxGrade);
+                paramIndex += 2;
+            }
+
             // Match difficulty
             if (difficulty) {
                 query += ` AND difficulty = $${paramIndex}`;
                 queryParams.push(difficulty);
-                paramIndex++;
-            }
-
-            // Match grade
-            if (gradeLevel) {
-                query += ` AND grade_level = $${paramIndex}`;
-                queryParams.push(gradeLevel);
                 paramIndex++;
             }
 
@@ -204,6 +216,24 @@ class SmartQuestionService {
                 paramIndex += excludeQuestionIds.length;
             }
 
+            // ✅ FIX 2: Filter out advanced topics for lower grades
+            if (gradeLevel && gradeLevel < 12) {
+                const advancedTerms = [];
+                for (const [grade, terms] of Object.entries(ADVANCED_TOPICS)) {
+                    if (parseInt(grade) > gradeLevel) {
+                        advancedTerms.push(...terms);
+                    }
+                }
+
+                if (advancedTerms.length > 0) {
+                    // Exclude questions containing advanced terms
+                    const exclusions = advancedTerms.map(term =>
+                        `question_text NOT ILIKE '%${term}%'`
+                    ).join(' AND ');
+                    query += ` AND (${exclusions})`;
+                }
+            }
+
             query += ` ORDER BY RANDOM() LIMIT 5`;
 
             const result = await pool.query(query, queryParams);
@@ -211,12 +241,23 @@ class SmartQuestionService {
             console.log(`   📊 Found ${result.rows.length} Israeli questions`);
 
             if (result.rows.length > 0) {
-                const selectedQuestion = result.rows[0];
+                // ✅ FIX 3: Double-check grade compatibility before returning
+                const compatibleQuestions = result.rows.filter(q =>
+                    this.isGradeCompatible(q.question_text, gradeLevel)
+                );
+
+                if (compatibleQuestions.length === 0) {
+                    console.log('   ⚠️  All questions filtered out due to grade incompatibility');
+                    return null;
+                }
+
+                const selectedQuestion = compatibleQuestions[0];
 
                 console.log('   ✅ Selected Israeli question:', {
                     id: selectedQuestion.id,
                     topic: selectedQuestion.topic,
                     difficulty: selectedQuestion.difficulty,
+                    grade: selectedQuestion.grade_level,
                     preview: selectedQuestion.question_text.substring(0, 50) + '...'
                 });
 
@@ -232,13 +273,40 @@ class SmartQuestionService {
     }
 
     /**
+     * ✅ NEW: Check if question content is appropriate for student's grade
+     */
+    isGradeCompatible(questionText, studentGrade) {
+        if (!studentGrade || !questionText) return true;
+
+        const lowerQuestion = questionText.toLowerCase();
+
+        // Check for advanced topics that shouldn't appear for lower grades
+        for (const [minGrade, topics] of Object.entries(ADVANCED_TOPICS)) {
+            const requiredGrade = parseInt(minGrade);
+
+            if (studentGrade < requiredGrade) {
+                // Check if question contains any advanced topics
+                const hasAdvancedTopic = topics.some(topic =>
+                    lowerQuestion.includes(topic.toLowerCase())
+                );
+
+                if (hasAdvancedTopic) {
+                    console.log(`   🚫 Filtered out: Grade ${requiredGrade}+ topic for Grade ${studentGrade} student`);
+                    return false;
+                }
+            }
+        }
+
+        return true;
+    }
+
+    /**
      * ✅ Get Hebrew topic names from English topic/subtopic
      */
-    // תחליף את getHebrewTopics:
     getHebrewTopics(topicName, subtopicName) {
         const topics = new Set();
 
-        // ✅ FIX 1: אם הנושא כבר בעברית, החזר אותו ישירות!
+        // ✅ If topic is already in Hebrew, use it directly
         const isHebrew = /[\u0590-\u05FF]/.test(topicName);
 
         if (isHebrew) {
@@ -246,12 +314,12 @@ class SmartQuestionService {
             if (topicName) topics.add(topicName);
             if (subtopicName) topics.add(subtopicName);
 
-            // גם חפש נושאים דומים:
+            // Add related topics
             if (topicName?.includes('משוואות')) {
                 topics.add('אלגברה');
                 topics.add('משוואות');
             }
-            if (topicName?.includes('גיאומטריה')) {
+            if (topicName?.includes('גיאומטריה') || topicName?.includes('גאומטריה')) {
                 topics.add('גיאומטריה');
                 topics.add('גאומטריה');
             }
@@ -263,7 +331,7 @@ class SmartQuestionService {
             return Array.from(topics);
         }
 
-        // ✅ FIX 2: אם אנגלית, השתמש במיפוי:
+        // ✅ If English, use mapping
         if (topicName && TOPIC_MAPPING[topicName]) {
             TOPIC_MAPPING[topicName].forEach(t => topics.add(t));
         }
@@ -284,6 +352,7 @@ class SmartQuestionService {
 
         return Array.from(topics);
     }
+
     /**
      * Get question from question_cache with STRICT filtering
      */
@@ -610,7 +679,7 @@ class SmartQuestionService {
      */
     formatIsraeliQuestion(row) {
         return {
-            id: `israeli_${row.id}`, // Prefix to avoid conflicts
+            id: `israeli_${row.id}`,
             question: row.question_text,
             correctAnswer: row.correct_answer,
             hints: Array.isArray(row.hints) ? row.hints : (row.hints ? JSON.parse(row.hints) : []),
@@ -668,7 +737,7 @@ class SmartQuestionService {
 
             // Get cache stats
             const cacheStats = await pool.query(`
-                SELECT 
+                SELECT
                     COUNT(*) as total_questions,
                     COUNT(CASE WHEN source = 'ai_generated' THEN 1 END) as ai_generated,
                     ROUND(AVG(quality_score), 1) as avg_quality,
@@ -679,12 +748,12 @@ class SmartQuestionService {
                     COUNT(CASE WHEN difficulty = 'hard' THEN 1 END) as hard_questions,
                     ROUND(AVG(success_rate), 1) as avg_success_rate
                 FROM question_cache
-                ${whereClause}
+                         ${whereClause}
             `, params);
 
             // Get Israeli question stats
             const israeliStats = await pool.query(`
-                SELECT 
+                SELECT
                     COUNT(*) as israeli_questions,
                     COUNT(DISTINCT topic) as israeli_topics,
                     COUNT(CASE WHEN difficulty = 'easy' THEN 1 END) as israeli_easy,
