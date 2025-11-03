@@ -1,574 +1,494 @@
-// server/routes/israeliSourcesRoutes.js
+// server/routes/israeliSourcesRoutes.js - ES6 VERSION
 import express from 'express';
-import israeliSourcesFetcher from '../services/israeliSourcesFetcher.js';
-import israeliQuestionParser from '../services/israeliQuestionParser.js';
-import israeliSourcesProcessor from '../services/israeliSourcesProcessor.js';  // ✅ ADD THIS
 import pool from '../config/database.js';
+import israeliSourcesFetcher from '../services/israeliSourcesFetcher.js';
+import israeliSourcesProcessor from '../services/israeliSourcesProcessor.js';
 
 const router = express.Router();
 
-// ==================== EXISTING ROUTES (PDF Fetching System) ====================
+// ═══════════════════════════════════════════════════════════════
+// STATUS & MONITORING ROUTES (FIXED)
+// ═══════════════════════════════════════════════════════════════
 
-/**
- * GET /api/israeli-sources/status
- * Get system status and statistics
- */
 router.get('/status', async (req, res) => {
     try {
-        console.log('📊 Israeli sources status check...');
+        console.log('📊 Checking system status...');
 
-        // Get database statistics from BOTH systems
-        const sourcesCount = await pool.query(`
-            SELECT COUNT(*) as total FROM scraping_sources
-        `);
+        // Safe query with COALESCE to handle null/undefined
+        const sourcesResult = await pool.query(
+            `SELECT COALESCE(COUNT(*), 0) as count 
+       FROM israeli_sources 
+       WHERE status IN ('active', 'processed')`
+        );
 
-        const israeliSourcesCount = await pool.query(`
-            SELECT COUNT(*) as total FROM israeli_sources
-        `);
+        const questionsResult = await pool.query(
+            `SELECT COALESCE(COUNT(*), 0) as count 
+       FROM question_bank 
+       WHERE source = 'israeli_source'`
+        );
 
-        const logsCount = await pool.query(`
-            SELECT COUNT(*) as total FROM scraping_logs
-        `);
+        const sourcesCount = sourcesResult.rows && sourcesResult.rows.length > 0
+            ? parseInt(sourcesResult.rows[0].count) || 0
+            : 0;
 
-        const questionsCount = await pool.query(`
-            SELECT COUNT(*) as total FROM question_cache 
-            WHERE source = 'israeli_education'
-        `);
+        const questionsCount = questionsResult.rows && questionsResult.rows.length > 0
+            ? parseInt(questionsResult.rows[0].count) || 0
+            : 0;
 
-        const questionBankCount = await pool.query(`
-            SELECT COUNT(*) as total FROM question_bank 
-            WHERE source = 'israeli_source'
-        `);
-
-        // Get available sources
-        const sources = israeliSourcesFetcher.getAllSources();
-        const totalAvailable = sources.rama.length +
-            sources.merchatPedagogi.length +
-            sources.meydaPdfs.length;
+        console.log(`✅ Status check: ${sourcesCount} sources, ${questionsCount} questions`);
 
         res.json({
             success: true,
             status: 'operational',
             database: {
-                sourcesStored: parseInt(sourcesCount.rows[0].total),
-                israeliSourcesStored: parseInt(israeliSourcesCount.rows[0].total),
-                logsRecorded: parseInt(logsCount.rows[0].total),
-                questionsFromIsraeliSources: parseInt(questionsCount.rows[0].total),
-                questionsInQuestionBank: parseInt(questionBankCount.rows[0].total)
-            },
-            available: {
-                rama: sources.rama.length,
-                merchatPedagogi: sources.merchatPedagogi.length,
-                meydaPdfs: sources.meydaPdfs.length,
-                total: totalAvailable
-            },
-            timestamp: new Date().toISOString()
-        });
-
-    } catch (error) {
-        console.error('❌ Status error:', error);
-        res.status(500).json({
-            success: false,
-            error: error.message
-        });
-    }
-});
-
-/**
- * GET /api/israeli-sources/verify-all
- * Verify all Israeli education source URLs
- */
-router.get('/verify-all', async (req, res) => {
-    try {
-        console.log('🔍 Starting Israeli sources verification...');
-
-        const results = await israeliSourcesFetcher.verifyAllSources();
-
-        res.json({
-            success: true,
-            results,
-            timestamp: new Date().toISOString()
-        });
-
-    } catch (error) {
-        console.error('❌ Verification error:', error);
-        res.status(500).json({
-            success: false,
-            error: error.message
-        });
-    }
-});
-
-/**
- * GET /api/israeli-sources/list
- * Get all available Israeli sources
- */
-router.get('/list', (req, res) => {
-    try {
-        const sources = israeliSourcesFetcher.getAllSources();
-
-        res.json({
-            success: true,
-            sources,
-            count: {
-                rama: sources.rama.length,
-                merchatPedagogi: sources.merchatPedagogi.length,
-                meydaPdfs: sources.meydaPdfs.length,
-                total: sources.rama.length + sources.merchatPedagogi.length + sources.meydaPdfs.length
+                israeliSourcesStored: sourcesCount,
+                questionsInQuestionBank: questionsCount
             }
         });
-
     } catch (error) {
-        console.error('❌ List sources error:', error);
+        console.error('❌ Status check error:', error);
         res.status(500).json({
             success: false,
-            error: error.message
+            error: 'Failed to check system status',
+            details: error.message
         });
     }
 });
 
-/**
- * POST /api/israeli-sources/fetch/:sourceId
- * Fetch and download a specific source
- */
-router.post('/fetch/:sourceId', async (req, res) => {
+// ═══════════════════════════════════════════════════════════════
+// PROCESSOR ROUTES (EXTRACT + GENERATE)
+// ═══════════════════════════════════════════════════════════════
+
+// Process all pending Israeli sources with Claude
+router.post('/process', async (req, res) => {
+    try {
+        console.log('🚀 Starting Israeli sources processing...');
+
+        const {
+            sourceIds,
+            maxQuestionsPerSource = 30,
+            generateExtra = true
+        } = req.body;
+
+        const results = await israeliSourcesProcessor.processAllSources({
+            sourceIds,
+            maxQuestionsPerSource,
+            generateExtra
+        });
+
+        console.log('✅ Processing completed:', results);
+
+        res.json({
+            success: true,
+            message: 'Processing completed',
+            results: results
+        });
+    } catch (error) {
+        console.error('❌ Processing error:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to process sources',
+            details: error.message,
+            stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+        });
+    }
+});
+
+// Process a specific source by ID
+router.post('/process/:sourceId', async (req, res) => {
     try {
         const { sourceId } = req.params;
 
-        console.log(`📥 Fetching source: ${sourceId}`);
-
-        const result = await israeliSourcesFetcher.fetchAndStore(sourceId);
-
-        if (result.success) {
-            res.json({
-                success: true,
-                ...result
+        if (!sourceId || isNaN(parseInt(sourceId))) {
+            return res.status(400).json({
+                success: false,
+                error: 'Invalid source ID'
             });
-        } else {
-            res.status(500).json({
+        }
+
+        console.log(`🚀 Processing source ID: ${sourceId}`);
+
+        // Get the source
+        const source = await israeliSourcesFetcher.getSourceById(parseInt(sourceId));
+
+        if (!source) {
+            return res.status(404).json({
+                success: false,
+                error: 'Source not found'
+            });
+        }
+
+        const result = await israeliSourcesProcessor.processSource(source, 30, true);
+
+        res.json({
+            success: true,
+            message: 'Source processed successfully',
+            result: result
+        });
+    } catch (error) {
+        console.error('❌ Processing error:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to process source',
+            details: error.message
+        });
+    }
+});
+
+// ═══════════════════════════════════════════════════════════════
+// SOURCE MANAGEMENT ROUTES
+// ═══════════════════════════════════════════════════════════════
+
+// Get all stored Israeli sources
+router.get('/stored-sources', async (req, res) => {
+    try {
+        console.log('📚 Fetching stored sources...');
+
+        const sources = await israeliSourcesFetcher.getAllSources();
+
+        console.log(`✅ Found ${sources.length} stored sources`);
+
+        res.json({
+            success: true,
+            sources: sources || [],
+            count: sources ? sources.length : 0
+        });
+    } catch (error) {
+        console.error('❌ Get stored sources error:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to retrieve stored sources',
+            details: error.message
+        });
+    }
+});
+
+// Get a specific source by ID
+router.get('/sources/:sourceId', async (req, res) => {
+    try {
+        const { sourceId } = req.params;
+
+        if (!sourceId || isNaN(parseInt(sourceId))) {
+            return res.status(400).json({
+                success: false,
+                error: 'Invalid source ID'
+            });
+        }
+
+        const source = await israeliSourcesFetcher.getSourceById(parseInt(sourceId));
+
+        if (!source) {
+            return res.status(404).json({
+                success: false,
+                error: 'Source not found'
+            });
+        }
+
+        res.json({
+            success: true,
+            source: source
+        });
+    } catch (error) {
+        console.error('❌ Get source error:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to retrieve source',
+            details: error.message
+        });
+    }
+});
+
+// Add a new Israeli source manually
+router.post('/add-source', async (req, res) => {
+    try {
+        const { title, source_type, source_url, content, grade_level, subject, notes } = req.body;
+
+        if (!title || !content) {
+            return res.status(400).json({
+                success: false,
+                error: 'Title and content are required'
+            });
+        }
+
+        console.log(`➕ Adding new source: ${title}`);
+
+        const result = await pool.query(`
+      INSERT INTO israeli_sources 
+      (title, source_type, source_url, content, grade_level, subject, status, notes, created_at)
+      VALUES ($1, $2, $3, $4, $5, $6, 'active', $7, CURRENT_TIMESTAMP)
+      RETURNING id, title, source_type, grade_level, status
+    `, [
+            title,
+            source_type || 'manual',
+            source_url || null,
+            content,
+            grade_level || null,
+            subject || 'מתמטיקה',
+            notes || 'Manually added'
+        ]);
+
+        console.log(`✅ Source added with ID: ${result.rows[0].id}`);
+
+        res.json({
+            success: true,
+            message: 'Source added successfully',
+            source: result.rows[0]
+        });
+    } catch (error) {
+        console.error('❌ Add source error:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to add source',
+            details: error.message
+        });
+    }
+});
+
+// Update a source
+router.put('/sources/:sourceId', async (req, res) => {
+    try {
+        const { sourceId } = req.params;
+        const updates = req.body;
+
+        if (!sourceId || isNaN(parseInt(sourceId))) {
+            return res.status(400).json({
+                success: false,
+                error: 'Invalid source ID'
+            });
+        }
+
+        console.log(`🔄 Updating source ID: ${sourceId}`);
+
+        const updatedSource = await israeliSourcesFetcher.updateSource(parseInt(sourceId), updates);
+
+        res.json({
+            success: true,
+            message: 'Source updated successfully',
+            source: updatedSource
+        });
+    } catch (error) {
+        console.error('❌ Update source error:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to update source',
+            details: error.message
+        });
+    }
+});
+
+// Delete a source
+router.delete('/sources/:sourceId', async (req, res) => {
+    try {
+        const { sourceId } = req.params;
+
+        if (!sourceId || isNaN(parseInt(sourceId))) {
+            return res.status(400).json({
+                success: false,
+                error: 'Invalid source ID'
+            });
+        }
+
+        console.log(`🗑️  Deleting source ID: ${sourceId}`);
+
+        const deleted = await israeliSourcesFetcher.deleteSource(parseInt(sourceId));
+
+        if (!deleted) {
+            return res.status(404).json({
+                success: false,
+                error: 'Source not found'
+            });
+        }
+
+        res.json({
+            success: true,
+            message: 'Source deleted successfully'
+        });
+    } catch (error) {
+        console.error('❌ Delete source error:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to delete source',
+            details: error.message
+        });
+    }
+});
+
+// ═══════════════════════════════════════════════════════════════
+// FETCHER ROUTES (HTML)
+// ═══════════════════════════════════════════════════════════════
+
+// Fetch and store from URL
+router.post('/fetch-and-store', async (req, res) => {
+    try {
+        const { url, metadata } = req.body;
+
+        if (!url) {
+            return res.status(400).json({
+                success: false,
+                error: 'URL is required'
+            });
+        }
+
+        console.log(`📥 Fetching content from: ${url}`);
+
+        const result = await israeliSourcesFetcher.fetchAndStore(url, metadata || {});
+
+        if (!result.success) {
+            return res.status(400).json({
                 success: false,
                 error: result.error
             });
         }
 
-    } catch (error) {
-        console.error('❌ Fetch error:', error);
-        res.status(500).json({
-            success: false,
-            error: error.message
-        });
-    }
-});
-
-/**
- * POST /api/israeli-sources/fetch-and-process/:sourceId
- * 🚀 COMPLETE PIPELINE: Download PDF + Extract Questions + Save to DB
- */
-router.post('/fetch-and-process/:sourceId', async (req, res) => {
-    try {
-        const { sourceId } = req.params;
-
-        console.log(`🚀 Complete pipeline for: ${sourceId}`);
-
-        const result = await israeliSourcesFetcher.fetchAndProcess(sourceId);
-
-        res.json(result);
-
-    } catch (error) {
-        console.error('❌ Pipeline error:', error);
-        res.status(500).json({
-            success: false,
-            error: error.message
-        });
-    }
-});
-
-/**
- * POST /api/israeli-sources/process-pdf
- * Process an already downloaded PDF
- */
-router.post('/process-pdf', async (req, res) => {
-    try {
-        const { pdfPath, source, grade, year } = req.body;
-
-        if (!pdfPath) {
-            return res.status(400).json({
-                success: false,
-                error: 'PDF path required'
-            });
-        }
-
-        console.log(`📄 Processing PDF: ${pdfPath}`);
-
-        const result = await israeliQuestionParser.processPdf(pdfPath, {
-            source: source || 'RAMA',
-            grade: grade || null,
-            year: year || new Date().getFullYear()
-        });
-
-        res.json(result);
-
-    } catch (error) {
-        console.error('❌ Process PDF error:', error);
-        res.status(500).json({
-            success: false,
-            error: error.message
-        });
-    }
-});
-
-/**
- * GET /api/israeli-sources/questions
- * Get questions from Israeli sources
- */
-router.get('/questions', async (req, res) => {
-    try {
-        const { limit = 50, grade, difficulty, source = 'both' } = req.query;
-
-        let query, params;
-
-        // Choose which table to query
-        if (source === 'question_bank' || source === 'both') {
-            query = `
-                SELECT 
-                    id,
-                    question_text as question,
-                    correct_answer,
-                    topic,
-                    subtopic,
-                    difficulty,
-                    source,
-                    grade_level,
-                    explanation,
-                    hints,
-                    solution_steps,
-                    source_metadata as metadata,
-                    created_at
-                FROM question_bank
-                WHERE source = 'israeli_source'
-            `;
-
-            params = [];
-            let paramCount = 1;
-
-            if (grade) {
-                query += ` AND grade_level = $${paramCount}`;
-                params.push(parseInt(grade));
-                paramCount++;
-            }
-
-            if (difficulty) {
-                query += ` AND difficulty = $${paramCount}`;
-                params.push(difficulty);
-                paramCount++;
-            }
-
-            query += ` ORDER BY created_at DESC LIMIT $${paramCount}`;
-            params.push(limit);
-
-            const result = await pool.query(query, params);
-
-            return res.json({
-                success: true,
-                questions: result.rows,
-                count: result.rows.length,
-                source: 'question_bank'
-            });
-        } else {
-            // Original question_cache query
-            query = `
-                SELECT 
-                    id,
-                    question,
-                    correct_answer,
-                    topic,
-                    subtopic,
-                    difficulty,
-                    source,
-                    metadata,
-                    created_at
-                FROM question_cache
-                WHERE source = 'israeli_education'
-            `;
-
-            params = [];
-            let paramCount = 1;
-
-            if (grade) {
-                query += ` AND metadata->>'grade' = $${paramCount}`;
-                params.push(grade);
-                paramCount++;
-            }
-
-            if (difficulty) {
-                query += ` AND difficulty = $${paramCount}`;
-                params.push(difficulty);
-                paramCount++;
-            }
-
-            query += ` ORDER BY created_at DESC LIMIT $${paramCount}`;
-            params.push(limit);
-
-            const result = await pool.query(query, params);
-
-            return res.json({
-                success: true,
-                questions: result.rows,
-                count: result.rows.length,
-                source: 'question_cache'
-            });
-        }
-
-    } catch (error) {
-        console.error('❌ Get questions error:', error);
-        res.status(500).json({
-            success: false,
-            error: error.message
-        });
-    }
-});
-
-/**
- * GET /api/israeli-sources/logs
- * Get scraping logs
- */
-router.get('/logs', async (req, res) => {
-    try {
-        const { limit = 50 } = req.query;
-
-        const result = await pool.query(`
-            SELECT 
-                l.id,
-                l.source_id,
-                s.name as source_name,
-                l.status,
-                l.items_found,
-                l.items_saved,
-                l.error_message,
-                l.created_at
-            FROM scraping_logs l
-            LEFT JOIN scraping_sources s ON l.source_id = s.id
-            ORDER BY l.created_at DESC
-            LIMIT $1
-        `, [limit]);
-
         res.json({
             success: true,
-            logs: result.rows,
-            count: result.rows.length
+            message: 'Content fetched and stored successfully',
+            result: result
         });
-
     } catch (error) {
-        console.error('❌ Get logs error:', error);
+        console.error('❌ Fetch and store error:', error);
         res.status(500).json({
             success: false,
-            error: error.message
+            error: 'Failed to fetch and store content',
+            details: error.message
         });
     }
 });
 
-// ==================== NEW ROUTES (Claude-Based Question Processor) ====================
-
-/**
- * POST /api/israeli-sources/process
- * Process and extract questions from stored Israeli sources using Claude
- */
-router.post('/process', async (req, res) => {
-    try {
-        console.log('🔄 Starting Israeli sources processing with Claude...');
-
-        const { sourceIds, maxQuestionsPerSource = 30 } = req.body;
-
-        const results = await israeliSourcesProcessor.processAllSources({
-            sourceIds,
-            maxQuestionsPerSource
-        });
-
-        res.json({
-            success: true,
-            results,
-            timestamp: new Date().toISOString()
-        });
-
-    } catch (error) {
-        console.error('❌ Processing error:', error);
-        res.status(500).json({
-            success: false,
-            error: error.message
-        });
-    }
-});
-// ADD THESE ROUTES TO YOUR israeliSourcesRoutes.js
-
-/**
- * POST /api/israeli-sources/fetch-from-url
- * Fetch content from a URL and store in israeli_sources table
- */
-router.post('/fetch-from-url', async (req, res) => {
-    try {
-        const { url, title, grade, subject } = req.body;
-
-        if (!url) {
-            return res.status(400).json({
-                success: false,
-                error: 'URL is required'
-            });
-        }
-
-        console.log(`📥 Fetching from URL: ${url}`);
-
-        // Dynamic import of fetcher
-        const { default: israeliSourcesFetcher } = await import('../services/israeliSourcesFetcher.js');
-
-        const result = await israeliSourcesFetcher.fetchAndStore(url, {
-            title,
-            grade,
-            subject
-        });
-
-        res.json(result);
-
-    } catch (error) {
-        console.error('❌ Fetch error:', error);
-        res.status(500).json({
-            success: false,
-            error: error.message
-        });
-    }
-});
-
-/**
- * POST /api/israeli-sources/fetch-multiple
- * Fetch multiple sources at once
- *
- * Body format:
- * {
- *   "sources": [
- *     { "url": "https://...", "metadata": { "title": "...", "grade": 8 } },
- *     { "url": "https://...", "metadata": { "title": "...", "grade": 9 } }
- *   ]
- * }
- */
+// Fetch multiple URLs
 router.post('/fetch-multiple', async (req, res) => {
     try {
         const { sources } = req.body;
 
-        if (!sources || !Array.isArray(sources)) {
+        if (!sources || !Array.isArray(sources) || sources.length === 0) {
             return res.status(400).json({
                 success: false,
-                error: 'sources array is required'
+                error: 'Sources array is required'
             });
         }
 
         console.log(`📥 Fetching ${sources.length} sources...`);
 
-        const { default: israeliSourcesFetcher } = await import('../services/israeliSourcesFetcher.js');
-
         const results = await israeliSourcesFetcher.fetchMultiple(sources);
 
-        res.json(results);
-
+        res.json({
+            success: true,
+            message: 'Batch fetch completed',
+            results: results
+        });
     } catch (error) {
         console.error('❌ Fetch multiple error:', error);
         res.status(500).json({
             success: false,
-            error: error.message
+            error: 'Failed to fetch multiple sources',
+            details: error.message
         });
     }
 });
 
-/**
- * POST /api/israeli-sources/fetch-and-process
- * Complete pipeline: Fetch URL + Extract + Generate questions
- */
-router.post('/fetch-and-process', async (req, res) => {
+// ═══════════════════════════════════════════════════════════════
+// QUESTIONS ROUTES
+// ═══════════════════════════════════════════════════════════════
+
+// Get questions from question bank (Israeli sources)
+router.get('/questions', async (req, res) => {
     try {
-        const { url, title, grade, subject, maxQuestions = 30, generateExtra = true } = req.body;
+        const { grade, topic, limit = 10 } = req.query;
 
-        if (!url) {
-            return res.status(400).json({
-                success: false,
-                error: 'URL is required'
-            });
+        console.log(`📖 Getting questions - Grade: ${grade || 'all'}, Topic: ${topic || 'all'}`);
+
+        let query = `
+      SELECT * FROM question_bank 
+      WHERE source = 'israeli_source'
+    `;
+
+        const params = [];
+        let paramCount = 1;
+
+        if (grade) {
+            query += ` AND grade_level = $${paramCount}`;
+            params.push(parseInt(grade));
+            paramCount++;
         }
 
-        console.log(`🚀 Complete pipeline for: ${url}`);
-
-        // Step 1: Fetch
-        console.log('   📥 Step 1: Fetching content...');
-        const { default: israeliSourcesFetcher } = await import('../services/israeliSourcesFetcher.js');
-        const fetchResult = await israeliSourcesFetcher.fetchAndStore(url, { title, grade, subject });
-
-        if (!fetchResult.success) {
-            return res.status(500).json({
-                success: false,
-                error: 'Failed to fetch URL',
-                details: fetchResult.error
-            });
+        if (topic) {
+            query += ` AND topic = $${paramCount}`;
+            params.push(topic);
+            paramCount++;
         }
 
-        console.log(`   ✅ Fetched and stored as source ID: ${fetchResult.sourceId}`);
+        query += ` ORDER BY created_at DESC LIMIT $${paramCount}`;
+        params.push(parseInt(limit));
 
-        // Step 2: Process (Extract + Generate)
-        console.log('   🤖 Step 2: Processing with Claude...');
-        const { default: israeliSourcesProcessor } = await import('../services/israeliSourcesProcessor.js');
+        const result = await pool.query(query, params);
 
-        const processResult = await israeliSourcesProcessor.processAllSources({
-            sourceIds: [fetchResult.sourceId],
-            maxQuestionsPerSource: maxQuestions,
-            generateExtra
-        });
+        console.log(`✅ Retrieved ${result.rows.length} questions`);
 
         res.json({
             success: true,
-            fetch: fetchResult,
-            process: processResult,
-            timestamp: new Date().toISOString()
+            questions: result.rows || [],
+            count: result.rows ? result.rows.length : 0
         });
-
     } catch (error) {
-        console.error('❌ Pipeline error:', error);
+        console.error('❌ Get questions error:', error);
         res.status(500).json({
             success: false,
-            error: error.message
+            error: 'Failed to retrieve questions',
+            details: error.message
         });
     }
 });
 
-/**
- * GET /api/israeli-sources/stored-sources
- * Get sources from israeli_sources table (content already stored)
- */
-router.get('/stored-sources', async (req, res) => {
+// Get statistics
+router.get('/stats', async (req, res) => {
     try {
-        const result = await pool.query(`
-            SELECT 
-                id, 
-                title, 
-                source_type, 
-                source_url, 
-                status,
-                last_scraped_at,
-                created_at,
-                (SELECT COUNT(*) 
-                 FROM question_bank qb 
-                 WHERE qb.source_metadata->>'sourceId' = israeli_sources.id::text
-                ) as questions_count
-            FROM israeli_sources
-            ORDER BY created_at DESC
-        `);
+        console.log('📊 Calculating statistics...');
+
+        const sourceStats = await pool.query(`
+      SELECT 
+        source_type,
+        grade_level,
+        status,
+        COUNT(*) as source_count
+      FROM israeli_sources
+      GROUP BY source_type, grade_level, status
+      ORDER BY source_type, grade_level
+    `);
+
+        const questionStats = await pool.query(`
+      SELECT 
+        grade_level,
+        topic,
+        COUNT(*) as question_count
+      FROM question_bank
+      WHERE source = 'israeli_source'
+      GROUP BY grade_level, topic
+      ORDER BY grade_level, topic
+    `);
+
+        const totalSources = await pool.query(`
+      SELECT COUNT(*) as total FROM israeli_sources
+    `);
+
+        const totalQuestions = await pool.query(`
+      SELECT COUNT(*) as total FROM question_bank WHERE source = 'israeli_source'
+    `);
 
         res.json({
             success: true,
-            sources: result.rows,
-            count: result.rows.length
+            summary: {
+                totalSources: parseInt(totalSources.rows[0].total),
+                totalQuestions: parseInt(totalQuestions.rows[0].total)
+            },
+            sourceStatistics: sourceStats.rows || [],
+            questionStatistics: questionStats.rows || []
         });
-
     } catch (error) {
-        console.error('❌ Get stored sources error:', error);
+        console.error('❌ Stats error:', error);
         res.status(500).json({
             success: false,
-            error: error.message
+            error: 'Failed to retrieve statistics',
+            details: error.message
         });
     }
 });
