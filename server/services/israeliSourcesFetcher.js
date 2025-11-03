@@ -1,7 +1,6 @@
 // server/services/israeliSourcesFetcher.js - ENHANCED WITH PDF DOWNLOAD
 import pool from '../config/database.js';
-import pdf from 'pdf-parse/lib/pdf-parse.js';
-
+import pdf from 'pdf-parse';
 class IsraeliSourcesFetcher {
     /**
      * Fetch content from URL - handles both HTML pages and downloadable PDFs
