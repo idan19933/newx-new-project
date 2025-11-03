@@ -1,10 +1,11 @@
 // server/services/israeliQuestionParser.js
 import { createRequire } from 'module';
 import fs from 'fs';
+import path from 'path';
 import pool from '../config/database.js';
 
 const require = createRequire(import.meta.url);
-const pdfParse = require('pdf-parse');
+const PDFParser = require('pdf2json');
 
 class IsraeliQuestionParser {
     constructor() {
@@ -31,35 +32,77 @@ class IsraeliQuestionParser {
         };
     }
 
-    // Parse PDF to text
+    // Parse PDF to text using pdf2json
     async parsePdf(pdfPath) {
-        try {
-            console.log(`📄 Parsing PDF: ${pdfPath}`);
+        return new Promise((resolve, reject) => {
+            try {
+                console.log(`📄 Parsing PDF: ${pdfPath}`);
 
-            if (!fs.existsSync(pdfPath)) {
-                throw new Error(`PDF file not found: ${pdfPath}`);
+                if (!fs.existsSync(pdfPath)) {
+                    return reject(new Error(`PDF file not found: ${pdfPath}`));
+                }
+
+                const pdfParser = new PDFParser(null, 1);
+
+                pdfParser.on('pdfParser_dataError', (errData) => {
+                    console.error('❌ PDF parse error:', errData.parserError);
+                    reject(new Error(errData.parserError));
+                });
+
+                pdfParser.on('pdfParser_dataReady', (pdfData) => {
+                    try {
+                        // Extract text from all pages
+                        let fullText = '';
+                        let pageCount = 0;
+
+                        if (pdfData.Pages) {
+                            pageCount = pdfData.Pages.length;
+
+                            pdfData.Pages.forEach((page, pageNum) => {
+                                if (page.Texts) {
+                                    page.Texts.forEach((textItem) => {
+                                        if (textItem.R) {
+                                            textItem.R.forEach((run) => {
+                                                const decodedText = decodeURIComponent(run.T);
+                                                fullText += decodedText + ' ';
+                                            });
+                                        }
+                                    });
+                                    fullText += '\n';
+                                }
+                            });
+                        }
+
+                        console.log(`   ✅ Extracted ${pageCount} pages`);
+                        console.log(`   📝 Text length: ${fullText.length} characters`);
+
+                        // Show sample of extracted text
+                        if (fullText.length > 0) {
+                            console.log(`   📖 Sample: ${fullText.substring(0, 100)}...`);
+                        }
+
+                        resolve({
+                            success: true,
+                            text: fullText,
+                            pages: pageCount,
+                            info: {
+                                title: pdfData.Meta?.Title || 'Unknown',
+                                author: pdfData.Meta?.Author || 'Unknown'
+                            }
+                        });
+
+                    } catch (parseError) {
+                        reject(parseError);
+                    }
+                });
+
+                pdfParser.loadPDF(pdfPath);
+
+            } catch (error) {
+                console.error('❌ PDF parser initialization error:', error);
+                reject(error);
             }
-
-            const dataBuffer = fs.readFileSync(pdfPath);
-            const data = await pdfParse(dataBuffer);
-
-            console.log(`   ✅ Extracted ${data.numpages} pages`);
-            console.log(`   📝 Text length: ${data.text.length} characters`);
-
-            return {
-                success: true,
-                text: data.text,
-                pages: data.numpages,
-                info: data.info
-            };
-
-        } catch (error) {
-            console.error('❌ PDF parse error:', error);
-            return {
-                success: false,
-                error: error.message
-            };
-        }
+        });
     }
 
     // Extract questions from text
@@ -69,17 +112,26 @@ class IsraeliQuestionParser {
         const questions = [];
         let questionNumber = 1;
 
+        // Clean the text
+        const cleanedText = text
+            .replace(/\s+/g, ' ')  // Normalize whitespace
+            .replace(/\n+/g, '\n') // Normalize newlines
+            .trim();
+
+        console.log(`   📝 Processing ${cleanedText.length} characters`);
+
         // Try each pattern
         for (const pattern of this.questionPatterns) {
-            const matches = [...text.matchAll(pattern)];
+            const matches = [...cleanedText.matchAll(pattern)];
 
             if (matches.length > 0) {
-                console.log(`   Found ${matches.length} questions with pattern`);
+                console.log(`   ✅ Found ${matches.length} questions with pattern`);
 
                 for (const match of matches) {
                     const questionText = match[2]?.trim();
 
-                    if (questionText && questionText.length > 20) {
+                    // Validate question text
+                    if (questionText && questionText.length > 20 && questionText.length < 2000) {
                         // Extract answer if embedded
                         const answerMatch = this.extractAnswer(questionText);
 
@@ -101,6 +153,8 @@ class IsraeliQuestionParser {
                             year: sourceMetadata.year || null,
                             topic: this.extractTopic(questionText)
                         });
+
+                        console.log(`   Q${questionNumber - 1}: ${questionText.substring(0, 60)}...`);
                     }
                 }
 
@@ -109,7 +163,12 @@ class IsraeliQuestionParser {
             }
         }
 
-        console.log(`   ✅ Extracted ${questions.length} questions`);
+        if (questions.length === 0) {
+            console.log('   ⚠️ No questions found with patterns');
+            console.log('   📄 Text sample:', cleanedText.substring(0, 200));
+        }
+
+        console.log(`   ✅ Extracted ${questions.length} valid questions`);
         return questions;
     }
 
@@ -238,10 +297,10 @@ class IsraeliQuestionParser {
                 questionNumber: israeliQuestion.number
             },
 
-            // Generate hints (basic for now)
+            // Generate hints
             hints: this.generateHints(israeliQuestion),
 
-            // Generate explanation (basic for now)
+            // Generate explanation
             explanation: `שאלה מתוך ${israeliQuestion.source} לכיתה ${israeliQuestion.grade || '?'}`,
 
             // Israeli curriculum metadata
@@ -292,6 +351,7 @@ class IsraeliQuestionParser {
 
         let saved = 0;
         let skipped = 0;
+        let errors = 0;
 
         for (const q of questions) {
             try {
@@ -328,16 +388,20 @@ class IsraeliQuestionParser {
                 ]);
 
                 saved++;
+                console.log(`   ✅ Saved Q${q.number}`);
 
             } catch (error) {
-                console.error(`   ❌ Failed to save question:`, error.message);
+                errors++;
+                console.error(`   ❌ Failed to save Q${q.number}:`, error.message);
             }
         }
 
-        console.log(`   ✅ Saved: ${saved}`);
-        console.log(`   ⏭️  Skipped (duplicates): ${skipped}`);
+        console.log(`\n   📊 Results:`);
+        console.log(`      ✅ Saved: ${saved}`);
+        console.log(`      ⏭️  Skipped (duplicates): ${skipped}`);
+        console.log(`      ❌ Errors: ${errors}`);
 
-        return { saved, skipped };
+        return { saved, skipped, errors };
     }
 
     // Complete pipeline: PDF → Questions → Database
@@ -345,17 +409,28 @@ class IsraeliQuestionParser {
         console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
         console.log('🇮🇱 PROCESSING ISRAELI EXAM PDF');
         console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+        console.log(`📄 PDF: ${path.basename(pdfPath)}`);
+        console.log(`📚 Source: ${sourceMetadata.source}`);
+        console.log(`🎓 Grade: ${sourceMetadata.grade || 'N/A'}`);
+        console.log(`📅 Year: ${sourceMetadata.year || 'N/A'}\n`);
 
         // Step 1: Parse PDF
         const parseResult = await this.parsePdf(pdfPath);
         if (!parseResult.success) {
+            console.log('❌ PDF parsing failed\n');
             return { success: false, error: parseResult.error };
         }
 
         // Step 2: Extract questions
         const questions = this.extractQuestions(parseResult.text, sourceMetadata);
         if (questions.length === 0) {
-            return { success: false, error: 'No questions extracted' };
+            console.log('⚠️  No questions extracted\n');
+            return {
+                success: false,
+                error: 'No questions extracted',
+                pdfParsed: true,
+                textLength: parseResult.text.length
+            };
         }
 
         // Step 3: Save to database
@@ -373,7 +448,13 @@ class IsraeliQuestionParser {
             extracted: questions.length,
             saved: saveResult.saved,
             skipped: saveResult.skipped,
-            questions: questions
+            errors: saveResult.errors,
+            questions: questions.map(q => ({
+                number: q.number,
+                preview: q.question.substring(0, 100) + '...',
+                type: q.type,
+                difficulty: q.difficulty
+            }))
         };
     }
 }
