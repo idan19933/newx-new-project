@@ -1,15 +1,16 @@
-// server/services/israeliSourcesFetcher.js - WEB CONTENT FETCHER
+// server/services/israeliSourcesFetcher.js - ENHANCED WITH PDF DOWNLOAD
 import pool from '../config/database.js';
+import pdf from 'pdf-parse/lib/pdf-parse.js';
 
 class IsraeliSourcesFetcher {
     /**
-     * Fetch content from URL and store in israeli_sources table
+     * Fetch content from URL - handles both HTML pages and downloadable PDFs
      */
     async fetchAndStore(url, metadata = {}) {
         console.log(`📥 Fetching content from: ${url}`);
 
         try {
-            // Fetch the web page
+            // Step 1: Fetch the main page
             const response = await fetch(url, {
                 headers: {
                     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
@@ -20,30 +21,52 @@ class IsraeliSourcesFetcher {
                 throw new Error(`HTTP ${response.status}: ${response.statusText}`);
             }
 
-            const html = await response.text();
-            console.log(`   ✅ Fetched ${html.length} characters`);
+            const contentType = response.headers.get('content-type') || '';
+            console.log(`   📄 Content-Type: ${contentType}`);
 
-            // Simple text extraction (remove HTML tags)
-            let content = html
-                .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
-                .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
-                .replace(/<[^>]+>/g, ' ')
-                .replace(/&nbsp;/g, ' ')
-                .replace(/&[a-z]+;/g, ' ')
-                .replace(/\s+/g, ' ')
-                .trim();
+            let content = '';
+            let extractionMethod = 'html';
 
-            console.log(`   ✅ Extracted ${content.length} characters of text`);
+            // CASE 1: Direct PDF download
+            if (contentType.includes('application/pdf')) {
+                console.log(`   📑 Detected direct PDF download`);
+                const arrayBuffer = await response.arrayBuffer();
+                const buffer = Buffer.from(arrayBuffer);
+                content = await this.extractPDFText(buffer);
+                extractionMethod = 'pdf_direct';
+            }
+            // CASE 2: HTML page (might contain PDF links)
+            else {
+                const html = await response.text();
+                console.log(`   ✅ Fetched ${html.length} characters of HTML`);
 
-            // Extract title from HTML
-            const titleMatch = html.match(/<title[^>]*>(.*?)<\/title>/i);
-            const title = metadata.title || (titleMatch ? titleMatch[1].trim() : 'Untitled Source');
+                // Look for PDF download links
+                const pdfLinks = this.findPDFLinks(html, url);
 
-            // Detect grade from URL or title
-            const gradeMatch = url.match(/[\-_](\d+)[\-_]/i) || title.match(/כיתה ([א-יאבגדהוזחט]|[\d]+)/i);
-            const detectedGrade = gradeMatch ? this.parseHebrewGrade(gradeMatch[1]) : metadata.grade || null;
+                if (pdfLinks.length > 0) {
+                    console.log(`   🔗 Found ${pdfLinks.length} PDF link(s)`);
+                    console.log(`   📥 Downloading first PDF: ${pdfLinks[0]}`);
 
-            // Detect source type from URL
+                    // Download and extract first PDF
+                    content = await this.downloadAndExtractPDF(pdfLinks[0]);
+                    extractionMethod = 'pdf_from_link';
+                } else {
+                    // No PDF found, extract text from HTML
+                    console.log(`   📝 No PDF links found, extracting HTML text`);
+                    content = this.extractTextFromHTML(html);
+                    extractionMethod = 'html_text';
+                }
+            }
+
+            console.log(`   ✅ Extracted ${content.length} characters of text (method: ${extractionMethod})`);
+
+            if (content.length < 100) {
+                console.warn(`   ⚠️ Warning: Very short content (${content.length} chars)`);
+            }
+
+            // Extract metadata
+            const title = metadata.title || this.extractTitle(content) || 'Untitled Source';
+            const detectedGrade = metadata.grade || this.detectGrade(url, content);
             const sourceType = this.detectSourceType(url);
 
             // Store in database
@@ -56,9 +79,10 @@ class IsraeliSourcesFetcher {
                     grade_level,
                     subject,
                     status,
+                    notes,
                     created_at
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP)
-                RETURNING id
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CURRENT_TIMESTAMP)
+                    RETURNING id
             `;
 
             const result = await pool.query(query, [
@@ -68,11 +92,11 @@ class IsraeliSourcesFetcher {
                 content,
                 detectedGrade,
                 metadata.subject || 'מתמטיקה',
-                'active'
+                'active',
+                `Extraction method: ${extractionMethod}`
             ]);
 
             const sourceId = result.rows[0].id;
-
             console.log(`   ✅ Stored as source ID: ${sourceId}`);
 
             // Log the fetch
@@ -80,7 +104,12 @@ class IsraeliSourcesFetcher {
                 `INSERT INTO israeli_sources_log (
                     source_id, action, result, details, created_at
                 ) VALUES ($1, 'fetch', 'success', $2, CURRENT_TIMESTAMP)`,
-                [sourceId, JSON.stringify({ url, contentLength: content.length })]
+                [sourceId, JSON.stringify({
+                    url,
+                    contentLength: content.length,
+                    extractionMethod,
+                    contentType
+                })]
             );
 
             return {
@@ -88,7 +117,8 @@ class IsraeliSourcesFetcher {
                 sourceId,
                 title,
                 grade: detectedGrade,
-                contentLength: content.length
+                contentLength: content.length,
+                extractionMethod
             };
 
         } catch (error) {
@@ -110,6 +140,159 @@ class IsraeliSourcesFetcher {
     }
 
     /**
+     * Find PDF links in HTML
+     */
+    findPDFLinks(html, baseUrl) {
+        const pdfLinks = [];
+
+        // Pattern 1: Direct .pdf links
+        const directPdfRegex = /href=["']([^"']*\.pdf[^"']*)["']/gi;
+        let match;
+        while ((match = directPdfRegex.exec(html)) !== null) {
+            pdfLinks.push(this.resolveUrl(match[1], baseUrl));
+        }
+
+        // Pattern 2: Links with "download" or "file" keywords
+        const downloadRegex = /href=["']([^"']*(?:download|file|doc)[^"']*)["']/gi;
+        while ((match = downloadRegex.exec(html)) !== null) {
+            const link = match[1];
+            if (link.includes('.pdf') || link.includes('file')) {
+                pdfLinks.push(this.resolveUrl(link, baseUrl));
+            }
+        }
+
+        // Pattern 3: data-href or data-url attributes (for JS-loaded links)
+        const dataRegex = /data-(?:href|url|file)=["']([^"']*\.pdf[^"']*)["']/gi;
+        while ((match = dataRegex.exec(html)) !== null) {
+            pdfLinks.push(this.resolveUrl(match[1], baseUrl));
+        }
+
+        // Remove duplicates
+        return [...new Set(pdfLinks)];
+    }
+
+    /**
+     * Resolve relative URLs to absolute
+     */
+    resolveUrl(link, baseUrl) {
+        try {
+            if (link.startsWith('http://') || link.startsWith('https://')) {
+                return link;
+            }
+            const base = new URL(baseUrl);
+            if (link.startsWith('//')) {
+                return base.protocol + link;
+            }
+            if (link.startsWith('/')) {
+                return base.origin + link;
+            }
+            return new URL(link, baseUrl).href;
+        } catch (e) {
+            return link;
+        }
+    }
+
+    /**
+     * Download and extract text from PDF
+     */
+    async downloadAndExtractPDF(pdfUrl) {
+        try {
+            console.log(`   📥 Downloading PDF: ${pdfUrl}`);
+
+            const response = await fetch(pdfUrl, {
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                }
+            });
+
+            if (!response.ok) {
+                throw new Error(`PDF download failed: ${response.status}`);
+            }
+
+            const arrayBuffer = await response.arrayBuffer();
+            const buffer = Buffer.from(arrayBuffer);
+
+            console.log(`   ✅ Downloaded ${buffer.length} bytes`);
+
+            return await this.extractPDFText(buffer);
+
+        } catch (error) {
+            console.error(`   ❌ PDF download failed:`, error.message);
+            throw error;
+        }
+    }
+
+    /**
+     * Extract text from PDF buffer
+     */
+    async extractPDFText(buffer) {
+        try {
+            const data = await pdf(buffer);
+            const text = data.text;
+
+            console.log(`   📄 Extracted ${text.length} characters from PDF (${data.numpages} pages)`);
+
+            return text
+                .replace(/\s+/g, ' ')
+                .trim();
+
+        } catch (error) {
+            console.error(`   ❌ PDF extraction failed:`, error.message);
+            throw new Error(`Failed to extract PDF text: ${error.message}`);
+        }
+    }
+
+    /**
+     * Extract text from HTML
+     */
+    extractTextFromHTML(html) {
+        return html
+            .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+            .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+            .replace(/<[^>]+>/g, ' ')
+            .replace(/&nbsp;/g, ' ')
+            .replace(/&[a-z]+;/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+    }
+
+    /**
+     * Extract title from content
+     */
+    extractTitle(content) {
+        // Look for Hebrew title patterns
+        const titleMatch = content.match(/^(.{10,100}?)(?:\n|$)/);
+        return titleMatch ? titleMatch[1].trim() : null;
+    }
+
+    /**
+     * Detect grade from URL or content
+     */
+    detectGrade(url, content) {
+        // From URL
+        const urlGradeMatch = url.match(/[\-_](\d+)[\-_]/i);
+        if (urlGradeMatch) {
+            const grade = parseInt(urlGradeMatch[1]);
+            if (grade >= 7 && grade <= 12) return grade;
+        }
+
+        // From content - Hebrew
+        const hebrewGradeMatch = content.match(/כיתה ([א-יאבגדהוזחט]|[\d]+)/i);
+        if (hebrewGradeMatch) {
+            return this.parseHebrewGrade(hebrewGradeMatch[1]);
+        }
+
+        // From content - English
+        const gradeMatch = content.match(/grade (\d+)/i);
+        if (gradeMatch) {
+            const grade = parseInt(gradeMatch[1]);
+            if (grade >= 7 && grade <= 12) return grade;
+        }
+
+        return null;
+    }
+
+    /**
      * Fetch multiple sources
      */
     async fetchMultiple(sources) {
@@ -124,7 +307,7 @@ class IsraeliSourcesFetcher {
                 ...result
             });
 
-            // Wait between requests to be polite
+            // Wait between requests
             await new Promise(resolve => setTimeout(resolve, 2000));
         }
 
@@ -160,12 +343,10 @@ class IsraeliSourcesFetcher {
             'ז': 7, 'ח': 8, 'ט': 9, 'י': 10, 'יא': 11, 'יב': 12
         };
 
-        // If it's already a number
         if (!isNaN(gradeStr)) {
             return parseInt(gradeStr);
         }
 
-        // If it's Hebrew
         return hebrewToNumber[gradeStr] || null;
     }
 }
