@@ -1,5 +1,6 @@
-// server/services/israeliSourcesFetcher.js - ENHANCED WITH PDF DOWNLOAD
+// server/services/israeliSourcesFetcher.js - WORKING PDF SUPPORT
 import pool from '../config/database.js';
+import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs';
 
 class IsraeliSourcesFetcher {
     /**
@@ -30,8 +31,7 @@ class IsraeliSourcesFetcher {
             if (contentType.includes('application/pdf')) {
                 console.log(`   📑 Detected direct PDF download`);
                 const arrayBuffer = await response.arrayBuffer();
-                const buffer = Buffer.from(arrayBuffer);
-                content = await this.extractPDFText(buffer);
+                content = await this.extractPDFText(arrayBuffer);
                 extractionMethod = 'pdf_direct';
             }
             // CASE 2: HTML page (might contain PDF links)
@@ -209,11 +209,9 @@ class IsraeliSourcesFetcher {
             }
 
             const arrayBuffer = await response.arrayBuffer();
-            const buffer = Buffer.from(arrayBuffer);
+            console.log(`   ✅ Downloaded ${arrayBuffer.byteLength} bytes`);
 
-            console.log(`   ✅ Downloaded ${buffer.length} bytes`);
-
-            return await this.extractPDFText(buffer);
+            return await this.extractPDFText(arrayBuffer);
 
         } catch (error) {
             console.error(`   ❌ PDF download failed:`, error.message);
@@ -222,20 +220,44 @@ class IsraeliSourcesFetcher {
     }
 
     /**
-     * Extract text from PDF buffer
+     * Extract text from PDF using pdfjs-dist
      */
-    async extractPDFText(buffer) {
+    async extractPDFText(arrayBuffer) {
         try {
-            // Dynamic import for CommonJS module
-            const pdfParse = (await import('pdf-parse')).default;
-            const data = await pdfParse(buffer);
-            const text = data.text;
+            // Load PDF document
+            const loadingTask = pdfjsLib.getDocument({
+                data: new Uint8Array(arrayBuffer),
+                useSystemFonts: true,
+                disableFontFace: true
+            });
 
-            console.log(`   📄 Extracted ${text.length} characters from PDF (${data.numpages} pages)`);
+            const pdf = await loadingTask.promise;
+            const numPages = pdf.numPages;
 
-            return text
+            console.log(`   📄 PDF has ${numPages} pages`);
+
+            let fullText = '';
+
+            // Extract text from each page
+            for (let pageNum = 1; pageNum <= numPages; pageNum++) {
+                const page = await pdf.getPage(pageNum);
+                const textContent = await page.getTextContent();
+
+                // Combine text items
+                const pageText = textContent.items
+                    .map(item => item.str)
+                    .join(' ');
+
+                fullText += pageText + '\n';
+            }
+
+            const cleanedText = fullText
                 .replace(/\s+/g, ' ')
                 .trim();
+
+            console.log(`   📄 Extracted ${cleanedText.length} characters from PDF (${numPages} pages)`);
+
+            return cleanedText;
 
         } catch (error) {
             console.error(`   ❌ PDF extraction failed:`, error.message);
