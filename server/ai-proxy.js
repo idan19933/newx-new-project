@@ -1118,7 +1118,7 @@ function buildDynamicQuestionPrompt(topic, subtopic, difficulty, studentProfile,
 // ==================== SMART QUESTION GENERATION (Enhanced with all features) ====================
 app.post('/api/ai/generate-question', async (req, res) => {
     console.log('============================================================');
-    console.log('📝 SMART QUESTION GENERATION (DB + AI)');
+    console.log('📝 SMART QUESTION GENERATION (DB + AI) - DEBUG MODE');
     console.log('============================================================');
 
     try {
@@ -1131,6 +1131,8 @@ app.post('/api/ai/generate-question', async (req, res) => {
             studentProfile = {}
         } = req.body;
 
+        console.log('📦 Full Request Body:', JSON.stringify(req.body, null, 2));
+
         if (!topic) {
             return res.status(400).json({ success: false, error: 'Topic required' });
         }
@@ -1140,11 +1142,14 @@ app.post('/api/ai/generate-question', async (req, res) => {
         const subtopicName = typeof subtopic === 'object' ? subtopic.name : subtopic;
         const subtopicId = typeof subtopic === 'object' ? subtopic.id : subtopic;
 
-        console.log('📊 Request:', {
-            topic: topicName,
-            subtopic: subtopicName,
+        console.log('📊 Parsed Request:', {
+            topicName,
+            topicId,
+            subtopicName,
+            subtopicId,
             difficulty,
-            grade
+            grade,
+            previousQuestionsCount: previousQuestions.length
         });
 
         // ✅ FIX: Convert userId to integer or null (database expects integer)
@@ -1153,11 +1158,55 @@ app.post('/api/ai/generate-question', async (req, res) => {
         const gradeLevel = parseInt(grade.replace('grade_', '')) || 8;
 
         console.log('👤 User Info:', {
-            userId,
+            rawUserId: userId,
             userIdInt,
             type: typeof userIdInt,
-            hasValidUserId: !!userIdInt
+            hasValidUserId: !!userIdInt,
+            studentProfile: JSON.stringify(studentProfile)
         });
+
+        // ✅ CRITICAL: Determine session key EARLY
+        const sessionKey = userIdInt || userId || 'anonymous';
+        console.log('🔑 Session Key Details:', {
+            sessionKey,
+            type: typeof sessionKey,
+            stringValue: String(sessionKey),
+            fromUserIdInt: !!userIdInt,
+            fromUserId: !userIdInt && !!userId,
+            isAnonymous: sessionKey === 'anonymous'
+        });
+
+        // ✅ CHECK EXISTING HISTORY BEFORE ANYTHING ELSE
+        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+        console.log('📚 CHECKING EXISTING HISTORY BEFORE GENERATION');
+        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+        console.log('   Looking for: sessionKey =', sessionKey, ', topicId =', topicId);
+
+        const existingHistory = questionHistoryManager.getRecentQuestions(sessionKey, topicId, 20);
+
+        console.log('   ✓ History Retrieved:', {
+            count: existingHistory?.length || 0,
+            isArray: Array.isArray(existingHistory),
+            isNull: existingHistory === null,
+            isUndefined: existingHistory === undefined
+        });
+
+        if (existingHistory && existingHistory.length > 0) {
+            console.log('   ✅ FOUND EXISTING HISTORY!');
+            console.log('   Sample questions:');
+            existingHistory.slice(0, 5).forEach((q, i) => {
+                console.log(`      ${i + 1}. ${q.question.substring(0, 60)}...`);
+                console.log(`         Difficulty: ${q.difficulty}, Time: ${new Date(q.timestamp).toLocaleTimeString()}`);
+            });
+        } else {
+            console.log('   ⚠️⚠️⚠️ NO HISTORY FOUND!');
+            console.log('   Possible reasons:');
+            console.log('   1. This is the first question for this user/topic');
+            console.log('   2. Session key changed between requests');
+            console.log('   3. questionHistoryManager is not working');
+            console.log('   4. Topic ID mismatch');
+        }
+        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
 
         // 🎯 STEP 1: Try to get from database cache first
         console.log('🔍 Checking database cache...');
@@ -1168,7 +1217,7 @@ app.post('/api/ai/generate-question', async (req, res) => {
             subtopicName,
             difficulty,
             gradeLevel,
-            userId: userIdInt,  // ✅ FIXED: Use integer userId
+            userId: userIdInt,
             excludeQuestionIds: previousQuestions.map(q => q.id).filter(Boolean)
         });
 
@@ -1176,6 +1225,19 @@ app.post('/api/ai/generate-question', async (req, res) => {
         if (smartResult.cached) {
             console.log('✅ Serving cached question from database');
             console.log('📝 Question:', smartResult.question.substring(0, 100));
+
+            // ✅ ALSO RECORD CACHED QUESTIONS TO HISTORY!
+            console.log('📝 Recording cached question to history...');
+            try {
+                questionHistoryManager.addQuestion(sessionKey, topicId, {
+                    question: smartResult.question,
+                    difficulty,
+                    timestamp: Date.now()
+                });
+                console.log('✅ Cached question recorded to history');
+            } catch (histError) {
+                console.error('⚠️ Failed to record cached question:', histError.message);
+            }
 
             return res.json({
                 success: true,
@@ -1196,16 +1258,24 @@ app.post('/api/ai/generate-question', async (req, res) => {
         // 🤖 STEP 2: No cached question found - generate with AI
         console.log('🤖 No suitable cached question - generating with Claude AI...');
 
-        // 🔍 CHECK RECENT QUESTIONS BEFORE GENERATING
-        const sessionKey = userIdInt || userId || 'anonymous';
+        // 🔍 RETRIEVE RECENT QUESTIONS FROM MEMORY AGAIN (for AI prompt)
+        console.log('📚 Retrieving recent questions for AI prompt...');
         const recentQuestionsFromMemory = questionHistoryManager.getRecentQuestions(sessionKey, topicId, 10);
 
-        console.log('📚 Recent questions check:', {
-            sessionKey,
-            topicId,
+        console.log('   Questions to exclude from generation:', {
             count: recentQuestionsFromMemory?.length || 0,
-            questions: recentQuestionsFromMemory?.map(q => q.question.substring(0, 50)) || []
+            sessionKey,
+            topicId
         });
+
+        if (recentQuestionsFromMemory && recentQuestionsFromMemory.length > 0) {
+            console.log('   ✅ Will tell AI to avoid these questions:');
+            recentQuestionsFromMemory.forEach((q, i) => {
+                console.log(`      ${i + 1}. ${q.question.substring(0, 50)}...`);
+            });
+        } else {
+            console.log('   ⚠️ No questions to exclude - AI might repeat');
+        }
 
         // Build personality-aware prompt
         const personalityContext = personalitySystem?.loaded ? `
@@ -1227,6 +1297,12 @@ app.post('/api/ai/generate-question', async (req, res) => {
             ...(recentQuestionsFromMemory || [])
         ];
 
+        console.log('📋 Combining previous questions:', {
+            fromRequest: previousQuestions.length,
+            fromMemory: recentQuestionsFromMemory?.length || 0,
+            total: allPreviousQuestions.length
+        });
+
         // Remove duplicates based on question text
         const uniquePreviousQuestions = allPreviousQuestions.filter((q, index, self) => {
             const text = typeof q === 'string' ? q : (q.question || '');
@@ -1236,11 +1312,13 @@ app.post('/api/ai/generate-question', async (req, res) => {
             });
         });
 
+        console.log('📋 After deduplication:', uniquePreviousQuestions.length, 'unique questions');
+
         const previousQuestionsText = uniquePreviousQuestions.length > 0
             ? `\n\n🚨 חשוב מאוד - אסור לחזור על השאלות הבאות!\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n${uniquePreviousQuestions.map((q, i) => {
                 const text = typeof q === 'string' ? q : (q.question || 'N/A');
                 return `${i + 1}. ${text.substring(0, 80)}...`;
-            }).join('\n')}\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n⚠️⚠️⚠️ צור שאלה שונה לחלוטין:\n- מספרים שונים לגמרי\n- הקשר שונה (אם היה על ספורט, עשה על קניות או בית ספר)\n- זווית גישה שונה\n- נוסח שונה\n- אל תשתמש באותם ערכים מספריים!\n`
+            }).join('\n')}\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n⚠️⚠️⚠️ צור שאלה שונה לחלוטין:\n- מספרים שונים לגמרי (לא אותם ערכים!)\n- הקשר שונה (אם היה על ספורט, עשה על קניות או בית ספר)\n- זווית גישה שונה (למשל: במקום "חשב", שאל "מצא את הערך המקסימלי")\n- נוסח שונה לגמרי\n- תחשוב על דרך יצירתית חדשה לגמרי!\n`
             : '';
 
         const prompt = `${personalityContext}
@@ -1274,6 +1352,9 @@ ${previousQuestionsText}
 
         // Call Claude API
         console.log('🔄 Calling Claude API...');
+        console.log('   Model: claude-sonnet-4-5-20250929');
+        console.log('   Max tokens: 3000');
+        console.log('   Temperature: 0.7');
 
         const response = await fetch('https://api.anthropic.com/v1/messages', {
             method: 'POST',
@@ -1284,8 +1365,8 @@ ${previousQuestionsText}
             },
             body: JSON.stringify({
                 model: 'claude-sonnet-4-5-20250929',
-                max_tokens: 3000,  // ✅ Increased to prevent truncation
-                temperature: 0.7,  // ✅ Increased for more variety
+                max_tokens: 3000,
+                temperature: 0.7,
                 system: 'אתה מורה למתמטיקה ישראלי מנוסה. כל התשובות שלך חייבות להיות בעברית בלבד! אסור לך לכתוב באנגלית או בשפה אחרת. צור שאלות מקוריות ומעניינות שמתאימות לתכנית הלימודים הישראלית. וודא שהשאלה שלמה ומסתיימת במשפט שלם.',
                 messages: [{
                     role: 'user',
@@ -1302,9 +1383,11 @@ ${previousQuestionsText}
         const data = await response.json();
         const rawText = data.content[0].text;
 
-        console.log('📄 Raw response length:', rawText.length);
-        console.log('📄 Raw response (first 200):', rawText.substring(0, 200));
-        console.log('📄 Raw response (last 100):', rawText.substring(Math.max(0, rawText.length - 100)));
+        console.log('📄 AI Response received:', {
+            length: rawText.length,
+            first200: rawText.substring(0, 200),
+            last100: rawText.substring(Math.max(0, rawText.length - 100))
+        });
 
         // Parse JSON
         let jsonText = rawText.trim();
@@ -1342,9 +1425,11 @@ ${previousQuestionsText}
         }
 
         console.log('✅ AI Question generated successfully');
-        console.log('📝 Question length:', questionData.question.length);
-        console.log('📝 Question (first 100):', questionData.question.substring(0, 100));
-        console.log('📝 Question (last 50):', questionData.question.substring(Math.max(0, questionData.question.length - 50)));
+        console.log('📝 Question:', {
+            length: questionData.question.length,
+            first100: questionData.question.substring(0, 100),
+            last50: questionData.question.substring(Math.max(0, questionData.question.length - 50))
+        });
         console.log('✅ Answer:', questionData.correctAnswer.substring(0, 50));
 
         // 💾 STEP 3: Cache the AI-generated question
@@ -1373,52 +1458,92 @@ ${previousQuestionsText}
             }
         } catch (cacheError) {
             console.error('❌ Cache error:', cacheError.message);
-            // Don't fail the request - continue without caching
         }
 
-        // ✅ STEP 4: Record to question history (IMPROVED!)
-        console.log('📝 Recording question to history...');
-        console.log('   sessionKey:', sessionKey);
-        console.log('   topicId:', topicId);
+        // ✅ STEP 4: Record to question history (BULLETPROOF VERSION!)
+        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+        console.log('📝 RECORDING QUESTION TO HISTORY - BULLETPROOF');
+        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
         try {
-            // ALWAYS record to session memory (instant, works immediately)
-            questionHistoryManager.addQuestion(sessionKey, topicId, {
+            console.log('   Session Key:', sessionKey, '(type:', typeof sessionKey + ')');
+            console.log('   Topic ID:', topicId);
+            console.log('   Question (first 60):', questionData.question.substring(0, 60));
+
+            // Record to session memory
+            const recordData = {
                 question: questionData.question,
                 difficulty,
                 timestamp: Date.now()
+            };
+
+            console.log('   📥 Calling questionHistoryManager.addQuestion...');
+            questionHistoryManager.addQuestion(sessionKey, topicId, recordData);
+            console.log('   ✅ addQuestion() completed without error');
+
+            // Verify immediately
+            console.log('   🔍 Verifying recording...');
+            const verifyNow = questionHistoryManager.getRecentQuestions(sessionKey, topicId, 1);
+            console.log('   Verification result:', {
+                found: !!verifyNow && verifyNow.length > 0,
+                count: verifyNow?.length || 0,
+                lastQuestion: verifyNow?.[0]?.question?.substring(0, 40) || 'NONE'
             });
-            console.log('✅ Question recorded to session memory');
 
-            // Verify it was recorded
-            const verifyRecorded = questionHistoryManager.getRecentQuestions(sessionKey, topicId, 1);
-            console.log('   ✓ Verification - questions in memory now:', verifyRecorded?.length || 0);
+            if (!verifyNow || verifyNow.length === 0) {
+                console.error('   ❌❌❌ CRITICAL: Question NOT in memory after adding!');
+                console.error('   questionHistoryManager.addQuestion did not work!');
+                console.error('   Session key:', sessionKey);
+                console.error('   Topic ID:', topicId);
+            } else {
+                console.log('   ✅✅✅ SUCCESS: Question is in memory!');
+            }
 
-            // Record to database ONLY if we have valid integer userId
+            // Try database (optional)
             if (userIdInt && typeof userIdInt === 'number') {
                 try {
+                    console.log('   💾 Recording to database...');
                     await questionHistoryManager.recordToDatabase(userIdInt, {
                         topicId,
                         subtopicId,
                         questionText: questionData.question,
                         difficulty,
-                        isCorrect: null // Not answered yet
+                        isCorrect: null
                     });
-                    console.log('✅ Question recorded to database for userId:', userIdInt);
+                    console.log('   ✅ Recorded to database');
                 } catch (dbError) {
-                    console.error('⚠️ Database recording failed:', dbError.message);
-                    // Session memory is enough - don't fail
+                    console.error('   ⚠️ Database recording failed:', dbError.message);
                 }
             } else {
-                console.log('⚠️ No valid userIdInt - using session memory only');
+                console.log('   ⚠️ No valid userIdInt - skipping database');
             }
+
+            // Final verification - check total history
+            const finalVerify = questionHistoryManager.getRecentQuestions(sessionKey, topicId, 20);
+            console.log('   📊 Final history summary:', {
+                totalCount: finalVerify?.length || 0,
+                sessionKey,
+                topicId
+            });
+
+            if (finalVerify && finalVerify.length > 0) {
+                console.log('   Latest 3 questions in history:');
+                finalVerify.slice(0, 3).forEach((q, i) => {
+                    console.log(`      ${i + 1}. ${q.question.substring(0, 50)}...`);
+                });
+            }
+
         } catch (recordError) {
-            console.error('⚠️ Failed to record question:', recordError.message);
-            // Don't fail the request
+            console.error('❌ CRITICAL ERROR recording question:', recordError);
+            console.error('   Error message:', recordError.message);
+            console.error('   Stack trace:', recordError.stack);
         }
 
-        // ✅ STEP 5: Return response (ALWAYS SUCCEEDS!)
+        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+
+        // ✅ STEP 5: Return response
         console.log('✅ Returning question to user');
+        console.log('============================================================\n');
 
         res.json({
             success: true,
@@ -1436,7 +1561,9 @@ ${previousQuestionsText}
         });
 
     } catch (error) {
-        console.error('❌ Generate question error:', error);
+        console.error('❌❌❌ FATAL ERROR in generate-question:', error);
+        console.error('   Message:', error.message);
+        console.error('   Stack:', error.stack);
         res.status(500).json({
             success: false,
             error: error.message || 'Failed to generate question'
