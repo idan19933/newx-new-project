@@ -26,6 +26,7 @@ import adaptiveDifficultyRoutes from './routes/adaptiveDifficultyRoutes.js';
 import enhancedQuestionsRouter from './routes/enhancedQuestions.js';
 import * as cronManager from './services/cronJobs.js';
 import israeliSourcesRoutes from './routes/israeliSourcesRoutes.js';
+import adaptiveRoutes from './routes/adaptive.js';
 import notebookService from './services/notebookService.js';
 import smartQuestionService from './services/smartQuestionService.js';
 import userRoutes from './routes/userRoutes.js';
@@ -79,6 +80,7 @@ app.use('/api/performance', performanceRoutes);
 app.use('/api/adaptive', adaptiveDifficultyRoutes);//
 app.use('/api/questions', enhancedQuestionsRouter);  // ← חדש!
 app.use('/api/israeli-sources', israeliSourcesRoutes);
+app.use('/api/adaptive', adaptiveRoutes);
 
 console.log('✅ All routes registered!');
 app.post('/api/test-progress', (req, res) => {

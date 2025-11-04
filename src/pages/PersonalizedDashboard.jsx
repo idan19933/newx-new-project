@@ -1,12 +1,12 @@
-// src/pages/PersonalizedDashboard.jsx - ENHANCED VERSION WITH FLIP CARDS
+// src/pages/PersonalizedDashboard.jsx - ENHANCED WITH ADAPTIVE DIFFICULTY 🎯
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import {
     Brain, BookOpen, Play, ChevronDown, Book, Rocket,
     Sparkles, Star, Target, TrendingUp, Award, Activity,
     CheckCircle2, AlertCircle, Heart, ArrowLeft, Zap,
-    Users, Trophy, Clock, ChevronRight
+    Users, Trophy, Clock, ChevronRight, Gauge
 } from 'lucide-react';
 import useAuthStore from '../store/authStore';
 import { profileService } from '../services/profileService';
@@ -14,9 +14,13 @@ import { getUserGradeId, getGradeConfig, getSubtopics } from '../config/israeliC
 import MathTutor from '../components/ai/MathTutor';
 import AILearningArea from '../components/learning/AILearningArea';
 import toast from 'react-hot-toast';
+import axios from 'axios';
+
+const API_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
 
 const PersonalizedDashboard = () => {
     const navigate = useNavigate();
+    const location = useLocation();
     const { user, studentProfile, nexonProfile } = useAuthStore();
     const profile = studentProfile || nexonProfile;
 
@@ -37,6 +41,11 @@ const PersonalizedDashboard = () => {
     const [refreshTrigger, setRefreshTrigger] = useState(0);
     const [statsError, setStatsError] = useState(null);
 
+    // ✅ ADAPTIVE DIFFICULTY STATE
+    const [suggestedDifficulty, setSuggestedDifficulty] = useState('medium');
+    const [difficultyLoading, setDifficultyLoading] = useState(false);
+    const [adaptiveRecommendation, setAdaptiveRecommendation] = useState(null);
+
     // Get grade and topics with fallback
     const currentGrade = profile?.grade || user?.grade || 'grade10';
     const currentTrack = profile?.track || user?.track || '3-units';
@@ -52,8 +61,24 @@ const PersonalizedDashboard = () => {
     const gradeConfig = getGradeConfig(gradeId);
     const curriculumTopics = gradeConfig?.topics || [];
 
-    // Use curriculum topics - no fallback for cleaner experience
     const availableTopics = curriculumTopics;
+
+    // ✅ CHECK FOR AUTO-START FROM NAVIGATION (e.g., from Notebook)
+    useEffect(() => {
+        const navigationState = location.state;
+
+        if (navigationState?.autoStartPractice) {
+            console.log('🚀 Auto-starting practice from navigation:', navigationState);
+
+            setSelectedTopic(navigationState.selectedTopic);
+            setSelectedSubtopic(navigationState.selectedSubtopic || null);
+            setSuggestedDifficulty(navigationState.suggestedDifficulty || navigationState.difficulty || 'medium');
+            setCurrentMode('practice');
+
+            // Clear navigation state
+            window.history.replaceState({}, document.title);
+        }
+    }, [location.state]);
 
     useEffect(() => {
         const hour = new Date().getHours();
@@ -69,8 +94,39 @@ const PersonalizedDashboard = () => {
     useEffect(() => {
         if (currentMode === 'dashboard') {
             loadAllStats();
+            fetchAdaptiveDifficulty(); // ✅ Fetch difficulty recommendation
         }
     }, [user?.uid, refreshTrigger, currentMode]);
+
+    // ✅ FETCH ADAPTIVE DIFFICULTY RECOMMENDATION
+    const fetchAdaptiveDifficulty = async () => {
+        if (!user?.uid) return;
+
+        try {
+            setDifficultyLoading(true);
+
+            const response = await axios.get(`${API_URL}/api/adaptive/recommendation/${user.uid}`);
+
+            if (response.data.success && response.data.recommendation) {
+                const rec = response.data.recommendation;
+                setSuggestedDifficulty(rec.difficulty);
+                setAdaptiveRecommendation(rec);
+
+                console.log('🎯 Adaptive recommendation:', rec);
+            }
+        } catch (error) {
+            console.error('❌ Error fetching adaptive difficulty:', error);
+            // Fallback based on stats
+            if (stats.questionsAnswered >= 5) {
+                const accuracy = (stats.correctAnswers / stats.questionsAnswered) * 100;
+                if (accuracy >= 85) setSuggestedDifficulty('hard');
+                else if (accuracy >= 70) setSuggestedDifficulty('medium');
+                else setSuggestedDifficulty('easy');
+            }
+        } finally {
+            setDifficultyLoading(false);
+        }
+    };
 
     const loadAllStats = async () => {
         try {
@@ -110,13 +166,26 @@ const PersonalizedDashboard = () => {
         toast.success('מכין חומר לימודי מותאם אישית... 📚');
     };
 
-    const startPractice = (topic, subtopic = null) => {
+    // ✅ ENHANCED START PRACTICE WITH ADAPTIVE DIFFICULTY
+    const startPractice = (topic, subtopic = null, customDifficulty = null) => {
         setSelectedTopic(topic);
         setSelectedSubtopic(subtopic);
         setCurrentMode('practice');
 
+        const difficulty = customDifficulty || suggestedDifficulty;
+
+        const difficultyLabels = { easy: 'קל 🌱', medium: 'בינוני ⚡', hard: 'מאתגר 🔥' };
+
         if (!subtopic) {
-            toast('תרגול מכל נושאי המשנה! 🎲', { icon: '📚' });
+            toast.success(
+                `🚀 מתחיל תרגול חכם!\n📚 ${topic.name}\n🎯 רמה: ${difficultyLabels[difficulty]}\n✨ מתאים אוטומטית בזמן אמת`,
+                { duration: 4000, icon: '🎯' }
+            );
+        } else {
+            toast.success(
+                `🚀 תרגול מותאם אישית!\n📚 ${topic.name} - ${subtopic.name}\n🎯 רמה: ${difficultyLabels[difficulty]}`,
+                { duration: 3000, icon: '🎯' }
+            );
         }
     };
 
@@ -130,6 +199,7 @@ const PersonalizedDashboard = () => {
         setSelectedTopic(null);
         setSelectedSubtopic(null);
         setRefreshTrigger(prev => prev + 1);
+        fetchAdaptiveDifficulty(); // ✅ Refresh difficulty on return
     };
 
     const handleAnswerSubmitted = async (isCorrect) => {
@@ -197,6 +267,26 @@ const PersonalizedDashboard = () => {
         }
     };
 
+    // ✅ HELPER FUNCTIONS FOR DIFFICULTY DISPLAY
+    const getDifficultyLabel = (difficulty) => {
+        const labels = { easy: 'קל', medium: 'בינוני', hard: 'מאתגר' };
+        return labels[difficulty] || 'בינוני';
+    };
+
+    const getDifficultyEmoji = (difficulty) => {
+        const emojis = { easy: '🌱', medium: '⚡', hard: '🔥' };
+        return emojis[difficulty] || '⚡';
+    };
+
+    const getDifficultyColor = (difficulty) => {
+        const colors = {
+            easy: 'from-green-400 to-emerald-500',
+            medium: 'from-blue-400 to-cyan-500',
+            hard: 'from-orange-400 to-red-500'
+        };
+        return colors[difficulty] || 'from-blue-400 to-cyan-500';
+    };
+
     // Learning Mode
     if (currentMode === 'learning') {
         return (
@@ -221,7 +311,7 @@ const PersonalizedDashboard = () => {
         );
     }
 
-    // Practice Mode
+    // ✅ PRACTICE MODE - WITH ADAPTIVE DIFFICULTY
     if (currentMode === 'practice') {
         return (
             <div className="min-h-screen bg-gradient-to-br from-purple-50 to-pink-50 p-4 md:p-6">
@@ -239,6 +329,7 @@ const PersonalizedDashboard = () => {
                         selectedTopic={selectedTopic}
                         selectedSubtopic={selectedSubtopic}
                         userId={user?.uid}
+                        initialDifficulty={suggestedDifficulty} // ✅ PASS INITIAL DIFFICULTY
                         onAnswerSubmitted={handleAnswerSubmitted}
                         onClose={handleBackToDashboard}
                         mode="practice"
@@ -275,6 +366,43 @@ const PersonalizedDashboard = () => {
                         </motion.span>
                     </p>
                 </motion.div>
+
+                {/* ✅ ADAPTIVE DIFFICULTY BANNER */}
+                {!difficultyLoading && adaptiveRecommendation && (
+                    <motion.div
+                        initial={{ opacity: 0, scale: 0.95 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        className="bg-white/20 backdrop-blur-lg rounded-2xl md:rounded-3xl p-4 md:p-6 border-2 border-white/30"
+                    >
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                                <motion.div
+                                    animate={{ rotate: [0, 360] }}
+                                    transition={{ duration: 3, repeat: Infinity, ease: "linear" }}
+                                    className="p-3 bg-white/30 rounded-xl"
+                                >
+                                    <Gauge className="w-6 h-6 md:w-8 md:h-8 text-white" />
+                                </motion.div>
+                                <div>
+                                    <h3 className="text-lg md:text-xl font-black text-white flex items-center gap-2">
+                                        🤖 רמת הקושי המותאמת שלך
+                                    </h3>
+                                    <p className="text-xs md:text-sm text-white/90">
+                                        {adaptiveRecommendation.message}
+                                    </p>
+                                </div>
+                            </div>
+
+                            <motion.div
+                                animate={{ scale: [1, 1.1, 1] }}
+                                transition={{ duration: 2, repeat: Infinity }}
+                                className={`px-4 md:px-6 py-2 md:py-3 rounded-xl font-black text-lg md:text-2xl bg-gradient-to-r ${getDifficultyColor(suggestedDifficulty)} text-white shadow-lg`}
+                            >
+                                {getDifficultyEmoji(suggestedDifficulty)} {getDifficultyLabel(suggestedDifficulty)}
+                            </motion.div>
+                        </div>
+                    </motion.div>
+                )}
 
                 {/* Stats Cards - Enhanced with better animations */}
                 <motion.div
@@ -376,7 +504,7 @@ const PersonalizedDashboard = () => {
                     </motion.div>
                 )}
 
-                {/* Topics Section - Enhanced with Flip Cards */}
+                {/* Topics Section - SAME AS BEFORE BUT WITH ADAPTIVE DIFFICULTY */}
                 <motion.div
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
@@ -467,7 +595,7 @@ const PersonalizedDashboard = () => {
                                                             className="w-full flex items-center justify-center gap-2 md:gap-3 px-4 md:px-6 py-3 md:py-5 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-xl md:rounded-2xl font-black text-sm md:text-base lg:text-lg shadow-lg"
                                                         >
                                                             <Rocket className="w-4 h-4 md:w-6 md:h-6" />
-                                                            <span>תרגול מיידי</span>
+                                                            <span>תרגול חכם {getDifficultyEmoji(suggestedDifficulty)}</span>
                                                         </motion.button>
 
                                                         {subtopics.length > 0 && (
@@ -485,7 +613,7 @@ const PersonalizedDashboard = () => {
                                                 </div>
                                             </div>
 
-                                            {/* Back of card */}
+                                            {/* Back of card - SAME AS BEFORE */}
                                             <div
                                                 className="absolute inset-0 bg-gradient-to-br from-purple-600 to-pink-600 rounded-2xl md:rounded-3xl p-4 md:p-6 shadow-2xl"
                                                 style={{

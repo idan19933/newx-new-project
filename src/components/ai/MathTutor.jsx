@@ -1321,6 +1321,7 @@ const MathTutor = ({
                        selectedSubtopic: propSelectedSubtopic,
                        mode: propMode,
                        userId: propUserId,
+                       initialDifficulty: propInitialDifficulty, // ✅ ADD THIS
                        onClose,
                        onAnswerSubmitted
                    }) => {
@@ -1396,7 +1397,7 @@ const MathTutor = ({
     });
 
     // ✅ ADAPTIVE DIFFICULTY STATE
-    const [currentDifficulty, setCurrentDifficulty] = useState('medium');
+    const [currentDifficulty, setCurrentDifficulty] = useState(propInitialDifficulty || 'medium');
     const [adaptiveQuestionsCount, setAdaptiveQuestionsCount] = useState(0);
     const [recentAnswers, setRecentAnswers] = useState([]);
     const [recommendation, setRecommendation] = useState(null);
