@@ -168,7 +168,87 @@ router.post('/save-exercise', async (req, res) => {
         });
     }
 });
+/**
+ * POST /api/notebook/save - Save entry to notebook
+ * Simple endpoint matching frontend call
+ */
+router.post('/save', async (req, res) => {
+    try {
+        const {
+            userId,
+            topic,
+            subtopic,
+            question,
+            studentAnswer,
+            correctAnswer,
+            isCorrect,
+            difficulty,
+            hintsUsed,
+            attempts,
+            timeSpent
+        } = req.body;
 
+        console.log('💾 POST /api/notebook/save');
+        console.log('   Body:', { userId, topic, isCorrect, difficulty });
+
+        if (!userId) {
+            return res.status(400).json({
+                success: false,
+                message: 'Missing userId'
+            });
+        }
+
+        // Get internal user ID
+        let internalUserId = await getUserIdFromFirebaseUid(userId);
+
+        // Create user if doesn't exist
+        if (!internalUserId) {
+            const createResult = await pool.query(
+                'INSERT INTO users (firebase_uid) VALUES ($1) RETURNING id',
+                [userId]
+            );
+            internalUserId = createResult.rows[0].id;
+            console.log('✅ Created new user ID:', internalUserId);
+        }
+
+        // Insert into notebook_entries
+        const result = await pool.query(
+            `INSERT INTO notebook_entries 
+            (user_id, student_id, topic, subtopic, question_text, user_answer, correct_answer, is_correct, difficulty, hints_used, attempts, time_spent, created_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW())
+            RETURNING *`,
+            [
+                internalUserId,
+                internalUserId, // student_id same as user_id
+                topic || '',
+                subtopic || null,
+                question || '',
+                studentAnswer || '',
+                correctAnswer || '',
+                isCorrect || false,
+                difficulty || 'medium',
+                hintsUsed || 0,
+                attempts || 1,
+                timeSpent || 0
+            ]
+        );
+
+        console.log('✅ Notebook entry saved, ID:', result.rows[0].id);
+
+        res.json({
+            success: true,
+            entry: result.rows[0]
+        });
+
+    } catch (error) {
+        console.error('❌ Error in /save route:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to save to notebook',
+            error: error.message
+        });
+    }
+});
 /**
  * GET /api/notebook/entries?userId=xxx - Get all notebook entries
  */
