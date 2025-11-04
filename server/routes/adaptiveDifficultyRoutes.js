@@ -1,4 +1,4 @@
-// server/routes/adaptiveDifficultyRoutes.js - API ROUTES FOR ADAPTIVE DIFFICULTY 🎯
+// server/routes/adaptiveDifficultyRoutes.js - FIXED VERSION 🎯
 import express from 'express';
 import adaptiveDifficultyService from '../services/adaptiveDifficultyService.js';
 
@@ -45,30 +45,40 @@ router.get('/recommend', async (req, res) => {
 
 /**
  * POST /api/adaptive/check-adjustment - Check if difficulty should be adjusted after answer
- * Body: { userId, topicId, currentDifficulty, isCorrect }
+ * Body: { userId, topicId, currentDifficulty OR difficulty, isCorrect }
  */
 router.post('/check-adjustment', async (req, res) => {
     try {
-        const { userId, topicId, currentDifficulty, isCorrect } = req.body;
+        // ✅ FIX: Accept both parameter names
+        const {
+            userId,
+            topicId,
+            currentDifficulty,  // Old name
+            difficulty,         // New name (used by frontend)
+            isCorrect
+        } = req.body;
 
-        if (!userId || !currentDifficulty) {
+        // ✅ Use whichever is provided
+        const difficultyLevel = difficulty || currentDifficulty;
+
+        if (!userId || !difficultyLevel) {
             return res.status(400).json({
                 success: false,
-                error: 'userId and currentDifficulty are required'
+                error: 'userId and difficulty are required'
             });
         }
 
         console.log('🔄 [Adaptive] Checking adjustment:', {
             userId,
             topicId,
-            currentDifficulty,
+            difficulty: difficultyLevel,
             isCorrect
         });
 
         const adjustment = await adaptiveDifficultyService.shouldAdjustDifficulty(
             userId,
             topicId || null,
-            currentDifficulty,
+            difficultyLevel,  // ✅ Use the unified parameter
             isCorrect
         );
 
@@ -76,7 +86,12 @@ router.post('/check-adjustment', async (req, res) => {
 
         return res.json({
             success: true,
-            adjustment
+            shouldAdjust: adjustment.shouldAdjust,  // ✅ Match frontend expectation
+            recommendation: adjustment.shouldAdjust ? {
+                newDifficulty: adjustment.newDifficulty,
+                reason: adjustment.reason,
+                confidence: adjustment.confidence
+            } : null
         });
 
     } catch (error) {
@@ -129,6 +144,72 @@ router.get('/performance-summary', async (req, res) => {
         return res.status(500).json({
             success: false,
             error: 'Failed to get performance summary',
+            details: error.message
+        });
+    }
+});
+
+/**
+ * GET /api/adaptive/recommendation/:userId - Alternative endpoint for recommendations
+ */
+router.get('/recommendation/:userId', async (req, res) => {
+    try {
+        const { userId } = req.params;
+        const { topicId } = req.query;
+
+        console.log('🎯 [Adaptive] Getting recommendation for:', userId, 'topic:', topicId);
+
+        const recommendation = await adaptiveDifficultyService.getRecommendedDifficulty(
+            userId,
+            topicId || null
+        );
+
+        return res.json({
+            success: true,
+            recommendation
+        });
+
+    } catch (error) {
+        console.error('❌ [Adaptive] Error getting recommendation:', error);
+        return res.status(500).json({
+            success: false,
+            error: 'Failed to get difficulty recommendation',
+            details: error.message
+        });
+    }
+});
+
+/**
+ * GET /api/adaptive/performance/:userId - Get user performance metrics
+ */
+router.get('/performance/:userId', async (req, res) => {
+    try {
+        const { userId } = req.params;
+        const { topicId } = req.query;
+
+        console.log('📊 [Adaptive] Getting performance for:', userId);
+
+        const recommendation = await adaptiveDifficultyService.getRecommendedDifficulty(
+            userId,
+            topicId || null
+        );
+
+        return res.json({
+            success: true,
+            performance: {
+                hasEnoughData: recommendation.confidence > 0,
+                totalQuestions: 0,  // Can be enhanced later
+                correctAnswers: 0,   // Can be enhanced later
+                accuracy: 0          // Can be enhanced later
+            },
+            recommendation
+        });
+
+    } catch (error) {
+        console.error('❌ [Adaptive] Error getting performance:', error);
+        return res.status(500).json({
+            success: false,
+            error: 'Failed to get performance data',
             details: error.message
         });
     }
