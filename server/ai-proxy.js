@@ -1152,7 +1152,12 @@ app.post('/api/ai/generate-question', async (req, res) => {
         const userIdInt = userId ? parseInt(userId) : null;
         const gradeLevel = parseInt(grade.replace('grade_', '')) || 8;
 
-        console.log('👤 User Info:', { userId, userIdInt, type: typeof userIdInt });
+        console.log('👤 User Info:', {
+            userId,
+            userIdInt,
+            type: typeof userIdInt,
+            hasValidUserId: !!userIdInt
+        });
 
         // 🎯 STEP 1: Try to get from database cache first
         console.log('🔍 Checking database cache...');
@@ -1191,6 +1196,17 @@ app.post('/api/ai/generate-question', async (req, res) => {
         // 🤖 STEP 2: No cached question found - generate with AI
         console.log('🤖 No suitable cached question - generating with Claude AI...');
 
+        // 🔍 CHECK RECENT QUESTIONS BEFORE GENERATING
+        const sessionKey = userIdInt || userId || 'anonymous';
+        const recentQuestionsFromMemory = questionHistoryManager.getRecentQuestions(sessionKey, topicId, 10);
+
+        console.log('📚 Recent questions check:', {
+            sessionKey,
+            topicId,
+            count: recentQuestionsFromMemory?.length || 0,
+            questions: recentQuestionsFromMemory?.map(q => q.question.substring(0, 50)) || []
+        });
+
         // Build personality-aware prompt
         const personalityContext = personalitySystem?.loaded ? `
 אתה ${personalitySystem.data.corePersonality.teacherName}, ${personalitySystem.data.corePersonality.role}.
@@ -1205,8 +1221,26 @@ app.post('/api/ai/generate-question', async (req, res) => {
 - ${personalitySystem.data.languageStyle.encouragementStyle}
 ` : 'אתה נקסון, מורה למתמטיקה ישראלי מנוסה וידידותי.';
 
-        const previousQuestionsText = previousQuestions.length > 0
-            ? `\n\nשאלות קודמות (צור שאלה שונה לחלוטין!):\n${previousQuestions.map((q, i) => `${i + 1}. ${typeof q === 'string' ? q.substring(0, 100) : q.question?.substring(0, 100) || 'N/A'}...`).join('\n')}`
+        // ✅ COMBINE previousQuestions from request AND recentQuestionsFromMemory
+        const allPreviousQuestions = [
+            ...previousQuestions,
+            ...(recentQuestionsFromMemory || [])
+        ];
+
+        // Remove duplicates based on question text
+        const uniquePreviousQuestions = allPreviousQuestions.filter((q, index, self) => {
+            const text = typeof q === 'string' ? q : (q.question || '');
+            return index === self.findIndex(t => {
+                const tText = typeof t === 'string' ? t : (t.question || '');
+                return text === tText;
+            });
+        });
+
+        const previousQuestionsText = uniquePreviousQuestions.length > 0
+            ? `\n\n🚨 חשוב מאוד - אסור לחזור על השאלות הבאות!\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n${uniquePreviousQuestions.map((q, i) => {
+                const text = typeof q === 'string' ? q : (q.question || 'N/A');
+                return `${i + 1}. ${text.substring(0, 80)}...`;
+            }).join('\n')}\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n⚠️⚠️⚠️ צור שאלה שונה לחלוטין:\n- מספרים שונים לגמרי\n- הקשר שונה (אם היה על ספורט, עשה על קניות או בית ספר)\n- זווית גישה שונה\n- נוסח שונה\n- אל תשתמש באותם ערכים מספריים!\n`
             : '';
 
         const prompt = `${personalityContext}
@@ -1222,10 +1256,11 @@ ${previousQuestionsText}
 דרישות חובה:
 1. כתוב את כל התוכן בעברית בלבד - אסור לכתוב באנגלית!
 2. השאלה חייבת להיות ישירות על "${subtopicName || topicName}"
-3. השתמש במספרים מעניינים ומגוונים
-4. הוסף הקשר מהחיים האמיתיים (ספורט, קניות, בית ספר וכו')
-5. צור שאלה שונה לחלוטין משאלות קודמות
+3. השתמש במספרים מעניינים ומגוונים - לא אותם מספרים מהשאלות הקודמות!
+4. הוסף הקשר מהחיים האמיתיים (ספורט, קניות, בית ספר, חוגים וכו')
+5. 🚨 צור שאלה שונה לחלוטין משאלות קודמות - תחשוב על זווית חדשה!
 6. השאלה צריכה להיות מאתגרת ברמת ${difficulty}
+7. וודא שהשאלה שלמה ומסתיימת במשפט שלם עם נקודה
 
 פורמט JSON חובה (בעברית בלבד!):
 {
@@ -1249,9 +1284,9 @@ ${previousQuestionsText}
             },
             body: JSON.stringify({
                 model: 'claude-sonnet-4-5-20250929',
-                max_tokens: 2500,
-                temperature: 0.6,
-                system: 'אתה מורה למתמטיקה ישראלי מנוסה. כל התשובות שלך חייבות להיות בעברית בלבד! אסור לך לכתוב באנגלית או בשפה אחרת. צור שאלות מקוריות ומעניינות שמתאימות לתכנית הלימודים הישראלית.',
+                max_tokens: 3000,  // ✅ Increased to prevent truncation
+                temperature: 0.7,  // ✅ Increased for more variety
+                system: 'אתה מורה למתמטיקה ישראלי מנוסה. כל התשובות שלך חייבות להיות בעברית בלבד! אסור לך לכתוב באנגלית או בשפה אחרת. צור שאלות מקוריות ומעניינות שמתאימות לתכנית הלימודים הישראלית. וודא שהשאלה שלמה ומסתיימת במשפט שלם.',
                 messages: [{
                     role: 'user',
                     content: prompt
@@ -1267,7 +1302,9 @@ ${previousQuestionsText}
         const data = await response.json();
         const rawText = data.content[0].text;
 
+        console.log('📄 Raw response length:', rawText.length);
         console.log('📄 Raw response (first 200):', rawText.substring(0, 200));
+        console.log('📄 Raw response (last 100):', rawText.substring(Math.max(0, rawText.length - 100)));
 
         // Parse JSON
         let jsonText = rawText.trim();
@@ -1305,7 +1342,9 @@ ${previousQuestionsText}
         }
 
         console.log('✅ AI Question generated successfully');
-        console.log('📝 Question:', questionData.question.substring(0, 100));
+        console.log('📝 Question length:', questionData.question.length);
+        console.log('📝 Question (first 100):', questionData.question.substring(0, 100));
+        console.log('📝 Question (last 50):', questionData.question.substring(Math.max(0, questionData.question.length - 50)));
         console.log('✅ Answer:', questionData.correctAnswer.substring(0, 50));
 
         // 💾 STEP 3: Cache the AI-generated question
@@ -1334,42 +1373,48 @@ ${previousQuestionsText}
             }
         } catch (cacheError) {
             console.error('❌ Cache error:', cacheError.message);
-            console.error('   Error details:', cacheError);
             // Don't fail the request - continue without caching
         }
 
-        // ✅ STEP 4: Record to question history (ONLY ONCE!)
-        const studentId = userIdInt || studentProfile?.name || 'anonymous';
+        // ✅ STEP 4: Record to question history (IMPROVED!)
+        console.log('📝 Recording question to history...');
+        console.log('   sessionKey:', sessionKey);
+        console.log('   topicId:', topicId);
 
         try {
-            // Session memory (in-memory, always works)
-            questionHistoryManager.addQuestion(studentId, topicId, {
+            // ALWAYS record to session memory (instant, works immediately)
+            questionHistoryManager.addQuestion(sessionKey, topicId, {
                 question: questionData.question,
                 difficulty,
                 timestamp: Date.now()
             });
             console.log('✅ Question recorded to session memory');
 
-            // Database recording (only if we have valid userId)
-            if (userIdInt) {
+            // Verify it was recorded
+            const verifyRecorded = questionHistoryManager.getRecentQuestions(sessionKey, topicId, 1);
+            console.log('   ✓ Verification - questions in memory now:', verifyRecorded?.length || 0);
+
+            // Record to database ONLY if we have valid integer userId
+            if (userIdInt && typeof userIdInt === 'number') {
                 try {
-                    await questionHistoryManager.recordToDatabase(studentId, {
+                    await questionHistoryManager.recordToDatabase(userIdInt, {
                         topicId,
                         subtopicId,
                         questionText: questionData.question,
-                        difficulty
+                        difficulty,
+                        isCorrect: null // Not answered yet
                     });
-                    console.log('✅ Question recorded to database');
+                    console.log('✅ Question recorded to database for userId:', userIdInt);
                 } catch (dbError) {
                     console.error('⚠️ Database recording failed:', dbError.message);
-                    // Don't fail the request - continue anyway
+                    // Session memory is enough - don't fail
                 }
             } else {
-                console.log('⚠️ No valid userIdInt - skipping database recording');
+                console.log('⚠️ No valid userIdInt - using session memory only');
             }
         } catch (recordError) {
             console.error('⚠️ Failed to record question:', recordError.message);
-            // Don't fail the request - continue anyway
+            // Don't fail the request
         }
 
         // ✅ STEP 5: Return response (ALWAYS SUCCEEDS!)
@@ -2383,6 +2428,57 @@ app.post('/api/cron/run/:jobName', async (req, res) => {
 
 console.log('✅ Enhanced Question System endpoints registered');
 
+// ==================== DEBUG: CHECK QUESTION HISTORY ====================
+app.get('/api/ai/question-history/:userId/:topicId', async (req, res) => {
+    try {
+        const { userId, topicId } = req.params;
+
+        console.log('🔍 Checking question history:', { userId, topicId });
+
+        // Convert to int if needed
+        const userIdInt = parseInt(userId);
+        const sessionKey = isNaN(userIdInt) ? userId : userIdInt;
+
+        // Check session memory
+        const sessionHistory = questionHistoryManager.getRecentQuestions(sessionKey, topicId, 20);
+
+        // Check database
+        let dbHistory = [];
+        if (!isNaN(userIdInt)) {
+            const query = `
+                SELECT question_text, difficulty, created_at
+                FROM question_history
+                WHERE user_id = $1 AND topic_id = $2
+                ORDER BY created_at DESC
+                LIMIT 20
+            `;
+            const result = await pool.query(query, [userIdInt, topicId]);
+            dbHistory = result.rows;
+        }
+
+        res.json({
+            success: true,
+            userId,
+            topicId,
+            sessionKey,
+            sessionHistory: {
+                count: sessionHistory?.length || 0,
+                questions: sessionHistory || []
+            },
+            databaseHistory: {
+                count: dbHistory.length,
+                questions: dbHistory
+            }
+        });
+
+    } catch (error) {
+        console.error('❌ Error checking history:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
 
 app.listen(PORT, '0.0.0.0', async () => {
     await loadPersonalityFromStorage();
