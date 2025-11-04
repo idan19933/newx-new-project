@@ -1,4 +1,4 @@
-// src/components/ai/MathTutor.jsx - COMPLETE MODERN ENHANCED UI WITH ADAPTIVE DIFFICULTY + NOTIFICATION 🎨✨
+// src/components/ai/MathTutor.jsx - COMPLETE WITH FIXED ADAPTIVE DIFFICULTY 🎯✨
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -422,7 +422,8 @@ const saveExerciseToNotebook = async (userId, exerciseData) => {
         console.log('📝 Saving to notebook:', {
             userId,
             isCorrect: exerciseData.isCorrect,
-            topic: exerciseData.topic
+            topic: exerciseData.topic,
+            difficulty: exerciseData.difficulty // ✅ LOG DIFFICULTY
         });
 
         const result = await notebookAPI.saveExercise(userId, {
@@ -431,11 +432,12 @@ const saveExerciseToNotebook = async (userId, exerciseData) => {
             studentAnswer: exerciseData.userAnswer,
             isCorrect: exerciseData.isCorrect,
             topic: exerciseData.topic || 'כללי',
-            subtopic: exerciseData.subtopic || ''
+            subtopic: exerciseData.subtopic || '',
+            difficulty: exerciseData.difficulty || 'medium' // ✅ INCLUDE DIFFICULTY
         });
 
         if (result.success) {
-            console.log('✅ Saved to notebook');
+            console.log('✅ Saved to notebook with difficulty:', exerciseData.difficulty);
         }
 
         return result;
@@ -1321,7 +1323,7 @@ const MathTutor = ({
                        selectedSubtopic: propSelectedSubtopic,
                        mode: propMode,
                        userId: propUserId,
-                       initialDifficulty: propInitialDifficulty, // ✅ ADD THIS
+                       initialDifficulty: propInitialDifficulty,
                        onClose,
                        onAnswerSubmitted
                    }) => {
@@ -1404,7 +1406,7 @@ const MathTutor = ({
     const [performance, setPerformance] = useState(null);
     const [adjustmentHistory, setAdjustmentHistory] = useState([]);
     const [isCheckingAdaptive, setIsCheckingAdaptive] = useState(false);
-    const [showDifficultyChange, setShowDifficultyChange] = useState(null); // ✅ FOR NOTIFICATION
+    const [showDifficultyChange, setShowDifficultyChange] = useState(null);
 
     // Difficulty display helpers
     const difficultyEmoji = useMemo(() => {
@@ -1447,10 +1449,17 @@ const MathTutor = ({
         };
     }, [propGradeId, nexonProfile?.grade, nexonProfile?.track, user?.grade, user?.track]);
 
-    // ✅ TRACK ANSWER FOR ADAPTIVE DIFFICULTY (UPDATED WITH NOTIFICATION)
+    // ✅ ✅ ✅ FIXED TRACK ANSWER FOR ADAPTIVE DIFFICULTY ✅ ✅ ✅
     const trackAnswer = useCallback(async (isCorrect, timeTaken) => {
+        console.log('🎯 trackAnswer called:', { isCorrect, timeTaken });
+
         const userId = getUserId();
-        if (!userId) return;
+        console.log('👤 User ID:', userId);
+
+        if (!userId) {
+            console.warn('⚠️ No userId available for tracking');
+            return;
+        }
 
         const answerData = {
             userId,
@@ -1463,33 +1472,81 @@ const MathTutor = ({
             attempts: attemptCount + 1
         };
 
-        // Update local state
+        console.log('📊 Answer data:', answerData);
+
+        // ✅ FIX: Increment count FIRST, then check
+        const newCount = adaptiveQuestionsCount + 1;
+        setAdaptiveQuestionsCount(newCount);
+
+        // Update recent answers
         setRecentAnswers(prev => [...prev.slice(-9), answerData]);
-        setAdaptiveQuestionsCount(prev => prev + 1);
 
-        // Check for difficulty adjustment
-        if (adaptiveQuestionsCount >= 2) { // Start adapting after 3 questions
+        console.log('🔍 Questions answered so far:', newCount);
+
+        // ✅ Check for difficulty adjustment after 3 questions
+        if (newCount >= 3) {
+            console.log('✅ Threshold met (3+ questions), checking adjustment...');
             setIsCheckingAdaptive(true);
-            try {
-                const response = await axios.post(`${API_URL}/api/adaptive/check-adjustment`, answerData);
 
-                if (response.data.success && response.data.shouldAdjust) {
-                    const { recommendation: rec } = response.data;
+            try {
+                const url = `${API_URL}/api/adaptive/check-adjustment`;
+                console.log('🌐 Calling API:', url);
+                console.log('📤 Request body:', answerData);
+
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(answerData)
+                });
+
+                console.log('📥 API Response status:', response.status);
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    console.error('❌ API Error response:', errorText);
+                    throw new Error(`API returned ${response.status}`);
+                }
+
+                const result = await response.json();
+                console.log('📊 Adjustment check result:', result);
+
+                if (result.success && result.shouldAdjust && result.recommendation) {
+                    const rec = result.recommendation;
+                    console.log('🎯 Should adjust! Recommendation:', rec);
+
                     setRecommendation(rec);
 
                     if (rec.newDifficulty !== currentDifficulty) {
-                        // ✅ Show visual notification FIRST
+                        console.log('🔄 Changing difficulty:', currentDifficulty, '→', rec.newDifficulty);
+
+                        // ✅ Show visual notification
+                        const difficultyNames = {
+                            easy: 'קל',
+                            medium: 'בינוני',
+                            hard: 'מאתגר'
+                        };
+
+                        const changeMessage = `עניתנו ${isCorrect ? 'נכון' : 'לא נכון'} על ${newCount} שאלות. ${rec.reason || ''}`;
+
                         setShowDifficultyChange({
                             from: currentDifficulty,
                             to: rec.newDifficulty,
-                            reason: rec.reason
+                            reason: changeMessage
                         });
 
                         // Auto-hide after 5 seconds
-                        setTimeout(() => setShowDifficultyChange(null), 5000);
+                        setTimeout(() => {
+                            console.log('⏰ Hiding difficulty change notification');
+                            setShowDifficultyChange(null);
+                        }, 5000);
 
-                        // THEN update difficulty
+                        // Update difficulty
                         setCurrentDifficulty(rec.newDifficulty);
+
+                        // Reset counter for next check
+                        setAdaptiveQuestionsCount(0);
+
+                        // Track adjustment history
                         setAdjustmentHistory(prev => [...prev, {
                             timestamp: Date.now(),
                             from: currentDifficulty,
@@ -1497,26 +1554,52 @@ const MathTutor = ({
                             reason: rec.reason
                         }]);
 
-                        // Also show toast for redundancy
+                        // Show toast notification
+                        const diffEmoji = rec.newDifficulty === 'easy' ? '🌱' : rec.newDifficulty === 'hard' ? '🔥' : '⚡';
                         toast.success(
-                            `רמת קושי שונתה ל-${rec.newDifficulty === 'easy' ? 'קל 🌱' : rec.newDifficulty === 'hard' ? 'מאתגר 🔥' : 'בינוני ⚡'}!`,
+                            `רמת קושי שונתה ל-${difficultyNames[rec.newDifficulty]} ${diffEmoji}!`,
                             { duration: 3000, icon: '🎯' }
                         );
                     }
+                } else {
+                    console.log('ℹ️ No adjustment needed at this time');
                 }
 
                 // Get performance summary
-                const perfResponse = await axios.get(`${API_URL}/api/adaptive/performance/${userId}`);
-                if (perfResponse.data.success) {
-                    setPerformance(perfResponse.data.performance);
+                try {
+                    const perfUrl = `${API_URL}/api/adaptive/performance/${userId}`;
+                    console.log('📊 Fetching performance:', perfUrl);
+
+                    const perfResponse = await fetch(perfUrl);
+                    if (perfResponse.ok) {
+                        const perfData = await perfResponse.json();
+                        if (perfData.success) {
+                            setPerformance(perfData.performance);
+                            console.log('✅ Performance updated:', perfData.performance);
+                        }
+                    }
+                } catch (perfError) {
+                    console.warn('⚠️ Could not fetch performance:', perfError);
                 }
+
             } catch (error) {
                 console.error('❌ Adaptive difficulty check error:', error);
+                toast.error('שגיאה בבדיקת רמת קושי', { duration: 2000 });
             } finally {
                 setIsCheckingAdaptive(false);
             }
+        } else {
+            console.log(`ℹ️ Not checking yet - need ${3 - newCount} more questions`);
         }
-    }, [getUserId, selectedTopic, selectedSubtopic, currentDifficulty, hintCount, attemptCount, adaptiveQuestionsCount]);
+    }, [
+        getUserId,
+        selectedTopic,
+        selectedSubtopic,
+        currentDifficulty,
+        hintCount,
+        attemptCount,
+        adaptiveQuestionsCount
+    ]);
 
     useEffect(() => {
         if (propTopicId && availableTopics.length > 0 && !selectedTopic && !initStartedRef.current) {
@@ -1727,7 +1810,8 @@ const MathTutor = ({
                     userAnswer: data.analysis.detectedAnswer || 'תשובה מתמונה',
                     isCorrect: data.analysis.isCorrect,
                     topic: selectedTopic?.name || 'כללי',
-                    subtopic: selectedSubtopic?.name || ''
+                    subtopic: selectedSubtopic?.name || '',
+                    difficulty: currentDifficulty // ✅ INCLUDE DIFFICULTY
                 });
             }
 
@@ -1744,6 +1828,7 @@ const MathTutor = ({
                 });
 
                 // ✅ Track answer for adaptive difficulty
+                console.log('🎯 Calling trackAnswer from image analysis');
                 await trackAnswer(data.analysis.isCorrect, timer);
             }
 
@@ -1879,6 +1964,8 @@ const MathTutor = ({
                     studentId: String(nexonProfile?.id || user?.id || 'anonymous')
                 }
             };
+
+            console.log('🎯 Generating question with difficulty:', currentDifficulty);
 
             const response = await fetch(`${API_URL}/api/ai/generate-question`, {
                 method: 'POST',
@@ -2025,7 +2112,8 @@ const MathTutor = ({
                 userAnswer: userAnswer,
                 isCorrect: isCorrect,
                 topic: selectedTopic?.name || 'כללי',
-                subtopic: selectedSubtopic?.name || ''
+                subtopic: selectedSubtopic?.name || '',
+                difficulty: currentDifficulty // ✅ INCLUDE DIFFICULTY
             });
         }
 
@@ -2041,7 +2129,8 @@ const MathTutor = ({
                 attempts: attemptCount + 1
             });
 
-            // ✅ Track answer for adaptive difficulty
+            // ✅ ✅ ✅ TRACK ANSWER FOR ADAPTIVE DIFFICULTY ✅ ✅ ✅
+            console.log('🎯 Calling trackAnswer from submitAnswer');
             await trackAnswer(isCorrect, timer);
         }
 
