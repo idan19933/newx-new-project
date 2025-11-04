@@ -1115,6 +1115,7 @@ function buildDynamicQuestionPrompt(topic, subtopic, difficulty, studentProfile,
 // ==================== GENERATE QUESTION ====================
 // ==================== GENERATE QUESTION ====================
 // ==================== SMART QUESTION GENERATION (Enhanced with all features) ====================
+// ==================== SMART QUESTION GENERATION (Enhanced with all features) ====================
 app.post('/api/ai/generate-question', async (req, res) => {
     console.log('============================================================');
     console.log('📝 SMART QUESTION GENERATION (DB + AI)');
@@ -1186,7 +1187,7 @@ app.post('/api/ai/generate-question', async (req, res) => {
         // 🤖 STEP 2: No cached question found - generate with AI
         console.log('🤖 No suitable cached question - generating with Claude AI...');
 
-        // ==================== BUILD PERSONALITY-AWARE PROMPT (EXISTING LOGIC) ====================
+        // ==================== BUILD PERSONALITY-AWARE PROMPT ====================
         const personalityContext = personalitySystem?.loaded ? `
 אתה ${personalitySystem.data.corePersonality.teacherName}, ${personalitySystem.data.corePersonality.role}.
 תכונות האישיות שלך:
@@ -1232,7 +1233,7 @@ ${previousQuestionsText}
 
 חשוב: השתמש ב\\n לשורה חדשה, לא Enter אמיתי. החזר רק JSON, ללא טקסט נוסף.`;
 
-        // ==================== CALL CLAUDE API (EXISTING LOGIC) ====================
+        // ==================== CALL CLAUDE API ====================
         console.log('🔄 Calling Claude API...');
 
         const response = await fetch('https://api.anthropic.com/v1/messages', {
@@ -1264,7 +1265,7 @@ ${previousQuestionsText}
 
         console.log('📄 Raw response (first 200):', rawText.substring(0, 200));
 
-        // ==================== PARSE JSON (EXISTING LOGIC) ====================
+        // ==================== PARSE JSON ====================
         let jsonText = rawText.trim();
 
         // Remove markdown code blocks if present
@@ -1317,7 +1318,6 @@ ${previousQuestionsText}
             console.log('⚠️ Question could not be cached (might be duplicate)');
         }
 
-        // ==================== RETURN RESPONSE ====================
         // ✅✅✅ STEP 4: Record to BOTH session memory AND database ✅✅✅
         const studentId = userId || studentProfile?.studentId || studentProfile?.name || 'anonymous';
 
@@ -1345,6 +1345,30 @@ ${previousQuestionsText}
             // Don't fail the request - continue anyway
         }
 
+        // ✅✅✅ STEP 5: Return response ✅✅✅
+        res.json({
+            success: true,
+            question: questionData.question,
+            correctAnswer: questionData.correctAnswer,
+            hints: questionData.hints,
+            explanation: questionData.explanation,
+            visualData: questionData.visualData,
+            cached: false,
+            questionId: cachedId,
+            source: 'ai_generated',
+            model: 'claude-sonnet-4-5-20250929',
+            topic: topicName,
+            subtopic: subtopicName
+        });
+
+    } catch (error) {
+        console.error('❌ Generate question error:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
 // ==================== RETURN RESPONSE ====================
         // ✅✅✅ STEP 4: Record to BOTH session memory AND database ✅✅✅
         const studentId = userId || studentProfile?.studentId || studentProfile?.name || 'anonymous';
