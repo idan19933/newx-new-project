@@ -189,12 +189,21 @@ router.post('/save', async (req, res) => {
         } = req.body;
 
         console.log('💾 POST /api/notebook/save');
-        console.log('   Body:', { userId, topic, isCorrect, difficulty });
+        console.log('   Body:', JSON.stringify(req.body, null, 2));
 
         if (!userId) {
             return res.status(400).json({
                 success: false,
                 message: 'Missing userId'
+            });
+        }
+
+        // ✅ VALIDATE REQUIRED FIELDS
+        if (!topic || topic.length === 0) {
+            console.error('❌ Missing topic');
+            return res.status(400).json({
+                success: false,
+                message: 'Missing topic'
             });
         }
 
@@ -211,20 +220,25 @@ router.post('/save', async (req, res) => {
             console.log('✅ Created new user ID:', internalUserId);
         }
 
+        // ✅ ENSURE ALL FIELDS ARE STRINGS/VALID
+        const questionText = String(question || '').substring(0, 5000);
+        const answerText = String(studentAnswer || '').substring(0, 1000);
+        const correctAnswerText = String(correctAnswer || '').substring(0, 1000);
+
         // Insert into notebook_entries
         const result = await pool.query(
-            `INSERT INTO notebook_entries 
-            (user_id, student_id, topic, subtopic, question_text, user_answer, correct_answer, is_correct, difficulty, hints_used, attempts, time_spent, created_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW())
-            RETURNING *`,
+            `INSERT INTO notebook_entries
+             (user_id, student_id, topic, subtopic, question_text, user_answer, correct_answer, is_correct, difficulty, hints_used, attempts, time_spent, created_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW())
+                 RETURNING *`,
             [
                 internalUserId,
-                internalUserId, // student_id same as user_id
-                topic || '',
+                internalUserId,
+                topic || 'כללי',
                 subtopic || null,
-                question || '',
-                studentAnswer || '',
-                correctAnswer || '',
+                questionText,
+                answerText,
+                correctAnswerText,
                 isCorrect || false,
                 difficulty || 'medium',
                 hintsUsed || 0,
@@ -242,6 +256,7 @@ router.post('/save', async (req, res) => {
 
     } catch (error) {
         console.error('❌ Error in /save route:', error);
+        console.error('   Stack:', error.stack);
         res.status(500).json({
             success: false,
             message: 'Failed to save to notebook',
