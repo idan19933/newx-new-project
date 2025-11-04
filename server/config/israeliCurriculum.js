@@ -1596,6 +1596,9 @@ export const ISRAELI_CURRICULUM = {
     // ========================================
     // כיתה יב׳ - 4 יחידות
     // ========================================
+    // ========================================
+// כיתה יב׳ - 4 יחידות - UPDATED
+// ========================================
     grade_12_4: {
         id: 'grade_12_4',
         name: 'כיתה יב׳ - 4 יחידות',
@@ -1608,8 +1611,8 @@ export const ISRAELI_CURRICULUM = {
         },
         topics: [
             {
-                id: 'integrals-12-4',
-                name: 'אינטגרלים',
+                id: 'integrals',
+                name: '∫ אינטגרלים',
                 nameEn: 'Integrals',
                 icon: '∫',
                 difficulty: 'advanced',
@@ -1625,7 +1628,7 @@ export const ISRAELI_CURRICULUM = {
                 ]
             },
             {
-                id: 'integral-applications-12-4',
+                id: 'integral-applications',
                 name: 'יישומי אינטגרלים',
                 nameEn: 'Integral Applications',
                 icon: '📊',
@@ -1638,8 +1641,8 @@ export const ISRAELI_CURRICULUM = {
                 ]
             },
             {
-                id: 'differential-equations-intro-12-4',
-                name: 'משוואות דיפרנציאליות - מבוא',
+                id: 'differential-equations',
+                name: 'dy/dx משוואות דיפרנציאליות - מבוא',
                 nameEn: 'Differential Equations Intro',
                 icon: 'dy/dx',
                 difficulty: 'advanced',
@@ -1651,14 +1654,16 @@ export const ISRAELI_CURRICULUM = {
                 ]
             },
             {
-                id: 'bagrut-review-4-comprehensive',
-                name: 'חזרה מקיפה לבגרות',
+                id: 'comprehensive-review',
+                name: 'חוזרה מקיפה לבגרות',
                 nameEn: 'Comprehensive Bagrut Review',
                 icon: '📝',
                 difficulty: 'advanced',
                 subtopics: [
                     { id: 'calculus-review-12', name: 'חזרה חדו"א', nameEn: 'Calculus Review' },
+                    { id: 'algebra-review-12', name: 'חזרה אלגברה', nameEn: 'Algebra Review' },
                     { id: 'geometry-review-12-4', name: 'חזרה גאומטריה', nameEn: 'Geometry Review' },
+                    { id: 'sequences-review-12', name: 'חזרה סדרות', nameEn: 'Sequences Review' },
                     { id: 'statistics-probability-review-4', name: 'חזרה סטטיסטיקה והסתברות', nameEn: 'Statistics & Probability Review' },
                     { id: 'bagrut-4-practice-12', name: 'תרגול מבחני בגרות', nameEn: 'Bagrut Practice' }
                 ]
