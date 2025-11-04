@@ -1158,7 +1158,10 @@ app.post('/api/ai/generate-question', async (req, res) => {
         // ✅ FIX: Convert userId to integer or null (database expects integer)
         const userId = studentProfile.studentId || studentProfile.id || null;
         const userIdInt = userId ? parseInt(userId) : null;
-        const gradeLevel = parseInt(grade.replace('grade_', '')) || 8;
+// Handle both "12" and "grade_12" formats
+        const gradeLevel = typeof grade === 'string'
+            ? (grade.includes('grade_') ? parseInt(grade.replace('grade_', '')) : parseInt(grade))
+            : (parseInt(grade) || 8);
 
         console.log('👤 User Info:', {
             rawUserId: userId,
