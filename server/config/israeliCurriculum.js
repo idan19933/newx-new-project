@@ -1599,6 +1599,9 @@ export const ISRAELI_CURRICULUM = {
     // ========================================
 // כיתה יב׳ - 4 יחידות - UPDATED
 // ========================================
+    // ========================================
+// כיתה יב׳ - 4 יחידות - COMPLETE WITH ALL DB TOPICS
+// ========================================
     grade_12_4: {
         id: 'grade_12_4',
         name: 'כיתה יב׳ - 4 יחידות',
@@ -1610,62 +1613,99 @@ export const ISRAELI_CURRICULUM = {
             duration: '3:30'
         },
         topics: [
+            // Top 3 topics by question count
+            {
+                id: 'general-review',
+                name: '📝 כללי - חזרה מקיפה',
+                nameEn: 'General Review',
+                icon: '📝',
+                difficulty: 'advanced',
+                questionCount: 26
+            },
+            {
+                id: 'algebra',
+                name: 'x אלגברה',
+                nameEn: 'Algebra',
+                icon: 'x',
+                difficulty: 'advanced',
+                questionCount: 24,
+                subtopics: [
+                    { id: 'linear-equations-12', name: 'משוואות לינאריות', nameEn: 'Linear Equations' },
+                    { id: 'algebraic-expressions-12', name: 'ביטויים אלגבריים', nameEn: 'Algebraic Expressions' }
+                ]
+            },
+            {
+                id: 'geometry',
+                name: '📐 גיאומטריה',
+                nameEn: 'Geometry',
+                icon: '📐',
+                difficulty: 'advanced',
+                questionCount: 21,
+                subtopics: [
+                    { id: 'circle-area-perimeter', name: 'מעגל - שטח והיקף', nameEn: 'Circle - Area and Perimeter' },
+                    { id: 'triangle-area-12', name: 'שטח משולש', nameEn: 'Triangle Area' },
+                    { id: 'pythagorean-12', name: 'משפט פיתגורס', nameEn: 'Pythagorean Theorem' },
+                    { id: 'quadrilateral-area', name: 'שטח מרובעים', nameEn: 'Quadrilateral Area' },
+                    { id: 'angles-12', name: 'זוויות', nameEn: 'Angles' }
+                ]
+            },
+            {
+                id: 'statistics-probability',
+                name: '📊 סטטיסטיקה והסתברות',
+                nameEn: 'Statistics & Probability',
+                icon: '📊',
+                difficulty: 'advanced',
+                questionCount: 13,
+                subtopics: [
+                    { id: 'arithmetic-mean', name: 'ממוצע חשבוני', nameEn: 'Arithmetic Mean' },
+                    { id: 'basic-probability', name: 'הסתברות בסיסית', nameEn: 'Basic Probability' },
+                    { id: 'median-12', name: 'חציון', nameEn: 'Median' }
+                ]
+            },
             {
                 id: 'integrals',
-                name: '∫ אינטגרלים',
-                nameEn: 'Integrals',
+                name: '∫ חשבון אינטגרלי',
+                nameEn: 'Integral Calculus',
                 icon: '∫',
                 difficulty: 'advanced',
+                questionCount: 7,
                 subtopics: [
-                    { id: 'antiderivatives-review-12', name: 'אנטי-נגזרות - חזרה', nameEn: 'Antiderivatives Review' },
-                    { id: 'integration-rules-12', name: 'כללי אינטגרציה', nameEn: 'Integration Rules' },
-                    { id: 'substitution-method-12', name: 'שיטת ההצבה', nameEn: 'Substitution Method' },
-                    { id: 'integration-by-parts-12', name: 'אינטגרציה בחלקים', nameEn: 'Integration by Parts' },
-                    { id: 'definite-integrals-12', name: 'אינטגרלים מסוימים', nameEn: 'Definite Integrals' },
-                    { id: 'fundamental-theorem-12', name: 'המשפט היסודי של החשבון האינטגרלי', nameEn: 'Fundamental Theorem of Calculus' },
                     { id: 'area-under-curve-12', name: 'שטח מתחת לעקומה', nameEn: 'Area Under Curve' },
+                    { id: 'volume-12', name: 'נפח', nameEn: 'Volume' },
                     { id: 'area-between-curves-12', name: 'שטח בין עקומות', nameEn: 'Area Between Curves' }
                 ]
             },
             {
-                id: 'integral-applications',
-                name: 'יישומי אינטגרלים',
-                nameEn: 'Integral Applications',
-                icon: '📊',
+                id: 'sequences',
+                name: '1,2,3... סדרות',
+                nameEn: 'Sequences',
+                icon: '1,2,3...',
                 difficulty: 'advanced',
+                questionCount: 3,
                 subtopics: [
-                    { id: 'volume-revolution-12', name: 'נפח גוף סיבוב', nameEn: 'Volume of Revolution' },
-                    { id: 'arc-length-12', name: 'אורך קשת', nameEn: 'Arc Length' },
-                    { id: 'average-value-12', name: 'ערך ממוצע', nameEn: 'Average Value' },
-                    { id: 'work-problems-12', name: 'בעיות עבודה', nameEn: 'Work Problems' }
+                    { id: 'arithmetic-sequences-12', name: 'סדרות חשבוניות', nameEn: 'Arithmetic Sequences' }
                 ]
             },
             {
-                id: 'differential-equations',
-                name: 'dy/dx משוואות דיפרנציאליות - מבוא',
-                nameEn: 'Differential Equations Intro',
-                icon: 'dy/dx',
+                id: 'functions',
+                name: 'f(x) פונקציות',
+                nameEn: 'Functions',
+                icon: 'f(x)',
                 difficulty: 'advanced',
+                questionCount: 3,
                 subtopics: [
-                    { id: 'de-basics-12', name: 'יסודות משוואות דיפרנציאליות', nameEn: 'DE Basics' },
-                    { id: 'separable-de-12', name: 'משוואות פרידות', nameEn: 'Separable Equations' },
-                    { id: 'first-order-de-12', name: 'משוואות מסדר ראשון', nameEn: 'First Order DE' },
-                    { id: 'de-applications-12', name: 'יישומי משוואות דיפרנציאליות', nameEn: 'DE Applications' }
+                    { id: 'domain-12', name: 'תחום הגדרה', nameEn: 'Domain' }
                 ]
             },
             {
-                id: 'comprehensive-review',
-                name: 'חוזרה מקיפה לבגרות',
-                nameEn: 'Comprehensive Bagrut Review',
-                icon: '📝',
+                id: 'differential-calculus',
+                name: "f'(x) חשבון דיפרנציאלי",
+                nameEn: 'Differential Calculus',
+                icon: "f'(x)",
                 difficulty: 'advanced',
+                questionCount: 2,
                 subtopics: [
-                    { id: 'calculus-review-12', name: 'חזרה חדו"א', nameEn: 'Calculus Review' },
-                    { id: 'algebra-review-12', name: 'חזרה אלגברה', nameEn: 'Algebra Review' },
-                    { id: 'geometry-review-12-4', name: 'חזרה גאומטריה', nameEn: 'Geometry Review' },
-                    { id: 'sequences-review-12', name: 'חזרה סדרות', nameEn: 'Sequences Review' },
-                    { id: 'statistics-probability-review-4', name: 'חזרה סטטיסטיקה והסתברות', nameEn: 'Statistics & Probability Review' },
-                    { id: 'bagrut-4-practice-12', name: 'תרגול מבחני בגרות', nameEn: 'Bagrut Practice' }
+                    { id: 'polynomial-derivatives-12', name: 'נגזרות של פולינומים', nameEn: 'Polynomial Derivatives' }
                 ]
             }
         ]

@@ -1,4 +1,4 @@
-// src/pages/OnboardingFlow.jsx - KID-FRIENDLY VERSION WITH CURRICULUM INTEGRATION (FIXED)
+// src/pages/OnboardingFlow.jsx - FIXED VERSION WITH UPDATED CURRICULUM
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -12,12 +12,12 @@ import toast from 'react-hot-toast';
 
 // ==================== GRADE CONFIGURATION ====================
 const GRADES = [
-    { value: 'grade7', label: 'כיתה ז׳', displayName: 'ז׳', emoji: '7️⃣' },
-    { value: 'grade8', label: 'כיתה ח׳', displayName: 'ח׳', emoji: '8️⃣' },
-    { value: 'grade9', label: 'כיתה ט׳', displayName: 'ט׳', emoji: '9️⃣' },
-    { value: 'grade10', label: 'כיתה י׳', displayName: 'י׳', emoji: '🔟' },
-    { value: 'grade11', label: 'כיתה יא׳', displayName: 'יא׳', emoji: '1️⃣1️⃣' },
-    { value: 'grade12', label: 'כיתה יב׳', displayName: 'יב׳', emoji: '1️⃣2️⃣' }
+    { value: '7', label: 'כיתה ז׳', displayName: 'ז׳', emoji: '7️⃣' },
+    { value: '8', label: 'כיתה ח׳', displayName: 'ח׳', emoji: '8️⃣' },
+    { value: '9', label: 'כיתה ט׳', displayName: 'ט׳', emoji: '9️⃣' },
+    { value: '10', label: 'כיתה י׳', displayName: 'י׳', emoji: '🔟' },
+    { value: '11', label: 'כיתה יא׳', displayName: 'יא׳', emoji: '1️⃣1️⃣' },
+    { value: '12', label: 'כיתה יב׳', displayName: 'יב׳', emoji: '1️⃣2️⃣' }
 ];
 
 // ==================== TRACK CONFIGURATION ====================
@@ -86,7 +86,7 @@ const OnboardingFlow = () => {
     // Auto-set education level when grade changes
     useEffect(() => {
         if (formData.grade) {
-            const gradeNum = parseInt(formData.grade.replace('grade', ''));
+            const gradeNum = parseInt(formData.grade);
             const level = gradeNum <= 9 ? 'middle' : 'high';
             setFormData(prev => ({
                 ...prev,
@@ -96,30 +96,32 @@ const OnboardingFlow = () => {
         }
     }, [formData.grade]);
 
-    // Get curriculum topics dynamically
+    // Get curriculum topics dynamically - FIXED VERSION
     const getCurriculumTopics = () => {
-        if (!formData.grade || !formData.track) return {};
+        if (!formData.grade || !formData.track) {
+            console.log('🔍 No grade or track selected');
+            return [];
+        }
 
         const gradeId = getUserGradeId(formData.grade, formData.track);
+        console.log('🔍 Getting curriculum for:', { grade: formData.grade, track: formData.track, gradeId });
+
         const gradeConfig = getGradeConfig(gradeId);
 
-        if (!gradeConfig || !gradeConfig.topics) return {};
+        if (!gradeConfig || !gradeConfig.topics) {
+            console.log('❌ No grade config found for:', gradeId);
+            return [];
+        }
 
-        // Group topics by category for display
-        const grouped = {};
-        gradeConfig.topics.forEach(topic => {
-            const category = topic.category || topic.name;
-            if (!grouped[category]) {
-                grouped[category] = [];
-            }
-            grouped[category].push({
-                id: topic.id,
-                name: topic.name,
-                icon: topic.icon || '📚'
-            });
-        });
+        console.log('✅ Found topics:', gradeConfig.topics.length);
 
-        return grouped;
+        // Return topics directly as an array
+        return gradeConfig.topics.map(topic => ({
+            id: topic.id,
+            name: topic.name,
+            icon: topic.icon || '📚',
+            difficulty: topic.difficulty
+        }));
     };
 
     // ==================== FORM OPTIONS (SIMPLIFIED FOR KIDS) ====================
@@ -464,7 +466,7 @@ const OnboardingFlow = () => {
                     </motion.div>
                 );
 
-            // ==================== STEP 4: WEAK TOPICS (CURRICULUM-BASED) ====================
+            // ==================== STEP 4: WEAK TOPICS (CURRICULUM-BASED - FIXED) ====================
             case 4:
                 const curriculumTopics = getCurriculumTopics();
 
@@ -486,42 +488,35 @@ const OnboardingFlow = () => {
                             </p>
                         </div>
 
-                        {Object.keys(curriculumTopics).length > 0 ? (
-                            <div className="space-y-6">
-                                {Object.entries(curriculumTopics).map(([category, topics]) => (
-                                    <div key={category} className="space-y-3">
-                                        <h3 className="text-xl md:text-2xl font-bold text-white pr-2">
-                                            {category}
-                                        </h3>
-                                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                                            {topics.map((topic) => (
-                                                <motion.button
-                                                    key={topic.id}
-                                                    whileHover={{ scale: 1.02 }}
-                                                    whileTap={{ scale: 0.98 }}
-                                                    onClick={() => handleTopicToggle(topic.id)}
-                                                    className={`p-4 rounded-xl border-2 transition-all text-right ${
-                                                        formData.weakTopics.includes(topic.id)
-                                                            ? 'bg-gradient-to-br from-orange-600/30 to-red-600/30 border-orange-400'
-                                                            : 'bg-gray-800 border-gray-700 hover:border-gray-600'
-                                                    }`}
-                                                >
-                                                    <div className="flex items-center gap-3">
-                                                        <span className="text-2xl">{topic.icon}</span>
-                                                        <div className="text-sm md:text-base text-white flex-1">
-                                                            {topic.name}
-                                                        </div>
-                                                        {formData.weakTopics.includes(topic.id) && (
-                                                            <div className="w-5 h-5 bg-orange-500 rounded-full flex items-center justify-center flex-shrink-0">
-                                                                <span className="text-white text-xs">✓</span>
-                                                            </div>
-                                                        )}
+                        {curriculumTopics.length > 0 ? (
+                            <div className="space-y-4">
+                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                                    {curriculumTopics.map((topic) => (
+                                        <motion.button
+                                            key={topic.id}
+                                            whileHover={{ scale: 1.02 }}
+                                            whileTap={{ scale: 0.98 }}
+                                            onClick={() => handleTopicToggle(topic.id)}
+                                            className={`p-4 rounded-xl border-2 transition-all text-right ${
+                                                formData.weakTopics.includes(topic.id)
+                                                    ? 'bg-gradient-to-br from-orange-600/30 to-red-600/30 border-orange-400'
+                                                    : 'bg-gray-800 border-gray-700 hover:border-gray-600'
+                                            }`}
+                                        >
+                                            <div className="flex items-center gap-3">
+                                                <span className="text-2xl">{topic.icon}</span>
+                                                <div className="text-sm md:text-base text-white flex-1">
+                                                    {topic.name}
+                                                </div>
+                                                {formData.weakTopics.includes(topic.id) && (
+                                                    <div className="w-5 h-5 bg-orange-500 rounded-full flex items-center justify-center flex-shrink-0">
+                                                        <span className="text-white text-xs">✓</span>
                                                     </div>
-                                                </motion.button>
-                                            ))}
-                                        </div>
-                                    </div>
-                                ))}
+                                                )}
+                                            </div>
+                                        </motion.button>
+                                    ))}
+                                </div>
                             </div>
                         ) : (
                             <div className="text-center text-gray-400 p-10">
