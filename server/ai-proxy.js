@@ -16,6 +16,7 @@ import SVGGenerator from './services/svgGenerator.js';
 import { bucket } from './config/firebase-admin.js';
 
 import curriculumRoutes from './routes/curriculumRoutes.js';
+import progressRoutes from './routes/progressRoutes.js';
 import learningRoutes from './routes/learningRoutes.js';
 import chatRoutes from './routes/chatRoutes.js';
 import nexonRoutes from './routes/nexonRoutes.js';
@@ -29,6 +30,7 @@ import israeliSourcesRoutes from './routes/israeliSourcesRoutes.js';
 import adaptiveRoutes from './routes/adaptive.js';
 import notebookService from './services/notebookService.js';
 import smartQuestionService from './services/smartQuestionService.js';
+
 import userRoutes from './routes/userRoutes.js';
 import pool from './config/database.js';
 
@@ -77,6 +79,7 @@ app.use('/api', nexonRoutes);
 app.use('/api/learning', learningRoutes);
 app.use('/api/chat', chatRoutes);
 app.use('/api/performance', performanceRoutes);
+app.use('/api/progress', progressRoutes);
 app.use('/api/adaptive', adaptiveDifficultyRoutes);//
 app.use('/api/questions', enhancedQuestionsRouter);  // ← חדש!
 app.use('/api/israeli-sources', israeliSourcesRoutes);
