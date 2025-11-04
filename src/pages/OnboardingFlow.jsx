@@ -114,8 +114,7 @@ const OnboardingFlow = () => {
             setLoadingTopics(true);
 
             try {
-                const response = await fetch(`http://localhost:5000/api/progress/curriculum/${gradeId}`);
-                const data = await response.json();
+                const response = await fetch(`https://nexon-production-1915.up.railway.app/api/progress/curriculum/${gradeId}`);                const data = await response.json();
 
                 if (data.success && data.data?.topics) {
                     console.log('✅ Loaded from server:', data.data.topics.length, 'topics');
