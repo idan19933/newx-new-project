@@ -123,9 +123,9 @@ router.post('/reclassify-all', async (req, res) => {
 
         const { rows: questions } = await pool.query(`
             SELECT id, question_text, grade_level, topic, subtopic
-            FROM question_bank 
-            WHERE source = 'israeli_source' 
-            AND is_active = true
+            FROM question_bank
+            WHERE source = 'israeli_source'
+              AND is_active = true
         `);
 
         console.log(`📊 Found ${questions.length} questions to reclassify`);
@@ -149,8 +149,8 @@ router.post('/reclassify-all', async (req, res) => {
                 );
 
                 await pool.query(`
-                    UPDATE question_bank 
-                    SET 
+                    UPDATE question_bank
+                    SET
                         grade_level = $1,
                         units = $2,
                         topic = $3,
