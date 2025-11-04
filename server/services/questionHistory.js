@@ -1,6 +1,10 @@
-// server/services/questionHistory.js
+// server/services/questionHistory.js - HYBRID VERSION 🔄
+import pool from '../config/database.js';
+import crypto from 'crypto';
+
 class QuestionHistoryManager {
     constructor() {
+        // ✅ Keep in-memory for FAST session checks
         this.history = new Map();
         this.maxHistorySize = 15;
     }
@@ -66,28 +70,122 @@ class QuestionHistoryManager {
         return false;
     }
 
-    buildAvoidancePrompt(studentId, topicId) {
-        const recent = this.getRecentQuestions(studentId, topicId, 3);
+    // ==================== DATABASE METHODS ====================
 
-        if (recent.length === 0) return '';
+    hashQuestion(questionText) {
+        return crypto
+            .createHash('md5')
+            .update(questionText.trim().toLowerCase())
+            .digest('hex');
+    }
 
-        let prompt = '\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n';
-        prompt += '🚫 AVOID REPETITION - Recent Questions\n';
-        prompt += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n';
-        prompt += 'DO NOT create questions similar to these recent ones:\n\n';
+    async recordToDatabase(firebaseUid, questionData) {
+        try {
+            const { topicId, subtopicId, questionText, difficulty } = questionData;
 
-        recent.forEach((q, i) => {
-            const preview = q.question.substring(0, 80);
-            prompt += `${i + 1}. "${preview}..."\n`;
-            prompt += `   Numbers used: ${q.numbers.join(', ')}\n`;
-        });
+            const userResult = await pool.query(
+                'SELECT id FROM users WHERE firebase_uid = $1',
+                [firebaseUid]
+            );
 
-        prompt += '\n✅ REQUIREMENTS FOR NEW QUESTION:\n';
-        prompt += '• Use COMPLETELY DIFFERENT numbers\n';
-        prompt += '• Use DIFFERENT context/scenario\n';
-        prompt += '• Focus on DIFFERENT aspect of the topic\n';
-        prompt += '• Use DIFFERENT question format/wording\n';
-        prompt += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n';
+            if (userResult.rows.length === 0) {
+                console.log('⚠️ User not found for database recording');
+                return false;
+            }
+
+            const userId = userResult.rows[0].id;
+            const questionHash = this.hashQuestion(questionText);
+
+            await pool.query(
+                `INSERT INTO question_history 
+                (user_id, firebase_uid, topic_id, subtopic_id, question_text, question_hash, difficulty, asked_at)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())`,
+                [
+                    userId,
+                    firebaseUid,
+                    topicId || null,
+                    subtopicId || null,
+                    questionText,
+                    questionHash,
+                    difficulty
+                ]
+            );
+
+            return true;
+
+        } catch (error) {
+            console.error('❌ Database recording error:', error);
+            return false;
+        }
+    }
+
+    async getDatabaseQuestions(firebaseUid, topicId = null, days = 14) {
+        try {
+            let query = `
+                SELECT question_text, difficulty, asked_at
+                FROM question_history
+                WHERE firebase_uid = $1
+                  AND asked_at > NOW() - INTERVAL '${days} days'
+            `;
+
+            const params = [firebaseUid];
+
+            if (topicId) {
+                query += ` AND topic_id = $2`;
+                params.push(topicId);
+                query += ` ORDER BY asked_at DESC LIMIT 20`;
+            } else {
+                query += ` ORDER BY asked_at DESC LIMIT 20`;
+            }
+
+            const result = await pool.query(query, params);
+
+            return result.rows.map(row => ({
+                question: row.question_text,
+                difficulty: row.difficulty,
+                askedAt: row.asked_at
+            }));
+
+        } catch (error) {
+            console.error('❌ Database query error:', error);
+            return [];
+        }
+    }
+
+    async buildAvoidancePrompt(studentId, topicId) {
+        let prompt = '';
+
+        // ✅ Part 1: Session history
+        const sessionQuestions = this.getRecentQuestions(studentId, topicId, 3);
+
+        if (sessionQuestions.length > 0) {
+            prompt += '\n🚫 AVOID - Questions from THIS SESSION:\n';
+            sessionQuestions.forEach((q, idx) => {
+                const preview = q.question.substring(0, 100);
+                prompt += `${idx + 1}. "${preview}..."\n`;
+            });
+        }
+
+        // ✅ Part 2: Database history
+        try {
+            const dbQuestions = await this.getDatabaseQuestions(studentId, topicId, 7);
+
+            if (dbQuestions.length > 0) {
+                prompt += '\n🚫 AVOID - Questions from PAST WEEK:\n';
+
+                dbQuestions.slice(0, 5).forEach((q, idx) => {
+                    const preview = q.question.substring(0, 80);
+                    const daysAgo = Math.floor((Date.now() - new Date(q.askedAt)) / (1000 * 60 * 60 * 24));
+                    prompt += `${idx + 1}. "${preview}..." (${daysAgo} days ago)\n`;
+                });
+            }
+        } catch (error) {
+            console.error('⚠️ Could not load database history:', error);
+        }
+
+        if (prompt) {
+            prompt += '\n✅ CREATE SOMETHING COMPLETELY DIFFERENT!\n';
+        }
 
         return prompt;
     }

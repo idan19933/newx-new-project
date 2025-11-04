@@ -1318,6 +1318,89 @@ ${previousQuestionsText}
         }
 
         // ==================== RETURN RESPONSE ====================
+        // ✅✅✅ STEP 4: Record to BOTH session memory AND database ✅✅✅
+        const studentId = userId || studentProfile?.studentId || studentProfile?.name || 'anonymous';
+
+        try {
+            // Record to session (instant - in memory)
+            questionHistoryManager.addQuestion(studentId, topicId, {
+                question: questionData.question,
+                difficulty,
+                timestamp: Date.now()
+            });
+            console.log('✅ Question recorded to session memory');
+
+            // Record to database (persistent)
+            if (userId) {
+                await questionHistoryManager.recordToDatabase(studentId, {
+                    topicId,
+                    subtopicId,
+                    questionText: questionData.question,
+                    difficulty
+                });
+                console.log('✅ Question recorded to database');
+            }
+        } catch (recordError) {
+            console.error('⚠️ Failed to record question:', recordError.message);
+            // Don't fail the request - continue anyway
+        }
+
+// ==================== RETURN RESPONSE ====================
+        // ✅✅✅ STEP 4: Record to BOTH session memory AND database ✅✅✅
+        const studentId = userId || studentProfile?.studentId || studentProfile?.name || 'anonymous';
+
+        try {
+            // Record to session (instant - in memory)
+            questionHistoryManager.addQuestion(studentId, topicId, {
+                question: questionData.question,
+                difficulty,
+                timestamp: Date.now()
+            });
+            console.log('✅ Question recorded to session memory');
+
+            // Record to database (persistent)
+            if (userId) {
+                await questionHistoryManager.recordToDatabase(studentId, {
+                    topicId,
+                    subtopicId,
+                    questionText: questionData.question,
+                    difficulty
+                });
+                console.log('✅ Question recorded to database');
+            }
+        } catch (recordError) {
+            console.error('⚠️ Failed to record question:', recordError.message);
+            // Don't fail the request - continue anyway
+        }
+
+// ==================== RETURN RESPONSE ====================
+        const studentId = userId || studentProfile?.studentId || studentProfile?.name || 'anonymous';
+
+        try {
+            // Record to session (instant - in memory)
+            questionHistoryManager.addQuestion(studentId, topicId, {
+                question: questionData.question,
+                difficulty,
+                timestamp: Date.now()
+            });
+            console.log('✅ Question recorded to session memory');
+
+            // Record to database (persistent)
+            if (userId) {
+                await questionHistoryManager.recordToDatabase(studentId, {
+                    topicId,
+                    subtopicId,
+                    questionText: questionData.question,
+                    difficulty
+                });
+                console.log('✅ Question recorded to database');
+            }
+        } catch (recordError) {
+            console.error('⚠️ Failed to record question:', recordError.message);
+            // Don't fail the request - continue anyway
+        }
+
+// ==================== RETURN RESPONSE ====================
         res.json({
             success: true,
             question: questionData.question,
@@ -1332,7 +1415,6 @@ ${previousQuestionsText}
             topic: topicName,
             subtopic: subtopicName
         });
-
     } catch (error) {
         console.error('❌ Generate question error:', error);
         res.status(500).json({
