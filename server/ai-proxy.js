@@ -1152,6 +1152,8 @@ app.post('/api/ai/generate-question', async (req, res) => {
         const userIdInt = userId ? parseInt(userId) : null;
         const gradeLevel = parseInt(grade.replace('grade_', '')) || 8;
 
+        console.log('👤 User Info:', { userId, userIdInt, type: typeof userIdInt });
+
         // 🎯 STEP 1: Try to get from database cache first
         console.log('🔍 Checking database cache...');
         const smartResult = await smartQuestionService.getQuestion({
@@ -1277,8 +1279,21 @@ ${previousQuestionsText}
 
         const questionData = JSON.parse(jsonText);
 
+        // ✅ Validate parsed data
         if (!questionData.question || !questionData.correctAnswer) {
             throw new Error('Missing required fields in generated question');
+        }
+
+        // Clean and validate
+        questionData.question = String(questionData.question).trim();
+        questionData.correctAnswer = String(questionData.correctAnswer).trim();
+
+        if (questionData.question.length === 0) {
+            throw new Error('Question text is empty after parsing');
+        }
+
+        if (questionData.correctAnswer.length === 0) {
+            throw new Error('Correct answer is empty after parsing');
         }
 
         if (!questionData.hints || !Array.isArray(questionData.hints)) {
@@ -1291,33 +1306,43 @@ ${previousQuestionsText}
 
         console.log('✅ AI Question generated successfully');
         console.log('📝 Question:', questionData.question.substring(0, 100));
+        console.log('✅ Answer:', questionData.correctAnswer.substring(0, 50));
 
         // 💾 STEP 3: Cache the AI-generated question
-        console.log('💾 Caching question for future use...');
-        const cachedId = await smartQuestionService.cacheQuestion({
-            question: questionData.question,
-            correctAnswer: questionData.correctAnswer,
-            hints: questionData.hints,
-            explanation: questionData.explanation,
-            visualData: questionData.visualData || null,
-            topicId,
-            topicName,
-            subtopicId,
-            subtopicName,
-            difficulty,
-            gradeLevel
-        });
+        let cachedId = null;
+        console.log('💾 Attempting to cache question...');
 
-        if (cachedId) {
-            console.log(`✅ Question cached with ID: ${cachedId}`);
-        } else {
-            console.log('⚠️ Question could not be cached (might be duplicate)');
+        try {
+            cachedId = await smartQuestionService.cacheQuestion({
+                question: questionData.question,
+                correctAnswer: questionData.correctAnswer,
+                hints: questionData.hints,
+                explanation: questionData.explanation,
+                visualData: questionData.visualData || null,
+                topicId,
+                topicName,
+                subtopicId,
+                subtopicName,
+                difficulty,
+                gradeLevel
+            });
+
+            if (cachedId) {
+                console.log(`✅ Question cached with ID: ${cachedId}`);
+            } else {
+                console.log('⚠️ Question could not be cached (might be duplicate)');
+            }
+        } catch (cacheError) {
+            console.error('❌ Cache error:', cacheError.message);
+            console.error('   Error details:', cacheError);
+            // Don't fail the request - continue without caching
         }
 
         // ✅ STEP 4: Record to question history (ONLY ONCE!)
         const studentId = userIdInt || studentProfile?.name || 'anonymous';
 
         try {
+            // Session memory (in-memory, always works)
             questionHistoryManager.addQuestion(studentId, topicId, {
                 question: questionData.question,
                 difficulty,
@@ -1325,20 +1350,31 @@ ${previousQuestionsText}
             });
             console.log('✅ Question recorded to session memory');
 
-            if (userIdInt) {  // ✅ FIXED: Use integer userId
-                await questionHistoryManager.recordToDatabase(studentId, {
-                    topicId,
-                    subtopicId,
-                    questionText: questionData.question,
-                    difficulty
-                });
-                console.log('✅ Question recorded to database');
+            // Database recording (only if we have valid userId)
+            if (userIdInt) {
+                try {
+                    await questionHistoryManager.recordToDatabase(studentId, {
+                        topicId,
+                        subtopicId,
+                        questionText: questionData.question,
+                        difficulty
+                    });
+                    console.log('✅ Question recorded to database');
+                } catch (dbError) {
+                    console.error('⚠️ Database recording failed:', dbError.message);
+                    // Don't fail the request - continue anyway
+                }
+            } else {
+                console.log('⚠️ No valid userIdInt - skipping database recording');
             }
         } catch (recordError) {
             console.error('⚠️ Failed to record question:', recordError.message);
+            // Don't fail the request - continue anyway
         }
 
-        // ✅ STEP 5: Return response
+        // ✅ STEP 5: Return response (ALWAYS SUCCEEDS!)
+        console.log('✅ Returning question to user');
+
         res.json({
             success: true,
             question: questionData.question,
@@ -1358,7 +1394,7 @@ ${previousQuestionsText}
         console.error('❌ Generate question error:', error);
         res.status(500).json({
             success: false,
-            error: error.message
+            error: error.message || 'Failed to generate question'
         });
     }
 });
