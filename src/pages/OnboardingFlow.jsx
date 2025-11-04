@@ -1,4 +1,4 @@
-// src/pages/OnboardingFlow.jsx - FIXED VERSION WITH UPDATED CURRICULUM
+// src/pages/OnboardingFlow.jsx - LOADS FROM SERVER
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -7,7 +7,7 @@ import {
     Zap, Award, Star, ChevronRight, ChevronLeft
 } from 'lucide-react';
 import useAuthStore from '../store/authStore';
-import { getUserGradeId, getGradeConfig } from '../config/israeliCurriculum';
+import { getUserGradeId } from '../config/israeliCurriculum';
 import toast from 'react-hot-toast';
 
 // ==================== GRADE CONFIGURATION ====================
@@ -47,6 +47,10 @@ const OnboardingFlow = () => {
         goalFocus: '',
         weakTopics: []
     });
+
+    // Curriculum topics from server
+    const [curriculumTopics, setCurriculumTopics] = useState([]);
+    const [loadingTopics, setLoadingTopics] = useState(false);
 
     // Load saved progress from localStorage
     useEffect(() => {
@@ -96,33 +100,40 @@ const OnboardingFlow = () => {
         }
     }, [formData.grade]);
 
-    // Get curriculum topics dynamically - FIXED VERSION
-    const getCurriculumTopics = () => {
-        if (!formData.grade || !formData.track) {
-            console.log('🔍 No grade or track selected');
-            return [];
-        }
+    // Fetch curriculum from server
+    useEffect(() => {
+        const fetchTopics = async () => {
+            if (!formData.grade || !formData.track) {
+                setCurriculumTopics([]);
+                return;
+            }
 
-        const gradeId = getUserGradeId(formData.grade, formData.track);
-        console.log('🔍 Getting curriculum for:', { grade: formData.grade, track: formData.track, gradeId });
+            const gradeId = getUserGradeId(formData.grade, formData.track);
+            console.log('🔍 Fetching curriculum from server:', gradeId);
 
-        const gradeConfig = getGradeConfig(gradeId);
+            setLoadingTopics(true);
 
-        if (!gradeConfig || !gradeConfig.topics) {
-            console.log('❌ No grade config found for:', gradeId);
-            return [];
-        }
+            try {
+                const response = await fetch(`http://localhost:5000/api/progress/curriculum/${gradeId}`);
+                const data = await response.json();
 
-        console.log('✅ Found topics:', gradeConfig.topics.length);
+                if (data.success && data.data?.topics) {
+                    console.log('✅ Loaded from server:', data.data.topics.length, 'topics');
+                    setCurriculumTopics(data.data.topics);
+                } else {
+                    console.log('❌ No topics found');
+                    setCurriculumTopics([]);
+                }
+            } catch (error) {
+                console.error('❌ Error fetching curriculum:', error);
+                setCurriculumTopics([]);
+            } finally {
+                setLoadingTopics(false);
+            }
+        };
 
-        // Return topics directly as an array
-        return gradeConfig.topics.map(topic => ({
-            id: topic.id,
-            name: topic.name,
-            icon: topic.icon || '📚',
-            difficulty: topic.difficulty
-        }));
-    };
+        fetchTopics();
+    }, [formData.grade, formData.track]);
 
     // ==================== FORM OPTIONS (SIMPLIFIED FOR KIDS) ====================
 
@@ -225,7 +236,6 @@ const OnboardingFlow = () => {
         setLoading(true);
 
         try {
-            // Only send fields that are actually collected
             const profileData = {
                 name: formData.name,
                 grade: formData.grade,
@@ -242,7 +252,6 @@ const OnboardingFlow = () => {
 
             await completeOnboarding(profileData);
 
-            // Clear saved progress
             localStorage.removeItem('nexon_onboarding_progress');
 
             toast.success('🎉 הפרופיל שלך מוכן! ברוכ/ה הבא/ה לנקסון');
@@ -466,10 +475,8 @@ const OnboardingFlow = () => {
                     </motion.div>
                 );
 
-            // ==================== STEP 4: WEAK TOPICS (CURRICULUM-BASED - FIXED) ====================
+            // ==================== STEP 4: WEAK TOPICS (FROM SERVER) ====================
             case 4:
-                const curriculumTopics = getCurriculumTopics();
-
                 return (
                     <motion.div
                         key="step4"
@@ -488,7 +495,12 @@ const OnboardingFlow = () => {
                             </p>
                         </div>
 
-                        {curriculumTopics.length > 0 ? (
+                        {loadingTopics ? (
+                            <div className="text-center text-gray-400 p-10">
+                                <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-white mb-4"></div>
+                                <p className="text-lg">טוען נושאים מהשרת...</p>
+                            </div>
+                        ) : curriculumTopics.length > 0 ? (
                             <div className="space-y-4">
                                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                                     {curriculumTopics.map((topic) => (

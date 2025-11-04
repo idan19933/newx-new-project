@@ -173,4 +173,44 @@ router.get('/all/:userId', async (req, res) => {
     }
 });
 
+router.get('/curriculum/:gradeId', async (req, res) => {
+    try {
+        const { gradeId } = req.params;
+        console.log('📚 Fetching curriculum for:', gradeId);
+
+        // Dynamic import to always get fresh data from file
+        const { ISRAELI_CURRICULUM } = await import('../config/israeliCurriculum.js');
+
+        const gradeConfig = ISRAELI_CURRICULUM[gradeId];
+
+        if (!gradeConfig) {
+            console.log('❌ Grade not found:', gradeId);
+            return res.status(404).json({
+                success: false,
+                error: 'Grade not found'
+            });
+        }
+
+        console.log('✅ Found', gradeConfig.topics?.length || 0, 'topics for', gradeId);
+
+        res.json({
+            success: true,
+            data: {
+                id: gradeConfig.id,
+                name: gradeConfig.name,
+                nameEn: gradeConfig.nameEn,
+                emoji: gradeConfig.emoji,
+                topics: gradeConfig.topics || []
+            }
+        });
+    } catch (error) {
+        console.error('❌ Error fetching curriculum:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to fetch curriculum',
+            message: error.message
+        });
+    }
+});
+
 export default router;
