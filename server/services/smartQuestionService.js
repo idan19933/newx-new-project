@@ -1,4 +1,4 @@
-// server/services/smartQuestionService.js - WITH GRADE FILTERING FIX
+// server/services/smartQuestionService.js - FIXED VERSION
 import pool from '../config/database.js';
 import crypto from 'crypto';
 
@@ -354,7 +354,7 @@ class SmartQuestionService {
     }
 
     /**
-     * Get question from question_cache with STRICT filtering
+     * ✅ FIXED: Get question from question_cache with STRICT filtering
      */
     async getFromCache(params) {
         const {
@@ -371,7 +371,7 @@ class SmartQuestionService {
             let query = `
                 SELECT
                     id,
-                    question_text,
+                    question,
                     correct_answer,
                     hints,
                     explanation,
@@ -488,7 +488,7 @@ class SmartQuestionService {
     }
 
     /**
-     * Cache an AI-generated question
+     * ✅ FIXED: Cache an AI-generated question with validation
      */
     async cacheQuestion(questionData) {
         try {
@@ -506,6 +506,19 @@ class SmartQuestionService {
                 gradeLevel
             } = questionData;
 
+            // ✅ VALIDATION: Check if question is valid
+            if (!question || typeof question !== 'string' || question.trim().length === 0) {
+                console.error('❌ Cannot cache - question is empty or invalid');
+                console.error('   Question data:', { question, type: typeof question });
+                return null;
+            }
+
+            if (!correctAnswer || typeof correctAnswer !== 'string' || correctAnswer.trim().length === 0) {
+                console.error('❌ Cannot cache - correct answer is empty or invalid');
+                console.error('   Answer data:', { correctAnswer, type: typeof correctAnswer });
+                return null;
+            }
+
             // Generate hash to prevent duplicates
             const questionHash = this.generateQuestionHash(question);
 
@@ -520,19 +533,19 @@ class SmartQuestionService {
                 return existing.rows[0].id;
             }
 
-            // Insert new question with STRICT metadata
+            // ✅ FIXED: Insert new question with correct column name 'question' (not 'question_text')
             const result = await pool.query(
                 `INSERT INTO question_cache (
-                    question_text, correct_answer, hints, explanation, visual_data,
+                    question, correct_answer, hints, explanation, visual_data,
                     topic_id, topic_name, subtopic_id, subtopic_name,
                     difficulty, grade_level, question_hash, source, quality_score
                 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'ai_generated', 70)
-                RETURNING id`,
+                     RETURNING id`,
                 [
-                    question,
-                    correctAnswer,
+                    question.trim(),
+                    correctAnswer.trim(),
                     JSON.stringify(hints || []),
-                    explanation || '',
+                    explanation?.trim() || '',
                     JSON.stringify(visualData || null),
                     topicId || null,
                     topicName || null,
@@ -549,6 +562,17 @@ class SmartQuestionService {
 
         } catch (error) {
             console.error('❌ Cache question error:', error);
+            console.error('   Error details:', {
+                message: error.message,
+                code: error.code,
+                detail: error.detail
+            });
+            console.error('   Question data preview:', {
+                hasQuestion: !!questionData.question,
+                questionLength: questionData.question?.length,
+                hasAnswer: !!questionData.correctAnswer,
+                answerLength: questionData.correctAnswer?.length
+            });
             return null;
         }
     }
@@ -613,15 +637,15 @@ class SmartQuestionService {
                          WHERE question_id = qc.id
                      ),
                      quality_score = LEAST(100, GREATEST(30,
-                         50 +
-                         CASE WHEN usage_count >= 5 THEN (success_rate - 50) / 2 ELSE 0 END +
-                         CASE 
-                             WHEN usage_count >= 20 THEN 20
-                             WHEN usage_count >= 10 THEN 10
-                             WHEN usage_count >= 5 THEN 5
-                             ELSE 0
-                         END
-                     ))
+                                                         50 +
+                                                         CASE WHEN usage_count >= 5 THEN (success_rate - 50) / 2 ELSE 0 END +
+                                                         CASE
+                                                             WHEN usage_count >= 20 THEN 20
+                                                             WHEN usage_count >= 10 THEN 10
+                                                             WHEN usage_count >= 5 THEN 5
+                                                             ELSE 0
+                                                             END
+                                                ))
                  WHERE id = $1`,
                 [questionId]
             );
@@ -647,12 +671,12 @@ class SmartQuestionService {
     }
 
     /**
-     * Format cache question for response
+     * ✅ FIXED: Format cache question for response
      */
     formatCacheQuestion(row) {
         return {
             id: row.id,
-            question: row.question_text,
+            question: row.question,
             correctAnswer: row.correct_answer,
             hints: Array.isArray(row.hints) ? row.hints : (row.hints ? JSON.parse(row.hints) : []),
             explanation: row.explanation || '',
@@ -675,7 +699,7 @@ class SmartQuestionService {
     }
 
     /**
-     * ✅ Format Israeli question for response
+     * ✅ Format Israeli question for response (uses question_text from question_bank table)
      */
     formatIsraeliQuestion(row) {
         return {
