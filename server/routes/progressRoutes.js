@@ -51,7 +51,7 @@ router.post('/record', async (req, res) => {
 
         // Get internal user ID
         const internalUserId = await getUserIdFromFirebaseUid(userId);
-        
+        console.log("debug");
         if (!internalUserId) {
             return res.status(404).json({
                 success: false,
