@@ -1187,7 +1187,7 @@ app.post('/api/ai/generate-question', async (req, res) => {
         // 🤖 STEP 2: No cached question found - generate with AI
         console.log('🤖 No suitable cached question - generating with Claude AI...');
 
-        // ==================== BUILD PERSONALITY-AWARE PROMPT ====================
+        // Build personality-aware prompt
         const personalityContext = personalitySystem?.loaded ? `
 אתה ${personalitySystem.data.corePersonality.teacherName}, ${personalitySystem.data.corePersonality.role}.
 תכונות האישיות שלך:
@@ -1233,7 +1233,7 @@ ${previousQuestionsText}
 
 חשוב: השתמש ב\\n לשורה חדשה, לא Enter אמיתי. החזר רק JSON, ללא טקסט נוסף.`;
 
-        // ==================== CALL CLAUDE API ====================
+        // Call Claude API
         console.log('🔄 Calling Claude API...');
 
         const response = await fetch('https://api.anthropic.com/v1/messages', {
@@ -1265,13 +1265,9 @@ ${previousQuestionsText}
 
         console.log('📄 Raw response (first 200):', rawText.substring(0, 200));
 
-        // ==================== PARSE JSON ====================
+        // Parse JSON
         let jsonText = rawText.trim();
-
-        // Remove markdown code blocks if present
         jsonText = jsonText.replace(/```json\n?/g, '').replace(/```\n?/g, '');
-
-        // Find JSON object
         const jsonMatch = jsonText.match(/\{[\s\S]*\}/);
         if (jsonMatch) {
             jsonText = jsonMatch[0];
@@ -1279,12 +1275,10 @@ ${previousQuestionsText}
 
         const questionData = JSON.parse(jsonText);
 
-        // Validate all required fields
         if (!questionData.question || !questionData.correctAnswer) {
             throw new Error('Missing required fields in generated question');
         }
 
-        // Ensure hints and explanation exist
         if (!questionData.hints || !Array.isArray(questionData.hints)) {
             questionData.hints = ['נסה לחשוב על השלב הראשון', 'מה הכלי המתמטי שנלמד?', 'חשוב על דוגמאות דומות'];
         }
@@ -1296,7 +1290,7 @@ ${previousQuestionsText}
         console.log('✅ AI Question generated successfully');
         console.log('📝 Question:', questionData.question.substring(0, 100));
 
-        // 💾 STEP 3: Cache the AI-generated question for future use
+        // 💾 STEP 3: Cache the AI-generated question
         console.log('💾 Caching question for future use...');
         const cachedId = await smartQuestionService.cacheQuestion({
             question: questionData.question,
@@ -1318,11 +1312,10 @@ ${previousQuestionsText}
             console.log('⚠️ Question could not be cached (might be duplicate)');
         }
 
-        // ✅✅✅ STEP 4: Record to BOTH session memory AND database ✅✅✅
+        // ✅ STEP 4: Record to question history (ONLY ONCE!)
         const studentId = userId || studentProfile?.studentId || studentProfile?.name || 'anonymous';
 
         try {
-            // Record to session (instant - in memory)
             questionHistoryManager.addQuestion(studentId, topicId, {
                 question: questionData.question,
                 difficulty,
@@ -1330,7 +1323,6 @@ ${previousQuestionsText}
             });
             console.log('✅ Question recorded to session memory');
 
-            // Record to database (persistent)
             if (userId) {
                 await questionHistoryManager.recordToDatabase(studentId, {
                     topicId,
@@ -1342,10 +1334,9 @@ ${previousQuestionsText}
             }
         } catch (recordError) {
             console.error('⚠️ Failed to record question:', recordError.message);
-            // Don't fail the request - continue anyway
         }
 
-        // ✅✅✅ STEP 5: Return response ✅✅✅
+        // ✅ STEP 5: Return response
         res.json({
             success: true,
             question: questionData.question,
@@ -1369,84 +1360,7 @@ ${previousQuestionsText}
         });
     }
 });
-// ==================== RETURN RESPONSE ====================
-        // ✅✅✅ STEP 4: Record to BOTH session memory AND database ✅✅✅
-        const studentId = userId || studentProfile?.studentId || studentProfile?.name || 'anonymous';
 
-        try {
-            // Record to session (instant - in memory)
-            questionHistoryManager.addQuestion(studentId, topicId, {
-                question: questionData.question,
-                difficulty,
-                timestamp: Date.now()
-            });
-            console.log('✅ Question recorded to session memory');
-
-            // Record to database (persistent)
-            if (userId) {
-                await questionHistoryManager.recordToDatabase(studentId, {
-                    topicId,
-                    subtopicId,
-                    questionText: questionData.question,
-                    difficulty
-                });
-                console.log('✅ Question recorded to database');
-            }
-        } catch (recordError) {
-            console.error('⚠️ Failed to record question:', recordError.message);
-            // Don't fail the request - continue anyway
-        }
-
-// ==================== RETURN RESPONSE ====================
-        const studentId = userId || studentProfile?.studentId || studentProfile?.name || 'anonymous';
-
-        try {
-            // Record to session (instant - in memory)
-            questionHistoryManager.addQuestion(studentId, topicId, {
-                question: questionData.question,
-                difficulty,
-                timestamp: Date.now()
-            });
-            console.log('✅ Question recorded to session memory');
-
-            // Record to database (persistent)
-            if (userId) {
-                await questionHistoryManager.recordToDatabase(studentId, {
-                    topicId,
-                    subtopicId,
-                    questionText: questionData.question,
-                    difficulty
-                });
-                console.log('✅ Question recorded to database');
-            }
-        } catch (recordError) {
-            console.error('⚠️ Failed to record question:', recordError.message);
-            // Don't fail the request - continue anyway
-        }
-
-// ==================== RETURN RESPONSE ====================
-        res.json({
-            success: true,
-            question: questionData.question,
-            correctAnswer: questionData.correctAnswer,
-            hints: questionData.hints,
-            explanation: questionData.explanation,
-            visualData: questionData.visualData,
-            cached: false,
-            questionId: cachedId,
-            source: 'ai_generated',
-            model: 'claude-sonnet-4-5-20250929',
-            topic: topicName,
-            subtopic: subtopicName
-        });
-    } catch (error) {
-        console.error('❌ Generate question error:', error);
-        res.status(500).json({
-            success: false,
-            error: error.message
-        });
-    }
-});
 // ==================== VERIFY ANSWER ====================
 
 

@@ -2007,25 +2007,6 @@ const MathTutor = ({
                 explanation: data.explanation || '',
                 visualData: data.visualData || null
             });
-            try {
-                const userId = getUserId();
-                if (userId) {
-                    console.log('📝 Recording question to history');
-
-                    await axios.post(`${API_URL}/api/questions/record-history`, {
-                        userId: userId,
-                        topicId: topic?.id || 'general',
-                        subtopicId: finalSubtopic?.id || null,
-                        questionText: data.question,
-                        difficulty: currentDifficulty
-                    });
-
-                    console.log('✅ Question recorded to history');
-                }
-            } catch (historyError) {
-                console.warn('⚠️ Failed to record question history:', historyError.message);
-                // Don't fail the question generation - continue anyway
-            }
             setIsTimerRunning(true);
             setTimeout(() => inputRef.current?.focus(), 100);
 
