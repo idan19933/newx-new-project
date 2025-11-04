@@ -1147,7 +1147,9 @@ app.post('/api/ai/generate-question', async (req, res) => {
             grade
         });
 
-        const userId = studentProfile.studentId || studentProfile.id;
+        // ✅ FIX: Convert userId to integer or null (database expects integer)
+        const userId = studentProfile.studentId || studentProfile.id || null;
+        const userIdInt = userId ? parseInt(userId) : null;
         const gradeLevel = parseInt(grade.replace('grade_', '')) || 8;
 
         // 🎯 STEP 1: Try to get from database cache first
@@ -1159,7 +1161,7 @@ app.post('/api/ai/generate-question', async (req, res) => {
             subtopicName,
             difficulty,
             gradeLevel,
-            userId,
+            userId: userIdInt,  // ✅ FIXED: Use integer userId
             excludeQuestionIds: previousQuestions.map(q => q.id).filter(Boolean)
         });
 
@@ -1313,7 +1315,7 @@ ${previousQuestionsText}
         }
 
         // ✅ STEP 4: Record to question history (ONLY ONCE!)
-        const studentId = userId || studentProfile?.studentId || studentProfile?.name || 'anonymous';
+        const studentId = userIdInt || studentProfile?.name || 'anonymous';
 
         try {
             questionHistoryManager.addQuestion(studentId, topicId, {
@@ -1323,7 +1325,7 @@ ${previousQuestionsText}
             });
             console.log('✅ Question recorded to session memory');
 
-            if (userId) {
+            if (userIdInt) {  // ✅ FIXED: Use integer userId
                 await questionHistoryManager.recordToDatabase(studentId, {
                     topicId,
                     subtopicId,
@@ -1360,7 +1362,6 @@ ${previousQuestionsText}
         });
     }
 });
-
 // ==================== VERIFY ANSWER ====================
 
 
