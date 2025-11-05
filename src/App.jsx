@@ -1,4 +1,4 @@
-// src/App.jsx - CLEANED VERSION
+// src/App.jsx - FIXED IMPORTS
 import React, { useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, useNavigate, useLocation } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
@@ -20,7 +20,7 @@ import PaymentCancel from './pages/PaymentCancel';
 import NotebookPage from './pages/NotebookPage';
 import PlansPage from './pages/PlansPage';
 import PremiumSuccess from './pages/PremiumSuccess';
-import LearnPage from './pages/LearnPage'; // ← NEW: Learning Content System
+import LearnPage from './pages/LearnPage';
 
 // AI & Practice
 import MathTutor from './components/ai/MathTutor';
@@ -28,6 +28,10 @@ import MathTutor from './components/ai/MathTutor';
 // Onboarding & Personalized
 import OnboardingFlow from './pages/OnboardingFlow';
 import PersonalizedDashboard from './pages/PersonalizedDashboard';
+
+// 🎓 BAGRUT EXAMS SYSTEM - ✅ FIXED IMPORTS
+import BagrutExamsDashboard from './components/exams/BagrutExamsDashboard';
+import ExamPageWrapper from './components/exams/ExamPageWrapper';
 
 // Admin
 import AdminDashboard from './pages/AdminDashboard';
@@ -46,7 +50,7 @@ function GlobalNexonAsk() {
     const user = useAuthStore(state => state.user);
     const isPremium = useAuthStore(state => state.isPremium);
 
-    const hiddenPaths = ['/onboarding', '/login', '/register', '/math-tutor'];
+    const hiddenPaths = ['/onboarding', '/login', '/register', '/math-tutor', '/bagrut-exams'];
     const shouldHide = hiddenPaths.some(path => location.pathname.startsWith(path));
 
     if (!user || shouldHide || !isPremium) {
@@ -90,6 +94,24 @@ function App() {
                     }
                 />
 
+                {/* 🎓 BAGRUT EXAMS - Fullscreen Routes */}
+                <Route
+                    path="/bagrut-exams"
+                    element={
+                        <PrivateRoute>
+                            <BagrutExamsDashboard />
+                        </PrivateRoute>
+                    }
+                />
+                <Route
+                    path="/bagrut-exams/:examId"
+                    element={
+                        <PrivateRoute>
+                            <ExamPageWrapper />
+                        </PrivateRoute>
+                    }
+                />
+
                 {/* Routes with Layout */}
                 <Route path="/" element={<Layout />}>
                     {/* Public Routes */}
@@ -113,12 +135,10 @@ function App() {
                         }
                     />
 
-                    {/* ✅ NEW: Learning Content System */}
                     <Route
                         path="learn"
                         element={
-                                <LearnPage />
-
+                            <LearnPage />
                         }
                     />
 

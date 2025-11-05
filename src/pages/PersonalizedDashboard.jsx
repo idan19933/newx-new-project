@@ -1,4 +1,4 @@
-// src/pages/PersonalizedDashboard.jsx - FULLY FIXED WITH GRADE FILTERING ✅
+// src/pages/PersonalizedDashboard.jsx - COMPLETE WITH BAGRUT EXAMS BANNER
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -344,7 +344,7 @@ const PersonalizedDashboard = () => {
                         selectedTopic={selectedTopic}
                         selectedSubtopic={selectedSubtopic}
                         userId={user?.uid}
-                        gradeLevel={numericGrade} // ✅ CRITICAL FIX: Pass numeric grade!
+                        gradeLevel={numericGrade}
                         initialDifficulty={suggestedDifficulty}
                         onAnswerSubmitted={handleAnswerSubmitted}
                         onClose={handleBackToDashboard}
@@ -465,6 +465,81 @@ const PersonalizedDashboard = () => {
                         </motion.div>
                     ))}
                 </motion.div>
+
+                {/* 🎓 BAGRUT EXAMS BANNER - Only for grades 11-12 */}
+                {numericGrade >= 11 && (
+                    <motion.div
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="relative overflow-hidden bg-gradient-to-r from-yellow-400 via-orange-500 to-red-500 rounded-2xl md:rounded-3xl p-6 md:p-10 shadow-2xl cursor-pointer"
+                        whileHover={{ scale: 1.02, y: -5 }}
+                        onClick={() => navigate('/bagrut-exams')}
+                    >
+                        <motion.div
+                            className="absolute inset-0 opacity-30"
+                            animate={{
+                                backgroundPosition: ['0% 0%', '100% 100%'],
+                            }}
+                            transition={{ duration: 20, repeat: Infinity, repeatType: 'reverse' }}
+                            style={{
+                                backgroundImage: 'radial-gradient(circle at 20% 50%, rgba(255, 255, 255, 0.3) 0%, transparent 50%)',
+                                backgroundSize: '200% 200%',
+                            }}
+                        />
+                        <div className="relative flex flex-col md:flex-row items-center justify-between gap-4">
+                            <div className="flex-1">
+                                <motion.h3
+                                    className="text-3xl md:text-4xl lg:text-5xl font-black text-white mb-3"
+                                    animate={{ y: [0, -5, 0] }}
+                                    transition={{ duration: 3, repeat: Infinity }}
+                                >
+                                    📝 מבחני בגרות במתמטיקה
+                                </motion.h3>
+                                <p className="text-lg md:text-xl lg:text-2xl text-white/90 font-bold mb-4">
+                                    תרגול מבחנים אמיתיים עם בדיקה אוטומטית של AI
+                                </p>
+                                <div className="flex flex-wrap items-center gap-3">
+                                    <motion.div
+                                        animate={{ scale: [1, 1.1, 1] }}
+                                        transition={{ duration: 2, repeat: Infinity }}
+                                        className="px-4 py-2 bg-white/30 backdrop-blur-sm rounded-xl text-white font-black text-sm md:text-base"
+                                    >
+                                        ✨ חדש!
+                                    </motion.div>
+                                    <div className="px-4 py-2 bg-white/20 backdrop-blur-sm rounded-xl text-white font-bold text-sm md:text-base">
+                                        📸 צילום תשובות
+                                    </div>
+                                    <div className="px-4 py-2 bg-white/20 backdrop-blur-sm rounded-xl text-white font-bold text-sm md:text-base">
+                                        🤖 בדיקה מיידית
+                                    </div>
+                                    <div className="px-4 py-2 bg-white/20 backdrop-blur-sm rounded-xl text-white font-bold text-sm md:text-base">
+                                        📊 מעקב התקדמות
+                                    </div>
+                                </div>
+                            </div>
+                            <motion.div
+                                animate={{
+                                    rotate: [0, 10, -10, 0],
+                                    scale: [1, 1.1, 1]
+                                }}
+                                transition={{ duration: 2, repeat: Infinity }}
+                                className="text-6xl md:text-8xl lg:text-9xl"
+                            >
+                                🎓
+                            </motion.div>
+                        </div>
+
+                        {/* Click indicator */}
+                        <motion.div
+                            animate={{ x: [0, 10, 0] }}
+                            transition={{ duration: 1.5, repeat: Infinity }}
+                            className="absolute bottom-4 left-4 flex items-center gap-2 text-white/80 text-sm md:text-base font-bold"
+                        >
+                            <span>לחץ להתחלה</span>
+                            <ChevronRight className="w-5 h-5" />
+                        </motion.div>
+                    </motion.div>
+                )}
 
                 {/* Personalized Motivation Banner */}
                 <motion.div
