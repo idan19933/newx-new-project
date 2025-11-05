@@ -1,219 +1,158 @@
-// backend/scripts/scrapeMelumadExams.js
 import axios from 'axios';
 import * as cheerio from 'cheerio';
-import pool from '../config/database.js';
+import pg from 'pg';
+import dotenv from 'dotenv';
+
+dotenv.config();
+
+const { Pool } = pg;
+const DATABASE_URL = process.env.DATABASE_PUBLIC_URL || process.env.DATABASE_URL;
+
+const pool = new Pool({
+    connectionString: DATABASE_URL,
+    ssl: { rejectUnauthorized: false },
+    connectionTimeoutMillis: 10000,
+    max: 5
+});
 
 const MELUMAD_URL = 'https://www.melumad.co.il/מבחני-בגרות-במתמטיקה/';
 
-class MelumadExamScraper {
+const EXAM_METADATA = {
+    '801': { units: 3, grade: 11, name: 'שאלון 801 - 3 יח״ל יא׳' },
+    '802': { units: 4, grade: 11, name: 'שאלון 802 - 4 יח״ל יא׳' },
+    '803': { units: 4, grade: 12, name: 'שאלון 803 - 4 יח״ל יב׳' },
+    '804': { units: 4, grade: 12, name: 'שאלון 804 - 4 יח״ל יב׳' },
+    '805': { units: 4, grade: 12, name: 'שאלון 805 - 4 יח״ל יב׳' },
+    '806': { units: 5, grade: 12, name: 'שאלון 806 - 5 יח״ל יב׳' },
+    '807': { units: 5, grade: 12, name: 'שאלון 807 - 5 יח״ל יב׳' }
+};
+
+class MelumadBrowserScraper {
     constructor() {
-        this.examsScraped = 0;
-        this.examsFailed = 0;
+        this.added = 0;
+        this.skipped = 0;
     }
 
-    /**
-     * Main scraping function
-     */
     async scrapeAll() {
-        console.log('🕷️  Starting Melumad Bagrut Exams Scraper...\n');
+        console.log('🕷️  Melumad Browser-Based Scraper\n');
+        console.log('📚 Using browser console data extraction method\n');
 
         try {
-            // Fetch main page
+            await pool.query('SELECT 1');
+            console.log('✅ Database connected\n');
+
             const html = await this.fetchPage(MELUMAD_URL);
             const $ = cheerio.load(html);
 
-            // Extract exam links
-            const examLinks = this.extractExamLinks($);
-            console.log(`📄 Found ${examLinks.length} exam links\n`);
+            // Extract exams using the same logic as browser console
+            const exams = {};
+
+            $('a[href*="fileserv.melumad"]').each((i, link) => {
+                const $link = $(link);
+                const href = $link.attr('href');
+                const text = $link.text().trim();
+
+                // Find exam code in parent
+                let examCode = null;
+                const $parent = $link.closest('tr, .row, div, td');
+
+                if ($parent.length) {
+                    const parentText = $parent.text();
+                    const match = parentText.match(/(?:801|802|803|804|805|806|807)/);
+                    if (match) examCode = match[0];
+                }
+
+                if (examCode) {
+                    if (!exams[examCode]) exams[examCode] = [];
+                    exams[examCode].push({ text, url: href });
+                }
+            });
+
+            console.log(`📊 Found ${Object.keys(exams).length} exam codes\n`);
 
             // Process each exam
-            for (const link of examLinks) {
-                await this.processExam(link);
-                await this.delay(2000); // Respectful scraping
+            for (const [examCode, pdfs] of Object.entries(exams)) {
+                const metadata = EXAM_METADATA[examCode];
+                if (!metadata) {
+                    console.log(`⚠️  Unknown exam code: ${examCode}, skipping`);
+                    continue;
+                }
+
+                console.log(`\n📝 Processing ${metadata.name} (${pdfs.length} PDFs)...`);
+
+                for (const pdf of pdfs) {
+                    await this.insertPDF(examCode, pdf, metadata);
+                }
             }
 
-            console.log('\n✅ Scraping completed!');
-            console.log(`   Scraped: ${this.examsScraped}`);
-            console.log(`   Failed: ${this.examsFailed}`);
+            console.log('\n' + '='.repeat(50));
+            console.log('✅ Scraping completed!');
+            console.log('='.repeat(50));
+            console.log(`   ✅ Added: ${this.added}`);
+            console.log(`   ⏭️  Skipped: ${this.skipped}`);
+            console.log('='.repeat(50) + '\n');
 
         } catch (error) {
-            console.error('❌ Scraping error:', error);
+            console.error('❌ Error:', error.message);
         } finally {
             await pool.end();
         }
     }
 
-    /**
-     * Fetch a page
-     */
-    async fetchPage(url) {
+    async insertPDF(examCode, pdf, metadata) {
         try {
-            const response = await axios.get(url, {
-                headers: {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-                },
-                timeout: 10000
-            });
-            return response.data;
-        } catch (error) {
-            console.error(`Failed to fetch ${url}:`, error.message);
-            throw error;
-        }
-    }
-
-    /**
-     * Extract exam links from main page
-     */
-    extractExamLinks($) {
-        const links = [];
-
-        // Look for exam links (adjust selectors based on actual site structure)
-        $('a[href*="pdf"], a[href*="מבחן"], a[href*="בגרות"]').each((i, elem) => {
-            const href = $(elem).attr('href');
-            const text = $(elem).text().trim();
-
-            if (href && (href.includes('.pdf') || href.includes('מבחן'))) {
-                links.push({
-                    url: href.startsWith('http') ? href : `https://www.melumad.co.il${href}`,
-                    title: text
-                });
-            }
-        });
-
-        return [...new Set(links.map(l => JSON.stringify(l)))].map(l => JSON.parse(l));
-    }
-
-    /**
-     * Process individual exam
-     */
-    async processExam(linkData) {
-        try {
-            console.log(`\n📝 Processing: ${linkData.title}`);
-
-            // Parse exam metadata from title
-            const metadata = this.parseExamTitle(linkData.title);
-
-            if (!metadata) {
-                console.log('   ⏭️  Could not parse metadata, skipping');
-                this.examsFailed++;
-                return;
-            }
-
-            // Check if exam already exists
+            // Check if exists
             const existing = await pool.query(
-                'SELECT id FROM bagrut_exams WHERE exam_code = $1 AND exam_year = $2',
-                [metadata.examCode, metadata.year]
+                'SELECT id FROM bagrut_exams WHERE exam_code = $1 AND pdf_url = $2',
+                [examCode, pdf.url]
             );
 
             if (existing.rows.length > 0) {
-                console.log('   ⚠️  Exam already exists, skipping');
+                console.log(`   ⏭️  ${pdf.text}: already exists`);
+                this.skipped++;
                 return;
             }
 
-            // Insert exam
-            const result = await pool.query(
+            const typeName = {
+                'שאלון': 'שאלון',
+                'פתרון': 'פתרון',
+                'משרד החינוך': 'משרד החינוך',
+                'מיקוד': 'מיקוד',
+                'מבנה': 'מבנה'
+            }[pdf.text] || pdf.text;
+
+            const examName = `${metadata.name} - ${typeName}`;
+
+            await pool.query(
                 `INSERT INTO bagrut_exams (
-                    exam_name, exam_code, exam_date, exam_season, exam_year,
-                    grade_level, units, pdf_url, source, source_url, is_active
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'melumad', $9, true)
-                RETURNING id`,
-                [
-                    metadata.name,
-                    metadata.examCode,
-                    metadata.date,
-                    metadata.season,
-                    metadata.year,
-                    metadata.gradeLevel,
-                    metadata.units,
-                    linkData.url,
-                    MELUMAD_URL
-                ]
+                    exam_name, exam_code, grade_level, units,
+                    pdf_url, source, source_url, is_active
+                ) VALUES ($1, $2, $3, $4, $5, 'melumad', $6, true)`,
+                [examName, examCode, metadata.grade, metadata.units, pdf.url, MELUMAD_URL]
             );
 
-            console.log(`   ✅ Added exam (ID: ${result.rows[0].id})`);
-            console.log(`      Grade: ${metadata.gradeLevel}, Units: ${metadata.units}, Year: ${metadata.year}`);
-
-            this.examsScraped++;
+            console.log(`   ✅ ${typeName}: added`);
+            this.added++;
 
         } catch (error) {
-            console.error(`   ❌ Failed to process exam:`, error.message);
-            this.examsFailed++;
+            console.error(`   ❌ Insert failed: ${error.message}`);
         }
     }
 
-    /**
-     * Parse exam metadata from title
-     * Examples:
-     * - "מבחן 035804 - קיץ 2023 - 5 יחידות"
-     * - "בגרות מתמטיקה - 4 יחידות - חורף 2024"
-     */
-    parseExamTitle(title) {
-        try {
-            const metadata = {
-                name: title,
-                examCode: null,
-                date: null,
-                season: null,
-                year: null,
-                gradeLevel: 12, // Default
-                units: null
-            };
-
-            // Extract exam code (6 digits)
-            const codeMatch = title.match(/\d{6}/);
-            if (codeMatch) {
-                metadata.examCode = codeMatch[0];
-            }
-
-            // Extract year
-            const yearMatch = title.match(/20\d{2}/);
-            if (yearMatch) {
-                metadata.year = parseInt(yearMatch[0]);
-            }
-
-            // Extract season
-            if (title.includes('קיץ') || title.includes('summer')) {
-                metadata.season = 'summer';
-            } else if (title.includes('חורף') || title.includes('winter')) {
-                metadata.season = 'winter';
-            } else if (title.includes('מיוחד') || title.includes('makeup')) {
-                metadata.season = 'makeup';
-            }
-
-            // Extract units
-            const unitsMatch = title.match(/([345])\s*יחידות?/);
-            if (unitsMatch) {
-                metadata.units = parseInt(unitsMatch[1]);
-            }
-
-            // Extract grade level (if mentioned)
-            const gradeMatch = title.match(/כיתה\s*([י|יא|יב])/);
-            if (gradeMatch) {
-                const gradeMap = { 'י': 10, 'יא': 11, 'יב': 12 };
-                metadata.gradeLevel = gradeMap[gradeMatch[1]] || 12;
-            }
-
-            // Validation
-            if (!metadata.units || !metadata.year) {
-                return null;
-            }
-
-            return metadata;
-
-        } catch (error) {
-            console.error('Error parsing title:', error);
-            return null;
-        }
-    }
-
-    /**
-     * Delay helper for respectful scraping
-     */
-    delay(ms) {
-        return new Promise(resolve => setTimeout(resolve, ms));
+    async fetchPage(url) {
+        const response = await axios.get(url, {
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            },
+            timeout: 15000
+        });
+        return response.data;
     }
 }
 
-// Run scraper
-const scraper = new MelumadExamScraper();
-scraper.scrapeAll();
+// Run
+const scraper = new MelumadBrowserScraper();
+scraper.scrapeAll().catch(err => {
+    console.error('💥 Fatal error:', err);
+    process.exit(1);
+});

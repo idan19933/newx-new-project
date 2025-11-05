@@ -1,0 +1,1 @@
+function close_year(a){var e=$(a);e.hasClass("active")||$(a+" .content").is(":visible")?($(a+" .content").slideUp(),e.removeClass("active")):($(a+" .content").slideDown(),e.addClass("active"))}$(document).ready(function(){window.location.hash&&$(window.location.hash).length,mark_last_visited_page()});

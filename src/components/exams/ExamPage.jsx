@@ -1,4 +1,3 @@
-// src/components/exams/ExamPage.jsx
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -9,7 +8,6 @@ import {
 import axios from 'axios';
 import toast from 'react-hot-toast';
 import useAuthStore from '../../store/authStore';
-import MathDisplay from '../math/MathDisplay';
 
 const API_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
 
@@ -236,6 +234,24 @@ const ExamPage = ({ examId, attemptId, onComplete, onExit }) => {
         );
     }
 
+    if (!questions || questions.length === 0) {
+        return (
+            <div className="min-h-screen bg-gradient-to-br from-blue-50 to-purple-50 flex items-center justify-center">
+                <div className="text-center">
+                    <AlertCircle className="w-16 h-16 text-yellow-500 mx-auto mb-4" />
+                    <h2 className="text-2xl font-bold text-gray-900 mb-2">המבחן עדיין לא מוכן</h2>
+                    <p className="text-gray-600 mb-4">אין שאלות במבחן זה כרגע</p>
+                    <button
+                        onClick={onExit}
+                        className="px-6 py-3 bg-purple-500 text-white rounded-xl font-bold"
+                    >
+                        חזרה למבחנים
+                    </button>
+                </div>
+            </div>
+        );
+    }
+
     return (
         <div className="min-h-screen bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50" dir="rtl">
             {/* Top Bar */}
@@ -273,295 +289,74 @@ const ExamPage = ({ examId, attemptId, onComplete, onExit }) => {
 
             {/* Main Content */}
             <div className="max-w-5xl mx-auto px-6 py-8">
-                <AnimatePresence mode="wait">
-                    <motion.div
-                        key={currentQuestionIndex}
-                        initial={{ opacity: 0, x: 20 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        exit={{ opacity: 0, x: -20 }}
-                        className="space-y-6"
-                    >
-                        {/* Question Card */}
-                        <div className="bg-white rounded-2xl p-8 shadow-xl">
-                            <div className="flex items-start justify-between mb-6">
-                                <div>
-                                    <div className="flex items-center gap-2 mb-2">
-                                        <span className="px-3 py-1 bg-purple-100 text-purple-700 rounded-full text-sm font-bold">
-                                            שאלה {currentQuestion?.question_number}
-                                        </span>
-                                        {currentQuestion?.section_number && (
-                                            <span className="px-3 py-1 bg-blue-100 text-blue-700 rounded-full text-sm font-bold">
-                                                פרק {currentQuestion.section_number}
-                                            </span>
-                                        )}
-                                    </div>
-                                    <div className="text-sm text-gray-600">
-                                        {currentQuestion?.topic}
-                                    </div>
-                                </div>
-                                <div className="text-right">
-                                    <div className="text-3xl font-black text-purple-600">
-                                        {currentQuestion?.points}
-                                    </div>
-                                    <div className="text-xs text-gray-600">נקודות</div>
-                                </div>
-                            </div>
+                <div className="bg-white rounded-2xl p-8 shadow-xl mb-6">
+                    <h2 className="text-3xl font-black text-gray-900 mb-6">
+                        שאלה {currentQuestionIndex + 1}
+                    </h2>
+                    <p className="text-xl text-gray-700">
+                        {currentQuestion?.question_text || 'שאלה לא זמינה'}
+                    </p>
 
-                            {/* Question Text */}
-                            <div className="mb-6">
-                                <MathDisplay content={currentQuestion?.question_text} />
-                            </div>
-
-                            {/* Question Image */}
-                            {currentQuestion?.question_image_url && (
-                                <div className="mb-6">
-                                    <img
-                                        src={currentQuestion.question_image_url}
-                                        alt="Question"
-                                        className="max-w-full rounded-xl shadow-lg"
-                                    />
-                                </div>
-                            )}
-                        </div>
-
-                        {/* Answer Section */}
-                        {!showFeedback && (
-                            <div className="bg-white rounded-2xl p-8 shadow-xl space-y-6">
-                                <h3 className="text-2xl font-black text-gray-900 flex items-center gap-2">
-                                    <Send className="w-6 h-6 text-purple-600" />
-                                    התשובה שלך
-                                </h3>
-
-                                {/* Text Answer */}
-                                <div>
-                                    <label className="block text-sm font-bold text-gray-700 mb-2">
-                                        כתוב את התשובה שלך:
-                                    </label>
-                                    <textarea
-                                        value={currentAnswer}
-                                        onChange={(e) => setCurrentAnswer(e.target.value)}
-                                        placeholder="הקלד את התשובה כאן..."
-                                        className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-purple-500 focus:ring-2 focus:ring-purple-200 transition-all resize-none"
-                                        rows={6}
-                                        dir="rtl"
-                                    />
-                                </div>
-
-                                {/* Image Upload Options */}
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    <motion.button
-                                        whileHover={{ scale: 1.02 }}
-                                        whileTap={{ scale: 0.98 }}
-                                        onClick={startCamera}
-                                        className="flex items-center justify-center gap-2 px-6 py-4 bg-gradient-to-r from-blue-500 to-cyan-500 text-white rounded-xl font-bold shadow-lg"
-                                    >
-                                        <Camera className="w-5 h-5" />
-                                        <span>צלם תשובה 📸</span>
-                                    </motion.button>
-
-                                    <label className="flex items-center justify-center gap-2 px-6 py-4 bg-gradient-to-r from-green-500 to-emerald-500 text-white rounded-xl font-bold shadow-lg cursor-pointer hover:scale-102 transition-transform">
-                                        <Upload className="w-5 h-5" />
-                                        <span>העלה תמונה 📁</span>
-                                        <input
-                                            type="file"
-                                            accept="image/*"
-                                            onChange={handleFileUpload}
-                                            className="hidden"
-                                        />
-                                    </label>
-                                </div>
-
-                                {/* Image Preview */}
-                                {imagePreview && (
-                                    <motion.div
-                                        initial={{ opacity: 0, scale: 0.9 }}
-                                        animate={{ opacity: 1, scale: 1 }}
-                                        className="relative"
-                                    >
-                                        <img
-                                            src={imagePreview}
-                                            alt="Answer preview"
-                                            className="w-full rounded-xl shadow-lg"
-                                        />
-                                        <button
-                                            onClick={() => {
-                                                setAnswerImage(null);
-                                                setImagePreview(null);
-                                            }}
-                                            className="absolute top-2 left-2 p-2 bg-red-500 text-white rounded-full"
-                                        >
-                                            <XCircle className="w-5 h-5" />
-                                        </button>
-                                    </motion.div>
-                                )}
-
-                                {/* Submit Button */}
-                                <motion.button
-                                    whileHover={{ scale: 1.02 }}
-                                    whileTap={{ scale: 0.98 }}
-                                    onClick={submitAnswer}
-                                    disabled={submitting || (!currentAnswer && !answerImage)}
-                                    className="w-full flex items-center justify-center gap-2 px-6 py-4 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-xl font-bold shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
-                                >
-                                    {submitting ? (
-                                        <>
-                                            <div className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent"></div>
-                                            <span>בודק תשובה...</span>
-                                        </>
-                                    ) : (
-                                        <>
-                                            <Send className="w-5 h-5" />
-                                            <span>שלח תשובה לבדיקה ✨</span>
-                                        </>
-                                    )}
-                                </motion.button>
-                            </div>
-                        )}
-
-                        {/* Feedback Section */}
-                        {showFeedback && verificationResult && (
-                            <motion.div
-                                initial={{ opacity: 0, y: 20 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                className={`bg-white rounded-2xl p-8 shadow-xl border-4 ${
-                                    verificationResult.isCorrect
-                                        ? 'border-green-400'
-                                        : 'border-red-400'
-                                }`}
-                            >
-                                <div className="flex items-center justify-between mb-6">
-                                    <div className="flex items-center gap-3">
-                                        {verificationResult.isCorrect ? (
-                                            <CheckCircle className="w-12 h-12 text-green-500" />
-                                        ) : (
-                                            <XCircle className="w-12 h-12 text-red-500" />
-                                        )}
-                                        <div>
-                                            <h3 className="text-2xl font-black text-gray-900">
-                                                {verificationResult.isCorrect ? 'תשובה נכונה! 🎉' : 'תשובה לא נכונה'}
-                                            </h3>
-                                            <p className="text-gray-600">
-                                                {verificationResult.feedback}
-                                            </p>
-                                        </div>
-                                    </div>
-                                    <div className="text-center">
-                                        <div className="text-4xl font-black text-purple-600">
-                                            {verificationResult.pointsEarned}/{currentQuestion?.points}
-                                        </div>
-                                        <div className="text-sm text-gray-600">נקודות</div>
-                                    </div>
-                                </div>
-
-                                {/* Correct Answer */}
-                                {!verificationResult.isCorrect && (
-                                    <div className="bg-blue-50 rounded-xl p-6">
-                                        <h4 className="font-bold text-blue-900 mb-2 flex items-center gap-2">
-                                            <Lightbulb className="w-5 h-5" />
-                                            התשובה הנכונה:
-                                        </h4>
-                                        <MathDisplay content={verificationResult.correctAnswer} />
-                                        {verificationResult.explanation && (
-                                            <div className="mt-4 text-sm text-blue-800">
-                                                <strong>הסבר:</strong> {verificationResult.explanation}
-                                            </div>
-                                        )}
-                                    </div>
-                                )}
-                            </motion.div>
-                        )}
-
-                        {/* Navigation */}
-                        <div className="flex items-center justify-between">
-                            <motion.button
-                                whileHover={{ scale: 1.05 }}
-                                whileTap={{ scale: 0.95 }}
-                                onClick={previousQuestion}
-                                disabled={currentQuestionIndex === 0}
-                                className="flex items-center gap-2 px-6 py-3 bg-white rounded-xl font-bold shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
-                            >
-                                <ArrowRight className="w-5 h-5" />
-                                <span>שאלה קודמת</span>
-                            </motion.button>
-
-                            {currentQuestionIndex === questions.length - 1 ? (
-                                <motion.button
-                                    whileHover={{ scale: 1.05 }}
-                                    whileTap={{ scale: 0.95 }}
-                                    onClick={finishExam}
-                                    className="flex items-center gap-2 px-8 py-3 bg-gradient-to-r from-green-500 to-emerald-500 text-white rounded-xl font-bold shadow-lg"
-                                >
-                                    <Flag className="w-5 h-5" />
-                                    <span>סיים מבחן 🏁</span>
-                                </motion.button>
-                            ) : (
-                                <motion.button
-                                    whileHover={{ scale: 1.05 }}
-                                    whileTap={{ scale: 0.95 }}
-                                    onClick={nextQuestion}
-                                    disabled={!showFeedback}
-                                    className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-xl font-bold shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
-                                >
-                                    <span>שאלה הבאה</span>
-                                    <ArrowLeft className="w-5 h-5" />
-                                </motion.button>
-                            )}
-                        </div>
-                    </motion.div>
-                </AnimatePresence>
-            </div>
-
-            {/* Camera Modal */}
-            <AnimatePresence>
-                {showCamera && (
-                    <motion.div
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4"
-                    >
-                        <motion.div
-                            initial={{ scale: 0.9 }}
-                            animate={{ scale: 1 }}
-                            exit={{ scale: 0.9 }}
-                            className="bg-white rounded-2xl p-6 max-w-2xl w-full"
-                        >
-                            <h3 className="text-2xl font-black text-gray-900 mb-4">
-                                📸 צלם את התשובה
-                            </h3>
-
-                            <video
-                                ref={videoRef}
-                                autoPlay
-                                playsInline
-                                className="w-full rounded-xl mb-4"
+                    {!showFeedback && (
+                        <div className="mt-6">
+                            <textarea
+                                value={currentAnswer}
+                                onChange={(e) => setCurrentAnswer(e.target.value)}
+                                placeholder="כתוב את התשובה שלך..."
+                                className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-purple-500 resize-none"
+                                rows={4}
                             />
 
-                            <canvas ref={canvasRef} className="hidden" />
+                            <motion.button
+                                whileHover={{ scale: 1.02 }}
+                                whileTap={{ scale: 0.98 }}
+                                onClick={submitAnswer}
+                                disabled={submitting}
+                                className="w-full mt-4 px-6 py-4 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-xl font-bold disabled:opacity-50"
+                            >
+                                {submitting ? 'שולח...' : 'שלח תשובה'}
+                            </motion.button>
+                        </div>
+                    )}
 
-                            <div className="flex gap-4">
-                                <motion.button
-                                    whileHover={{ scale: 1.02 }}
-                                    whileTap={{ scale: 0.98 }}
-                                    onClick={capturePhoto}
-                                    className="flex-1 px-6 py-3 bg-gradient-to-r from-green-500 to-emerald-500 text-white rounded-xl font-bold"
-                                >
-                                    📸 צלם
-                                </motion.button>
+                    {showFeedback && verificationResult && (
+                        <div className={`mt-6 p-6 rounded-xl ${verificationResult.isCorrect ? 'bg-green-50' : 'bg-red-50'}`}>
+                            <h3 className="text-2xl font-bold mb-2">
+                                {verificationResult.isCorrect ? '✅ תשובה נכונה!' : '❌ תשובה לא נכונה'}
+                            </h3>
+                            <p>{verificationResult.feedback}</p>
+                        </div>
+                    )}
+                </div>
 
-                                <motion.button
-                                    whileHover={{ scale: 1.02 }}
-                                    whileTap={{ scale: 0.98 }}
-                                    onClick={stopCamera}
-                                    className="flex-1 px-6 py-3 bg-gray-200 text-gray-800 rounded-xl font-bold"
-                                >
-                                    ביטול
-                                </motion.button>
-                            </div>
-                        </motion.div>
-                    </motion.div>
-                )}
-            </AnimatePresence>
+                {/* Navigation */}
+                <div className="flex items-center justify-between">
+                    <button
+                        onClick={previousQuestion}
+                        disabled={currentQuestionIndex === 0}
+                        className="px-6 py-3 bg-white rounded-xl font-bold shadow-lg disabled:opacity-50"
+                    >
+                        ← קודם
+                    </button>
+
+                    {currentQuestionIndex === questions.length - 1 ? (
+                        <button
+                            onClick={finishExam}
+                            className="px-8 py-3 bg-green-500 text-white rounded-xl font-bold shadow-lg"
+                        >
+                            סיים מבחן 🏁
+                        </button>
+                    ) : (
+                        <button
+                            onClick={nextQuestion}
+                            disabled={!showFeedback}
+                            className="px-6 py-3 bg-purple-500 text-white rounded-xl font-bold shadow-lg disabled:opacity-50"
+                        >
+                            הבא →
+                        </button>
+                    )}
+                </div>
+            </div>
         </div>
     );
 };

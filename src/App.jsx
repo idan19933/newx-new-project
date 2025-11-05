@@ -1,4 +1,4 @@
-// src/App.jsx - FIXED IMPORTS
+// src/App.jsx - UPDATED WITH BAGRUT EXAMS
 import React, { useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, useNavigate, useLocation } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
@@ -29,9 +29,8 @@ import MathTutor from './components/ai/MathTutor';
 import OnboardingFlow from './pages/OnboardingFlow';
 import PersonalizedDashboard from './pages/PersonalizedDashboard';
 
-// 🎓 BAGRUT EXAMS SYSTEM - ✅ FIXED IMPORTS
-import BagrutExamsDashboard from './components/exams/BagrutExamsDashboard';
-import ExamPageWrapper from './components/exams/ExamPageWrapper';
+// 🎓 BAGRUT EXAMS SYSTEM - NEW!
+import BagrutExamsPage from './pages/BagrutExamsPage';
 
 // Admin
 import AdminDashboard from './pages/AdminDashboard';
@@ -94,20 +93,12 @@ function App() {
                     }
                 />
 
-                {/* 🎓 BAGRUT EXAMS - Fullscreen Routes */}
+                {/* 🎓 BAGRUT EXAMS - Fullscreen Route */}
                 <Route
                     path="/bagrut-exams"
                     element={
                         <PrivateRoute>
-                            <BagrutExamsDashboard />
-                        </PrivateRoute>
-                    }
-                />
-                <Route
-                    path="/bagrut-exams/:examId"
-                    element={
-                        <PrivateRoute>
-                            <ExamPageWrapper />
+                            <BagrutExamsPage />
                         </PrivateRoute>
                     }
                 />
