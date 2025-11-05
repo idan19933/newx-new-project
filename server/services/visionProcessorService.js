@@ -212,7 +212,7 @@ class VisionProcessorService {
                             created_at,
                             is_active
                         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, NOW(), true)
-                        RETURNING id`,
+                             RETURNING id`,
                         [
                             this.formatQuestionText(question),
                             question.solution?.solutionText || 'ממתין לפתרון',
@@ -302,3 +302,86 @@ class VisionProcessorService {
 
         if (question.subQuestions && question.subQuestions.length > 0) {
             hints.push(`📋 רמז 3: השאלה מחולקת ל-${question.subQuestions.length} סעיפים - פתור אותם בזה אחר זה`);
+        }
+
+        if (hints.length === 0) {
+            hints.push('💡 רמז: נסה לזהות את סוג השאלה ואת השיטה המתאימה');
+            hints.push('📖 רמז: חזור על החומר הרלוונטי אם צריך');
+            hints.push('✍️ רמז: כתוב את הנתונים בצורה מסודרת');
+        }
+
+        return hints;
+    }
+
+    /**
+     * 📋 יצירת שלבי פתרון
+     */
+    generateSolutionSteps(question) {
+        const steps = [];
+
+        if (question.solution?.solutionText) {
+            steps.push({
+                step: 1,
+                description: 'קריאת השאלה והבנת הנדרש',
+                details: 'זהה את הנתונים והמבוקש'
+            });
+
+            steps.push({
+                step: 2,
+                description: 'בחירת שיטת פתרון',
+                details: `השתמש בכלים המתאימים ל${question.topic}`
+            });
+
+            steps.push({
+                step: 3,
+                description: 'ביצוע הפתרון',
+                details: question.solution.solutionText
+            });
+
+            steps.push({
+                step: 4,
+                description: 'בדיקת התוצאה',
+                details: 'וודא שהתשובה הגיונית'
+            });
+        } else {
+            steps.push({
+                step: 1,
+                description: 'ממתין לפתרון מפורט',
+                details: 'השלבים יתווספו לאחר הוספת הפתרון'
+            });
+        }
+
+        return steps;
+    }
+
+    /**
+     * 🔄 עדכון שאלה קיימת עם תמונה
+     */
+    async updateQuestionWithImage(questionId, imageData, imageDescription) {
+        try {
+            await pool.query(
+                `UPDATE question_bank 
+                SET has_image = true,
+                    image_data = $1,
+                    updated_at = NOW()
+                WHERE id = $2`,
+                [
+                    JSON.stringify({
+                        description: imageDescription,
+                        data: imageData.toString('base64')
+                    }),
+                    questionId
+                ]
+            );
+
+            console.log(`✅ Updated question ${questionId} with image`);
+            return { success: true };
+
+        } catch (error) {
+            console.error('❌ Error updating question with image:', error);
+            throw error;
+        }
+    }
+}
+
+export default new VisionProcessorService();
