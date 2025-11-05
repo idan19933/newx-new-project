@@ -67,7 +67,7 @@ router.post('/upload-exam', upload.single('image'), async (req, res) => {
                 exam_title, exam_type, grade_level, subject, units,
                 uploaded_by, status
             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'processing')
-            RETURNING id`,
+                 RETURNING id`,
             [
                 req.file.filename,
                 req.file.originalname,
@@ -123,11 +123,11 @@ router.post('/upload-exam', upload.single('image'), async (req, res) => {
         // 6. עדכן סטטוס
         await pool.query(
             `UPDATE exam_uploads SET
-                status = 'completed',
-                processing_completed_at = NOW(),
-                questions_extracted = $1,
-                total_questions = $2,
-                extracted_data = $3
+                                     status = 'completed',
+                                     processing_completed_at = NOW(),
+                                     questions_extracted = $1,
+                                     total_questions = $2,
+                                     extracted_data = $3
              WHERE id = $4`,
             [
                 saveResult.savedCount,
@@ -159,9 +159,9 @@ router.post('/upload-exam', upload.single('image'), async (req, res) => {
         if (req.body.uploadId) {
             await pool.query(
                 `UPDATE exam_uploads SET
-                    status = 'failed',
-                    error_message = $1,
-                    processing_completed_at = NOW()
+                                         status = 'failed',
+                                         error_message = $1,
+                                         processing_completed_at = NOW()
                  WHERE id = $2`,
                 [error.message, req.body.uploadId]
             );
@@ -171,51 +171,6 @@ router.post('/upload-exam', upload.single('image'), async (req, res) => {
             success: false,
             error: error.message
         });
-    }
-});
-
-/**
- * 📊 GET /api/admin/uploads
- * קבל רשימת העלאות
- */
-router.get('/uploads', async (req, res) => {
-    try {
-        const result = await pool.query(
-            `SELECT * FROM exam_uploads 
-             ORDER BY uploaded_at DESC 
-             LIMIT 50`
-        );
-
-        res.json({
-            success: true,
-            uploads: result.rows
-        });
-
-    } catch (error) {
-        console.error('❌ Get uploads error:', error);
-        res.status(500).json({ success: false, error: error.message });
-    }
-});
-
-/**
- * 🗑️ DELETE /api/admin/upload/:id
- * מחק העלאה
- */
-router.delete('/upload/:id', async (req, res) => {
-    try {
-        const { id } = req.params;
-
-        // מחק מה-DB
-        await pool.query('DELETE FROM exam_uploads WHERE id = $1', [id]);
-
-        // מחק את הקובץ
-        // TODO: implement file deletion
-
-        res.json({ success: true });
-
-    } catch (error) {
-        console.error('❌ Delete upload error:', error);
-        res.status(500).json({ success: false, error: error.message });
     }
 });
 
@@ -253,11 +208,16 @@ router.post('/create-exam', async (req, res) => {
             });
         }
 
+        // חלץ filename מה-URL
+        const filename = imageUrl.split('/').pop() || 'uploaded-image.png';
+        console.log('📝 Extracted filename:', filename);
+
         // 1. שמור העלאה ל-DB
         console.log('💾 Creating upload record...');
 
         const uploadResult = await pool.query(
             `INSERT INTO exam_uploads (
+                filename,
                 original_name,
                 image_url,
                 exam_title,
@@ -267,9 +227,10 @@ router.post('/create-exam', async (req, res) => {
                 exam_type,
                 status,
                 uploaded_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
             RETURNING id`,
             [
+                filename,
                 'uploaded-image.png',
                 imageUrl,
                 examTitle || 'Untitled Exam',
@@ -413,6 +374,51 @@ router.post('/create-exam', async (req, res) => {
             success: false,
             error: error.message || 'Internal server error'
         });
+    }
+});
+
+/**
+ * 📊 GET /api/admin/uploads
+ * קבל רשימת העלאות
+ */
+router.get('/uploads', async (req, res) => {
+    try {
+        const result = await pool.query(
+            `SELECT * FROM exam_uploads 
+             ORDER BY uploaded_at DESC 
+             LIMIT 50`
+        );
+
+        res.json({
+            success: true,
+            uploads: result.rows
+        });
+
+    } catch (error) {
+        console.error('❌ Get uploads error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * 🗑️ DELETE /api/admin/upload/:id
+ * מחק העלאה
+ */
+router.delete('/upload/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        // מחק מה-DB
+        await pool.query('DELETE FROM exam_uploads WHERE id = $1', [id]);
+
+        // מחק את הקובץ
+        // TODO: implement file deletion
+
+        res.json({ success: true });
+
+    } catch (error) {
+        console.error('❌ Delete upload error:', error);
+        res.status(500).json({ success: false, error: error.message });
     }
 });
 
