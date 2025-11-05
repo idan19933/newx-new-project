@@ -26,6 +26,7 @@ import performanceRoutes from './routes/performanceRoutes.js';  // ✅ הוסף 
 import adaptiveDifficultyRoutes from './routes/adaptiveDifficultyRoutes.js';
 import enhancedQuestionsRouter from './routes/enhancedQuestions.js';
 import bagrutExamRoutes from './routes/bagrExamRoutes.js'; // ✅ ADD THIS
+import adminRoutes from './routes/adminRoutes.js';
 
 import * as cronManager from './services/cronJobs.js';
 import israeliSourcesRoutes from './routes/israeliSourcesRoutes.js';
@@ -90,6 +91,8 @@ app.use('/api/israeli-sources', israeliSourcesRoutes);
 app.use('/api/adaptive', adaptiveRoutes);
 app.use('/api/bagrut', bagrutExamRoutes); // ✅ ADD THIS
 app.use('/api/admin/bagrut', adminBagrutRoutes);
+app.use('/api/admin', adminRoutes);
+
 
 
 
