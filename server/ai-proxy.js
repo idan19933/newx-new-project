@@ -1125,14 +1125,11 @@ app.post('/api/ai/generate-question', async (req, res) => {
     console.log('============================================================');
 
     try {
-        const {
-            topic,
-            subtopic,
-            difficulty = 'medium',
-            grade,  // ← הסר default!
-            previousQuestions = [],
-            studentProfile = {}
-        } = req.body;
+        // ✅ Get grade from studentProfile if not in root
+        const actualGrade = grade || studentProfile.grade || '8';
+
+// ✅ Handle both "12" and "grade_12" formats
+
 
         console.log('📦 Full Request Body:', JSON.stringify(req.body, null, 2));
 
@@ -1159,9 +1156,10 @@ app.post('/api/ai/generate-question', async (req, res) => {
         const userId = studentProfile.studentId || studentProfile.id || null;
         const userIdInt = userId ? parseInt(userId) : null;
 // Handle both "12" and "grade_12" formats
-        const gradeLevel = typeof grade === 'string'
-            ? (grade.includes('grade_') ? parseInt(grade.replace('grade_', '')) : parseInt(grade))
-            : (parseInt(grade) || 8);
+
+        const gradeLevel = typeof actualGrade === 'string'
+            ? (actualGrade.includes('grade_') ? parseInt(actualGrade.replace('grade_', '')) : parseInt(actualGrade))
+            : (parseInt(actualGrade) || 8);
 
         console.log('👤 User Info:', {
             rawUserId: userId,
