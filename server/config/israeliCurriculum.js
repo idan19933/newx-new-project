@@ -1607,105 +1607,73 @@ export const ISRAELI_CURRICULUM = {
         name: 'כיתה יב׳ - 4 יחידות',
         nameEn: 'Grade 12 - 4 Units',
         emoji: '🎓',
-        examInfo: {
-            examCode: '471',
-            weight: '60% מהציון המסכם',
-            duration: '3:30'
-        },
         topics: [
-            // Top 3 topics by question count
             {
-                id: 'general-review',
-                name: '📝 כללי - חזרה מקיפה',
-                nameEn: 'General Review',
-                icon: '📝',
-                difficulty: 'advanced',
-                questionCount: 26
-            },
-            {
-                id: 'algebra',
-                name: 'x אלגברה',
-                nameEn: 'Algebra',
-                icon: 'x',
-                difficulty: 'advanced',
-                questionCount: 24,
-                subtopics: [
-                    { id: 'linear-equations-12', name: 'משוואות לינאריות', nameEn: 'Linear Equations' },
-                    { id: 'algebraic-expressions-12', name: 'ביטויים אלגבריים', nameEn: 'Algebraic Expressions' }
-                ]
-            },
-            {
-                id: 'geometry',
-                name: '📐 גיאומטריה',
-                nameEn: 'Geometry',
-                icon: '📐',
-                difficulty: 'advanced',
-                questionCount: 21,
-                subtopics: [
-                    { id: 'circle-area-perimeter', name: 'מעגל - שטח והיקף', nameEn: 'Circle - Area and Perimeter' },
-                    { id: 'triangle-area-12', name: 'שטח משולש', nameEn: 'Triangle Area' },
-                    { id: 'pythagorean-12', name: 'משפט פיתגורס', nameEn: 'Pythagorean Theorem' },
-                    { id: 'quadrilateral-area', name: 'שטח מרובעים', nameEn: 'Quadrilateral Area' },
-                    { id: 'angles-12', name: 'זוויות', nameEn: 'Angles' }
-                ]
-            },
-            {
-                id: 'statistics-probability',
-                name: '📊 סטטיסטיקה והסתברות',
-                nameEn: 'Statistics & Probability',
-                icon: '📊',
-                difficulty: 'advanced',
-                questionCount: 13,
-                subtopics: [
-                    { id: 'arithmetic-mean', name: 'ממוצע חשבוני', nameEn: 'Arithmetic Mean' },
-                    { id: 'basic-probability', name: 'הסתברות בסיסית', nameEn: 'Basic Probability' },
-                    { id: 'median-12', name: 'חציון', nameEn: 'Median' }
-                ]
-            },
-            {
-                id: 'integrals',
+                id: 'integrals-review',
                 name: '∫ חשבון אינטגרלי',
                 nameEn: 'Integral Calculus',
                 icon: '∫',
                 difficulty: 'advanced',
-                questionCount: 7,
                 subtopics: [
+                    { id: 'definite-integrals-12', name: 'אינטגרלים מסוימים', nameEn: 'Definite Integrals' },
                     { id: 'area-under-curve-12', name: 'שטח מתחת לעקומה', nameEn: 'Area Under Curve' },
-                    { id: 'volume-12', name: 'נפח', nameEn: 'Volume' },
-                    { id: 'area-between-curves-12', name: 'שטח בין עקומות', nameEn: 'Area Between Curves' }
+                    { id: 'volume-revolution-12', name: 'נפח גוף סיבוב', nameEn: 'Volume of Revolution' }
                 ]
             },
             {
-                id: 'sequences',
-                name: '1,2,3... סדרות',
-                nameEn: 'Sequences',
-                icon: '1,2,3...',
-                difficulty: 'advanced',
-                questionCount: 3,
-                subtopics: [
-                    { id: 'arithmetic-sequences-12', name: 'סדרות חשבוניות', nameEn: 'Arithmetic Sequences' }
-                ]
-            },
-            {
-                id: 'functions',
-                name: 'f(x) פונקציות',
-                nameEn: 'Functions',
-                icon: 'f(x)',
-                difficulty: 'advanced',
-                questionCount: 3,
-                subtopics: [
-                    { id: 'domain-12', name: 'תחום הגדרה', nameEn: 'Domain' }
-                ]
-            },
-            {
-                id: 'differential-calculus',
+                id: 'derivatives-review',
                 name: "f'(x) חשבון דיפרנציאלי",
                 nameEn: 'Differential Calculus',
                 icon: "f'(x)",
                 difficulty: 'advanced',
-                questionCount: 2,
                 subtopics: [
-                    { id: 'polynomial-derivatives-12', name: 'נגזרות של פולינומים', nameEn: 'Polynomial Derivatives' }
+                    { id: 'derivative-applications-12', name: 'יישומי נגזרת', nameEn: 'Derivative Applications' },
+                    { id: 'extremum-problems-12', name: 'בעיות קיצון', nameEn: 'Extremum Problems' },
+                    { id: 'curve-sketching-12', name: 'חקירת פונקציות', nameEn: 'Function Analysis' }
+                ]
+            },
+            {
+                id: 'sequences-12',
+                name: '1,2,3... סדרות וטורים',
+                nameEn: 'Sequences and Series',
+                icon: 'Σ',
+                difficulty: 'advanced',
+                subtopics: [
+                    { id: 'sequences-limits-12', name: 'גבולות סדרות', nameEn: 'Sequence Limits' },
+                    { id: 'series-convergence-12', name: 'התכנסות טורים', nameEn: 'Series Convergence' }
+                ]
+            },
+            {
+                id: 'geometry-analytic-12',
+                name: '📐 גיאומטריה אנליטית',
+                nameEn: 'Analytic Geometry',
+                icon: '📐',
+                difficulty: 'advanced',
+                subtopics: [
+                    { id: 'conic-sections-12', name: 'חתכי חרוט', nameEn: 'Conic Sections' },
+                    { id: 'circle-equations-12', name: 'משוואת מעגל', nameEn: 'Circle Equations' }
+                ]
+            },
+            {
+                id: 'probability-statistics-12',
+                name: '📊 סטטיסטיקה והסתברות',
+                nameEn: 'Statistics & Probability',
+                icon: '📊',
+                difficulty: 'advanced',
+                subtopics: [
+                    { id: 'normal-distribution-12', name: 'התפלגות נורמלית', nameEn: 'Normal Distribution' },
+                    { id: 'statistical-inference-12', name: 'הסקה סטטיסטית', nameEn: 'Statistical Inference' }
+                ]
+            },
+            {
+                id: 'bagrut-practice-12',
+                name: '📝 תרגול מבחני בגרות',
+                nameEn: 'Bagrut Exam Practice',
+                icon: '📝',
+                difficulty: 'advanced',
+                subtopics: [
+                    { id: 'past-exams-12-4', name: 'מבחנים קודמים', nameEn: 'Past Exams' },
+                    { id: 'exam-strategies-12-4', name: 'אסטרטגיות בחינה', nameEn: 'Exam Strategies' }
                 ]
             }
         ]

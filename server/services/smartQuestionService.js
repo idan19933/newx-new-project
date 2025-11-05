@@ -1,4 +1,4 @@
-// server/services/smartQuestionService.js - FIXED VERSION
+// server/services/smartQuestionService.js - FULLY FIXED WITH GRADE APPROPRIATENESS
 import pool from '../config/database.js';
 import crypto from 'crypto';
 
@@ -20,7 +20,7 @@ const TOPIC_MAPPING = {
     'probability': ['הסתברות']
 };
 
-// ✅ NEW: Grade-sensitive topic detection
+// ✅ Grade-sensitive topic detection
 const ADVANCED_TOPICS = {
     12: ['נגזרת', 'אינטגרל', 'חשבון דיפרנציאלי', 'dy/dx', 'לימיט', 'גבול'],
     11: ['לוגריתם', 'אקספוננט', 'טריגונומטריה מתקדמת'],
@@ -141,7 +141,7 @@ class SmartQuestionService {
     }
 
     /**
-     * ✅ FIXED: Get question from Israeli question bank with STRICT grade filtering
+     * ✅ ENHANCED: Get question from Israeli question bank with GRADE APPROPRIATENESS CHECK
      */
     async getIsraeliQuestion(params) {
         const {
@@ -162,6 +162,7 @@ class SmartQuestionService {
             }
 
             console.log(`   🔍 Searching Israeli questions for: ${hebrewTopics.join(', ')}`);
+            console.log(`   🎓 Target grade: ${gradeLevel}`);
 
             let query = `
                 SELECT
@@ -189,10 +190,8 @@ class SmartQuestionService {
             queryParams.push(hebrewTopics);
             paramIndex++;
 
-            // ✅ FIX 1: STRICT grade filtering with range
+            // ✅ STRICT grade filtering
             if (gradeLevel) {
-                // Allow questions from requested grade OR one grade below
-                // (e.g., Grade 8 can get Grade 7-8, but NOT Grade 12!)
                 const minGrade = Math.max(7, gradeLevel - 1);
                 const maxGrade = gradeLevel;
 
@@ -216,7 +215,7 @@ class SmartQuestionService {
                 paramIndex += excludeQuestionIds.length;
             }
 
-            // ✅ FIX 2: Filter out advanced topics for lower grades
+            // Filter out advanced topics for lower grades
             if (gradeLevel && gradeLevel < 12) {
                 const advancedTerms = [];
                 for (const [grade, terms] of Object.entries(ADVANCED_TOPICS)) {
@@ -226,7 +225,6 @@ class SmartQuestionService {
                 }
 
                 if (advancedTerms.length > 0) {
-                    // Exclude questions containing advanced terms
                     const exclusions = advancedTerms.map(term =>
                         `question_text NOT ILIKE '%${term}%'`
                     ).join(' AND ');
@@ -234,36 +232,41 @@ class SmartQuestionService {
                 }
             }
 
-            query += ` ORDER BY RANDOM() LIMIT 5`;
+            query += ` ORDER BY RANDOM() LIMIT 10`;
 
             const result = await pool.query(query, queryParams);
 
-            console.log(`   📊 Found ${result.rows.length} Israeli questions`);
+            console.log(`   📊 Found ${result.rows.length} candidate Israeli questions`);
 
             if (result.rows.length > 0) {
-                // ✅ FIX 3: Double-check grade compatibility before returning
-                const compatibleQuestions = result.rows.filter(q =>
-                    this.isGradeCompatible(q.question_text, gradeLevel)
+                // ✅ NEW: Filter by grade appropriateness (STRICTER than compatibility)
+                const appropriateQuestions = result.rows.filter(q =>
+                    this.isGradeAppropriate(q, gradeLevel)
                 );
 
-                if (compatibleQuestions.length === 0) {
-                    console.log('   ⚠️  All questions filtered out due to grade incompatibility');
+                console.log(`   ✅ ${appropriateQuestions.length} questions passed appropriateness check`);
+
+                if (appropriateQuestions.length === 0) {
+                    console.log('   ⚠️  All questions filtered out - not appropriate for grade level');
+                    console.log('   🤖 Will generate new AI question instead');
                     return null;
                 }
 
-                const selectedQuestion = compatibleQuestions[0];
+                const selectedQuestion = appropriateQuestions[0];
 
                 console.log('   ✅ Selected Israeli question:', {
                     id: selectedQuestion.id,
                     topic: selectedQuestion.topic,
+                    subtopic: selectedQuestion.subtopic,
                     difficulty: selectedQuestion.difficulty,
                     grade: selectedQuestion.grade_level,
-                    preview: selectedQuestion.question_text.substring(0, 50) + '...'
+                    preview: selectedQuestion.question_text.substring(0, 60) + '...'
                 });
 
                 return this.formatIsraeliQuestion(selectedQuestion);
             }
 
+            console.log('   ℹ️  No matching Israeli questions - will generate with AI');
             return null;
 
         } catch (error) {
@@ -273,7 +276,7 @@ class SmartQuestionService {
     }
 
     /**
-     * ✅ NEW: Check if question content is appropriate for student's grade
+     * ✅ Check if question content is appropriate for student's grade (basic compatibility)
      */
     isGradeCompatible(questionText, studentGrade) {
         if (!studentGrade || !questionText) return true;
@@ -285,7 +288,6 @@ class SmartQuestionService {
             const requiredGrade = parseInt(minGrade);
 
             if (studentGrade < requiredGrade) {
-                // Check if question contains any advanced topics
                 const hasAdvancedTopic = topics.some(topic =>
                     lowerQuestion.includes(topic.toLowerCase())
                 );
@@ -301,12 +303,117 @@ class SmartQuestionService {
     }
 
     /**
+     * ✅ NEW: Check if question is APPROPRIATE for student's grade level (STRICTER)
+     * This checks content complexity, not just compatibility
+     */
+    isGradeAppropriate(question, studentGrade) {
+        if (!studentGrade || !question) return true;
+
+        const questionGrade = question.grade_level;
+        const topic = question.topic?.toLowerCase() || '';
+        const subtopic = question.subtopic?.toLowerCase() || '';
+        const questionText = question.question_text?.toLowerCase() || '';
+
+        console.log(`   🔍 Checking appropriateness: Grade ${questionGrade} question for Grade ${studentGrade} student`);
+
+        // ==========================================
+        // RULE 1: Grade 12+ should NOT get basic Grade 8 content
+        // ==========================================
+        if (studentGrade >= 10) {
+            // Check for basic linear equations (Grade 8 content)
+            const isBasicLinear =
+                (topic.includes('אלגברה') || topic.includes('משוואות')) &&
+                (subtopic.includes('משוואות לינאריות') || subtopic.includes('משוואות')) &&
+                !questionText.includes('נגזרת') &&
+                !questionText.includes('אינטגרל') &&
+                !questionText.includes('פונקצי') &&
+                !questionText.includes('גבול') &&
+                (questionText.includes('פתרו') ||
+                    questionText.includes('מצאו את x') ||
+                    questionText.includes('קנה') ||
+                    questionText.includes('שילם') ||
+                    questionText.includes('עטים') ||
+                    questionText.includes('מחברות')) &&
+                questionText.length < 200; // Basic questions are usually short
+
+            if (isBasicLinear) {
+                console.log(`   🚫 REJECTED: Basic linear equation (Grade 8) for Grade ${studentGrade}`);
+                return false;
+            }
+        }
+
+        // ==========================================
+        // RULE 2: Grade 12 needs advanced content
+        // ==========================================
+        if (studentGrade === 12) {
+            const hasAdvancedContent =
+                questionText.includes('נגזרת') ||
+                questionText.includes('אינטגרל') ||
+                questionText.includes('גבול') ||
+                questionText.includes('לוגריתם') ||
+                questionText.includes('אקספוננט') ||
+                questionText.includes('טריגונומטר') ||
+                questionText.includes('פונקצי') ||
+                questionText.includes('dy/dx') ||
+                questionText.includes("f'") ||
+                subtopic.includes('דיפרנציאלי') ||
+                subtopic.includes('אינטגרלי') ||
+                subtopic.includes('גבול');
+
+            // For Grade 12 algebra/functions, require advanced content
+            if ((topic.includes('אלגברה') || topic.includes('פונקצי')) && !hasAdvancedContent) {
+                console.log(`   🚫 REJECTED: No advanced content for Grade ${studentGrade}`);
+                return false;
+            }
+        }
+
+        // ==========================================
+        // RULE 3: Don't give questions from much lower grades
+        // ==========================================
+        if (studentGrade >= 12 && questionGrade < 10) {
+            console.log(`   🚫 REJECTED: Grade ${questionGrade} too low for Grade ${studentGrade}`);
+            return false;
+        }
+
+        if (studentGrade >= 10 && questionGrade < 8) {
+            console.log(`   🚫 REJECTED: Grade ${questionGrade} too low for Grade ${studentGrade}`);
+            return false;
+        }
+
+        // ==========================================
+        // RULE 4: Check for word problems indicating basic level
+        // ==========================================
+        if (studentGrade >= 11) {
+            const basicWordProblemIndicators = [
+                'דני קנה',
+                'שרה קנתה',
+                'בחנות',
+                'שילם',
+                'מחברות ועטים',
+                'עטים ומחברות'
+            ];
+
+            const hasBasicWordProblem = basicWordProblemIndicators.some(indicator =>
+                questionText.includes(indicator)
+            );
+
+            if (hasBasicWordProblem && questionText.length < 200) {
+                console.log(`   🚫 REJECTED: Basic word problem for Grade ${studentGrade}`);
+                return false;
+            }
+        }
+
+        console.log(`   ✅ PASSED appropriateness check`);
+        return true;
+    }
+
+    /**
      * ✅ Get Hebrew topic names from English topic/subtopic
      */
     getHebrewTopics(topicName, subtopicName) {
         const topics = new Set();
 
-        // ✅ If topic is already in Hebrew, use it directly
+        // If topic is already in Hebrew, use it directly
         const isHebrew = /[\u0590-\u05FF]/.test(topicName);
 
         if (isHebrew) {
@@ -331,7 +438,7 @@ class SmartQuestionService {
             return Array.from(topics);
         }
 
-        // ✅ If English, use mapping
+        // If English, use mapping
         if (topicName && TOPIC_MAPPING[topicName]) {
             TOPIC_MAPPING[topicName].forEach(t => topics.add(t));
         }
@@ -354,7 +461,7 @@ class SmartQuestionService {
     }
 
     /**
-     * ✅ FIXED: Get question from question_cache with STRICT filtering
+     * ✅ Get question from question_cache with STRICT filtering
      */
     async getFromCache(params) {
         const {
@@ -431,7 +538,7 @@ class SmartQuestionService {
                 paramIndex += excludeQuestionIds.length;
             }
 
-            // Exclude recently used questions by this user (last 100 questions!)
+            // Exclude recently used questions by this user (last 100 questions)
             if (userId) {
                 query += `
                     AND id NOT IN (
@@ -488,7 +595,7 @@ class SmartQuestionService {
     }
 
     /**
-     * ✅ FIXED: Cache an AI-generated question with validation
+     * ✅ Cache an AI-generated question with validation
      */
     async cacheQuestion(questionData) {
         try {
@@ -506,16 +613,14 @@ class SmartQuestionService {
                 gradeLevel
             } = questionData;
 
-            // ✅ VALIDATION: Check if question is valid
+            // Validation
             if (!question || typeof question !== 'string' || question.trim().length === 0) {
                 console.error('❌ Cannot cache - question is empty or invalid');
-                console.error('   Question data:', { question, type: typeof question });
                 return null;
             }
 
             if (!correctAnswer || typeof correctAnswer !== 'string' || correctAnswer.trim().length === 0) {
                 console.error('❌ Cannot cache - correct answer is empty or invalid');
-                console.error('   Answer data:', { correctAnswer, type: typeof correctAnswer });
                 return null;
             }
 
@@ -533,14 +638,14 @@ class SmartQuestionService {
                 return existing.rows[0].id;
             }
 
-            // ✅ FIXED: Insert new question with correct column name 'question' (not 'question_text')
+            // Insert new question
             const result = await pool.query(
                 `INSERT INTO question_cache (
                     question, correct_answer, hints, explanation, visual_data,
                     topic_id, topic_name, subtopic_id, subtopic_name,
                     difficulty, grade_level, question_hash, source, quality_score
                 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'ai_generated', 70)
-                     RETURNING id`,
+                RETURNING id`,
                 [
                     question.trim(),
                     correctAnswer.trim(),
@@ -562,17 +667,6 @@ class SmartQuestionService {
 
         } catch (error) {
             console.error('❌ Cache question error:', error);
-            console.error('   Error details:', {
-                message: error.message,
-                code: error.code,
-                detail: error.detail
-            });
-            console.error('   Question data preview:', {
-                hasQuestion: !!questionData.question,
-                questionLength: questionData.question?.length,
-                hasAnswer: !!questionData.correctAnswer,
-                answerLength: questionData.correctAnswer?.length
-            });
             return null;
         }
     }
@@ -582,14 +676,8 @@ class SmartQuestionService {
      */
     async trackUsage(questionId, userId, usageData = {}) {
         try {
-            const {
-                isCorrect,
-                timeSpent,
-                hintsUsed,
-                attempts
-            } = usageData;
+            const { isCorrect, timeSpent, hintsUsed, attempts } = usageData;
 
-            // Update usage count
             await pool.query(
                 `UPDATE question_cache
                  SET usage_count = usage_count + 1,
@@ -598,7 +686,6 @@ class SmartQuestionService {
                 [questionId]
             );
 
-            // Record usage in history if we have user data
             if (userId && isCorrect !== undefined) {
                 await pool.query(
                     `INSERT INTO question_usage_history (
@@ -637,15 +724,15 @@ class SmartQuestionService {
                          WHERE question_id = qc.id
                      ),
                      quality_score = LEAST(100, GREATEST(30,
-                                                         50 +
-                                                         CASE WHEN usage_count >= 5 THEN (success_rate - 50) / 2 ELSE 0 END +
-                                                         CASE
-                                                             WHEN usage_count >= 20 THEN 20
-                                                             WHEN usage_count >= 10 THEN 10
-                                                             WHEN usage_count >= 5 THEN 5
-                                                             ELSE 0
-                                                             END
-                                                ))
+                         50 +
+                         CASE WHEN usage_count >= 5 THEN (success_rate - 50) / 2 ELSE 0 END +
+                         CASE
+                             WHEN usage_count >= 20 THEN 20
+                             WHEN usage_count >= 10 THEN 10
+                             WHEN usage_count >= 5 THEN 5
+                             ELSE 0
+                         END
+                     ))
                  WHERE id = $1`,
                 [questionId]
             );
@@ -671,7 +758,7 @@ class SmartQuestionService {
     }
 
     /**
-     * ✅ FIXED: Format cache question for response
+     * Format cache question for response
      */
     formatCacheQuestion(row) {
         return {
@@ -699,7 +786,7 @@ class SmartQuestionService {
     }
 
     /**
-     * ✅ Format Israeli question for response (uses question_text from question_bank table)
+     * Format Israeli question for response
      */
     formatIsraeliQuestion(row) {
         return {
@@ -772,7 +859,7 @@ class SmartQuestionService {
                     COUNT(CASE WHEN difficulty = 'hard' THEN 1 END) as hard_questions,
                     ROUND(AVG(success_rate), 1) as avg_success_rate
                 FROM question_cache
-                         ${whereClause}
+                ${whereClause}
             `, params);
 
             // Get Israeli question stats
