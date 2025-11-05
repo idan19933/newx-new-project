@@ -1,389 +1,313 @@
-// server/services/visionProcessorService.js
+// server/services/enhancedVisionProcessor.js
+// Enhanced vision processing with equations, diagrams, and images
+
 import Anthropic from '@anthropic-ai/sdk';
-import fs from 'fs';
-import path from 'path';
-import crypto from 'crypto';
 import pool from '../config/database.js';
 
 const anthropic = new Anthropic({
-    apiKey: process.env.ANTHROPIC_API_KEY,
+    apiKey: process.env.ANTHROPIC_API_KEY
 });
 
-class VisionProcessorService {
-    /**
-     * 🎯 עיבוד תמונת מבחן והפקת שאלות
-     */
-    async processExamImage(imageData, metadata) {
-        try {
-            console.log('📸 Processing exam image with Claude Vision...');
+/**
+ * Enhanced extraction prompt for mathematical content
+ */
+const createEnhancedPrompt = (examMetadata) => `
+אני שולח לך תמונה של מבחן מתמטיקה ישראלי.
+רמת לימוד: כיתה ${examMetadata.gradeLevel}, ${examMetadata.units || 5} יחידות לימוד.
 
-            const { examTitle, gradeLevel, subject, units, examType } = metadata;
+**חלץ בקפידה:**
 
-            // המרת התמונה ל-base64
-            const imageBase64 = imageData.toString('base64');
-            const mediaType = this.detectMediaType(imageData);
+## 1️⃣ שאלות:
+- טקסט מלא של כל שאלה (כולל כל הסעיפים)
+- נושא ותת-נושא
+- רמת קושי (easy/medium/hard)
 
-            // שלח ל-Claude Vision API
-            const response = await anthropic.messages.create({
-                model: 'claude-sonnet-4-5-20250929',
-                max_tokens: 4096,
-                temperature: 0.3,
-                messages: [
-                    {
-                        role: 'user',
-                        content: [
-                            {
-                                type: 'image',
-                                source: {
-                                    type: 'base64',
-                                    media_type: mediaType,
-                                    data: imageBase64,
-                                },
-                            },
-                            {
-                                type: 'text',
-                                text: this.buildVisionPrompt(metadata)
-                            }
-                        ],
-                    },
-                ],
-            });
+## 2️⃣ משוואות מתמטיות:
+עבור כל משוואה, חלץ בפורמט LaTeX:
+- f(x) = x^2 - 12x + 32 → "f(x) = x^2 - 12x + 32"
+- g(x) = x + 2 → "g(x) = x + 2"
+- \\frac{a}{b} → "\\\\frac{a}{b}"
 
-            console.log('✅ Claude Vision response received');
+## 3️⃣ גרפים ותרשימים:
+- זהה אם יש גרף/תרשים (true/false)
+- תאר את הגרף במילים
+- חלץ נקודות מיוחדות (A, B, C וכו')
 
-            // חלץ את התוכן
-            const content = response.content[0].text;
+---
 
-            // Parse JSON
-            const parsedData = this.parseVisionResponse(content);
+**החזר JSON:**
 
-            console.log(`📊 Extracted ${parsedData.questions.length} questions from image`);
-
-            return {
-                success: true,
-                questions: parsedData.questions,
-                metadata: parsedData.metadata,
-                rawResponse: content
-            };
-
-        } catch (error) {
-            console.error('❌ Vision processing error:', error);
-            throw error;
-        }
-    }
-
-    /**
-     * 📝 בניית פרומפט לחילוץ שאלות מתמונה
-     */
-    buildVisionPrompt(metadata) {
-        const { examTitle, gradeLevel, subject, units, examType } = metadata;
-
-        return `אתה מערכת AI מומחית בחילוץ שאלות מתמטיקה ממבחני בגרות ישראליים.
-
-📋 **פרטי המבחן:**
-- כותרת: ${examTitle || 'מבחן מתמטיקה'}
-- כיתה: ${gradeLevel || '12'}
-- נושא: ${subject || 'מתמטיקה'}
-- רמה: ${units || '5'} יחידות
-- סוג: ${examType || 'בגרוּת'}
-
-🎯 **המשימה שלך:**
-1. **חלץ את כל השאלות** מהתמונה בדיוק כפי שהן מופיעות
-2. **זהה תרשימים וציורים** - תאר אותם במדויק
-3. **סווג כל שאלה** - נושא, תת-נושא, רמת קושי
-4. **שמור על עברית תקינה** - כולל ניקוד אם יש
-
-📤 **פורמט הפלט - JSON בלבד:**
-
-\`\`\`json
 {
-  "examInfo": {
-    "title": "כותרת המבחן המלאה",
-    "date": "תאריך אם מופיע",
-    "totalQuestions": מספר,
-    "instructions": "הוראות כלליות אם יש"
-  },
   "questions": [
     {
-      "questionNumber": מספר השאלה,
+      "questionNumber": 1,
       "questionText": "טקסט השאלה המלא בעברית",
-      "hasImage": true/false,
-      "imageDescription": "תיאור מפורט של התרשים/ציור אם יש",
-      "imagePosition": "inline/below/side",
-      "subQuestions": [
+      "topic": "אלגברה",
+      "subtopic": "פונקציות ריבועיות",
+      "difficulty": "medium",
+      
+      "equations": [
         {
-          "letter": "א/ב/ג/ד",
-          "text": "טקסט השאלה המשנה",
-          "points": נקודות אם מצוין,
-          "hasFormula": true/false,
-          "formula": "נוסחה אם יש"
+          "latex": "f(x) = x^2 - 12x + 32",
+          "description": "משוואת הפרבולה"
         }
       ],
-      "topic": "נושא ראשי (אלגברה/גאומטריה/חשבון דיפרנציאלי/אינטגרלים וכו')",
-      "subtopic": "תת-נושא ספציפי",
-      "difficulty": "easy/medium/hard",
-      "estimatedTime": זמן משוער בדקות,
-      "tags": ["תגיות", "רלוונטיות"],
-      "solution": {
-        "hasInImage": true/false,
-        "solutionText": "פתרון אם מופיע בתמונה"
-      }
+      
+      "hasDiagram": true,
+      "diagramDescription": "גרף של פרבולה החותכת את ציר x בנקודות A ו-B",
+      
+      "hints": ["רמז 1", "רמז 2", "רמז 3"]
     }
-  ],
-  "additionalNotes": "הערות נוספות או מידע חשוב"
+  ]
 }
-\`\`\`
 
-⚠️ **חשוב מאוד:**
-- אל תמציא שאלות - רק מה שמופיע בתמונה
-- שמור על דיוק מתמטי מוחלט
-- אם יש תרשים - תאר אותו במדויק (צירים, נקודות, פונקציות)
-- זהה נוסחאות וכתוב אותן בצורה ברורה
-- אם משהו לא ברור - ציין זאת ב-additionalNotes
+**חשוב:**
+- שמור על עברית תקנית
+- חלץ כל המשוואות בפורמט LaTeX
+- תאר בדיוק את הגרפים
+- זהה נקודות מיוחדות (A, B, C)
+`;
 
-תחליף את התמונה עכשיו וחלץ את כל השאלות בפורמט JSON המדויק שלמעלה.`;
-    }
+/**
+ * Process exam image with enhanced extraction
+ */
+async function processExamImageEnhanced(imageBuffer, examMetadata) {
+    try {
+        console.log('🤖 Enhanced vision processing...');
 
-    /**
-     * 🔍 זיהוי סוג התמונה
-     */
-    detectMediaType(buffer) {
-        const header = buffer.toString('hex', 0, 4).toUpperCase();
+        const base64Image = imageBuffer.toString('base64');
 
-        if (header.startsWith('FFD8FF')) return 'image/jpeg';
-        if (header.startsWith('89504E47')) return 'image/png';
-        if (header.startsWith('47494638')) return 'image/gif';
-        if (header.startsWith('52494646')) return 'image/webp';
+        const message = await anthropic.messages.create({
+            model: 'claude-sonnet-4-20250514',
+            max_tokens: 8000,
+            messages: [{
+                role: 'user',
+                content: [
+                    {
+                        type: 'image',
+                        source: {
+                            type: 'base64',
+                            media_type: 'image/jpeg',
+                            data: base64Image
+                        }
+                    },
+                    {
+                        type: 'text',
+                        text: createEnhancedPrompt(examMetadata)
+                    }
+                ]
+            }]
+        });
 
-        return 'image/jpeg'; // default
-    }
+        const responseText = message.content[0].text;
 
-    /**
-     * 📊 Parse תגובת Claude Vision
-     */
-    parseVisionResponse(content) {
+        // Extract JSON from response
+        let extractedData;
         try {
-            // Remove markdown code blocks if present
-            let jsonContent = content.trim();
-
-            if (jsonContent.startsWith('```json')) {
-                jsonContent = jsonContent.replace(/```json\n?/g, '').replace(/```\n?/g, '');
-            } else if (jsonContent.startsWith('```')) {
-                jsonContent = jsonContent.replace(/```\n?/g, '');
+            const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+            if (jsonMatch) {
+                extractedData = JSON.parse(jsonMatch[0]);
+            } else {
+                extractedData = JSON.parse(responseText);
             }
-
-            const parsed = JSON.parse(jsonContent);
-            return parsed;
-
-        } catch (error) {
-            console.error('❌ Failed to parse Vision response:', error);
-            console.log('Raw content:', content);
+        } catch (parseError) {
+            console.error('JSON Parse Error:', parseError);
+            console.log('Raw response:', responseText);
             throw new Error('Failed to parse AI response');
         }
-    }
 
-    /**
-     * 💾 שמירת שאלות שחולצו מתמונה
-     */
-    /**
-     * 💾 שמירת שאלות שחולצו מתמונה
-     */
-    async saveExtractedQuestions(questions, uploadId, metadata) {
-        try {
-            const savedQuestions = [];
-            let savedCount = 0;
+        const questions = extractedData.questions || [];
+        const totalEquations = questions.reduce((sum, q) => sum + (q.equations?.length || 0), 0);
+        const totalDiagrams = questions.filter(q => q.hasDiagram).length;
 
-            for (const question of questions) {
-                try {
-                    const result = await pool.query(
-                        `INSERT INTO question_bank (
-                            question_text,
-                            correct_answer,
-                            hints,
-                            explanation,
-                            solution_steps,
-                            topic,
-                            subtopic,
-                            difficulty,
-                            grade_level,
-                            units,
-                            source,
-                            has_image,
-                            image_data,
-                            keywords,
-                            metadata,
-                            created_at,
-                            is_active
-                        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, NOW(), true)
-                             RETURNING id`,
-                        [
-                            this.formatQuestionText(question),
-                            question.solution?.solutionText || 'ממתין לפתרון',
-                            JSON.stringify(this.generateHints(question)),
-                            question.solution?.solutionText || '',
-                            JSON.stringify(this.generateSolutionSteps(question)),
-                            question.topic || 'כללי',
-                            question.subtopic || '',
-                            question.difficulty || 'medium',
-                            metadata.gradeLevel || 12,
-                            metadata.units || null,
-                            'admin_upload',
-                            question.hasImage || false,
-                            JSON.stringify({
-                                description: question.imageDescription,
-                                position: question.imagePosition,
-                                uploadId: uploadId
-                            }),
-                            question.tags || [],  // ← FIX: הסרתי JSON.stringify
-                            JSON.stringify({
-                                originalNumber: question.questionNumber,
-                                uploadId: uploadId,
-                                examTitle: metadata.examTitle,
-                                extractedAt: new Date().toISOString()
-                            })
-                        ]
-                    );
+        console.log(`✅ Enhanced: ${questions.length} questions, ${totalEquations} equations, ${totalDiagrams} diagrams`);
 
-                    savedQuestions.push(result.rows[0].id);
-                    savedCount++;
-
-                } catch (error) {
-                    console.error(`❌ Failed to save question ${question.questionNumber}:`, error);
-                }
+        return {
+            success: true,
+            questions,
+            totalEquations,
+            totalDiagrams,
+            containsDiagrams: totalDiagrams > 0,
+            metadata: {
+                extractedAt: new Date().toISOString(),
+                model: 'claude-sonnet-4-20250514',
+                enhanced: true
             }
+        };
 
-            console.log(`✅ Saved ${savedCount}/${questions.length} questions to database`);
-
-            return {
-                success: true,
-                savedCount,
-                questionIds: savedQuestions
-            };
-
-        } catch (error) {
-            console.error('❌ Error saving extracted questions:', error);
-            throw error;
-        }
+    } catch (error) {
+        console.error('❌ Enhanced processing error:', error);
+        throw error;
     }
-    /**
-     * 📝 עיצוב טקסט השאלה
-     */
-    formatQuestionText(question) {
-        let text = `שאלה ${question.questionNumber}:\n\n`;
-        text += question.questionText + '\n\n';
+}
 
-        if (question.hasImage && question.imageDescription) {
-            text += `[תרשים: ${question.imageDescription}]\n\n`;
-        }
+/**
+ * Save enhanced questions to database
+ */
+async function saveEnhancedQuestions(questions, uploadId, examMetadata) {
+    try {
+        console.log(`💾 Saving ${questions.length} enhanced questions...`);
 
-        if (question.subQuestions && question.subQuestions.length > 0) {
-            question.subQuestions.forEach(sq => {
-                text += `${sq.letter}. ${sq.text}\n`;
-                if (sq.points) {
-                    text += `   (${sq.points} נקודות)\n`;
-                }
-            });
-        }
+        let savedCount = 0;
+        const questionIds = [];
 
-        return text.trim();
-    }
-
-    /**
-     * 💡 יצירת רמזים אוטומטית
-     */
-    generateHints(question) {
-        const hints = [];
-
-        if (question.topic) {
-            hints.push(`💡 רמז 1: השאלה עוסקת ב${question.topic}`);
-        }
-
-        if (question.hasImage) {
-            hints.push(`🎨 רמז 2: שים לב לתרשים - ${question.imageDescription?.substring(0, 50)}...`);
-        }
-
-        if (question.subQuestions && question.subQuestions.length > 0) {
-            hints.push(`📋 רמז 3: השאלה מחולקת ל-${question.subQuestions.length} סעיפים - פתור אותם בזה אחר זה`);
-        }
-
-        if (hints.length === 0) {
-            hints.push('💡 רמז: נסה לזהות את סוג השאלה ואת השיטה המתאימה');
-            hints.push('📖 רמז: חזור על החומר הרלוונטי אם צריך');
-            hints.push('✍️ רמז: כתוב את הנתונים בצורה מסודרת');
-        }
-
-        return hints;
-    }
-
-    /**
-     * 📋 יצירת שלבי פתרון
-     */
-    generateSolutionSteps(question) {
-        const steps = [];
-
-        if (question.solution?.solutionText) {
-            steps.push({
-                step: 1,
-                description: 'קריאת השאלה והבנת הנדרש',
-                details: 'זהה את הנתונים והמבוקש'
-            });
-
-            steps.push({
-                step: 2,
-                description: 'בחירת שיטת פתרון',
-                details: `השתמש בכלים המתאימים ל${question.topic}`
-            });
-
-            steps.push({
-                step: 3,
-                description: 'ביצוע הפתרון',
-                details: question.solution.solutionText
-            });
-
-            steps.push({
-                step: 4,
-                description: 'בדיקת התוצאה',
-                details: 'וודא שהתשובה הגיונית'
-            });
-        } else {
-            steps.push({
-                step: 1,
-                description: 'ממתין לפתרון מפורט',
-                details: 'השלבים יתווספו לאחר הוספת הפתרון'
-            });
-        }
-
-        return steps;
-    }
-
-    /**
-     * 🔄 עדכון שאלה קיימת עם תמונה
-     */
-    async updateQuestionWithImage(questionId, imageData, imageDescription) {
-        try {
-            await pool.query(
-                `UPDATE question_bank 
-                SET has_image = true,
-                    image_data = $1,
-                    updated_at = NOW()
-                WHERE id = $2`,
+        for (const q of questions) {
+            const result = await pool.query(
+                `INSERT INTO question_bank (
+                    question_text,
+                    topic,
+                    subtopic,
+                    difficulty,
+                    correct_answer,
+                    explanation,
+                    hints,
+                    solution_steps,
+                    has_image,
+                    equations,
+                    has_diagrams,
+                    diagram_description,
+                    raw_math_content,
+                    metadata
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+                RETURNING id`,
                 [
+                    q.questionText,
+                    q.topic,
+                    q.subtopic,
+                    q.difficulty || 'medium',
+                    q.correctAnswer || null,
+                    q.explanation || null,
+                    JSON.stringify(q.hints || []),
+                    JSON.stringify(q.solutionSteps || []),
+                    q.hasDiagram || false,
+                    JSON.stringify(q.equations || []),
+                    q.hasDiagram || false,
+                    q.diagramDescription || null,
+                    JSON.stringify(q),
                     JSON.stringify({
-                        description: imageDescription,
-                        data: imageData.toString('base64')
-                    }),
-                    questionId
+                        uploadId: uploadId.toString(),
+                        questionNumber: q.questionNumber,
+                        ...examMetadata
+                    })
                 ]
             );
 
-            console.log(`✅ Updated question ${questionId} with image`);
-            return { success: true };
-
-        } catch (error) {
-            console.error('❌ Error updating question with image:', error);
-            throw error;
+            questionIds.push(result.rows[0].id);
+            savedCount++;
         }
+
+        console.log(`✅ Saved ${savedCount} enhanced questions`);
+
+        return {
+            success: true,
+            savedCount,
+            questionIds
+        };
+
+    } catch (error) {
+        console.error('❌ Save enhanced questions error:', error);
+        throw error;
     }
 }
 
-export default new VisionProcessorService();
+/**
+ * Extract solutions from solution page
+ */
+async function extractSolutions(imageBuffer, examGroupId) {
+    try {
+        console.log(`🔍 Extracting solutions for group: ${examGroupId}...`);
+
+        const base64Image = imageBuffer.toString('base64');
+
+        const prompt = `
+אני שולח לך תמונה של עמוד פתרונות למבחן מתמטיקה.
+חלץ את כל הפתרונות מהתמונה.
+
+עבור כל פתרון:
+1. מספר השאלה
+2. הפתרון המלא (שלב אחר שלב)
+3. התשובה הסופית
+
+החזר JSON:
+[
+  {
+    "questionNumber": 1,
+    "fullSolution": "פתרון מפורט...",
+    "finalAnswer": "42"
+  }
+]
+`;
+
+        const message = await anthropic.messages.create({
+            model: 'claude-sonnet-4-20250514',
+            max_tokens: 4000,
+            messages: [{
+                role: 'user',
+                content: [
+                    {
+                        type: 'image',
+                        source: {
+                            type: 'base64',
+                            media_type: 'image/jpeg',
+                            data: base64Image
+                        }
+                    },
+                    {
+                        type: 'text',
+                        text: prompt
+                    }
+                ]
+            }]
+        });
+
+        const responseText = message.content[0].text;
+        const solutions = JSON.parse(responseText);
+
+        // Match solutions to questions
+        let matchedCount = 0;
+        for (const solution of solutions) {
+            const result = await pool.query(`
+                SELECT q.id 
+                FROM question_bank q
+                JOIN exam_uploads e ON q.metadata->>'uploadId' = e.id::text
+                WHERE e.exam_group_id = $1
+                AND q.question_text LIKE $2
+                LIMIT 1
+            `, [examGroupId, `%${solution.questionNumber}%`]);
+
+            if (result.rows.length > 0) {
+                const questionId = result.rows[0].id;
+
+                await pool.query(`
+                    UPDATE question_bank
+                    SET 
+                        full_solution = $1,
+                        correct_answer = $2,
+                        has_solution = true
+                    WHERE id = $3
+                `, [solution.fullSolution, solution.finalAnswer, questionId]);
+
+                matchedCount++;
+                console.log(`✅ Matched solution for question #${solution.questionNumber}`);
+            }
+        }
+
+        console.log(`✅ Processed ${solutions.length} solutions, matched ${matchedCount}`);
+
+        return {
+            success: true,
+            extractedCount: solutions.length,
+            matchedCount
+        };
+
+    } catch (error) {
+        console.error('❌ Solution extraction error:', error);
+        throw error;
+    }
+}
+
+export default {
+    processExamImageEnhanced,
+    saveEnhancedQuestions,
+    extractSolutions
+};

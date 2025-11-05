@@ -1,14 +1,16 @@
-// server/routes/adminRoutes.js - COMPLETE WITH EXAM VIEW ENDPOINTS
+// server/routes/adminRoutes.js - COMPLETE MERGED VERSION
+// Includes: Standard uploads, Enhanced extraction, Multi-file groups, Solutions
 import express from 'express';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 import visionProcessorService from '../services/visionProcessorService.js';
+import enhancedVisionProcessor from '../services/enhancedVisionProcessor.js';
 import pool from '../config/database.js';
 
 const router = express.Router();
 
-// Configure multer for file uploads
+// Configure multer
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
         const uploadDir = path.join(process.cwd(), 'uploads', 'exams');
@@ -25,42 +27,33 @@ const storage = multer.diskStorage({
 
 const upload = multer({
     storage: storage,
-    limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
+    limits: { fileSize: 10 * 1024 * 1024 },
     fileFilter: (req, file, cb) => {
         const allowedTypes = /jpeg|jpg|png|gif|webp/;
         const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
         const mimetype = allowedTypes.test(file.mimetype);
-
         if (mimetype && extname) {
             return cb(null, true);
         } else {
-            cb(new Error('Only image files are allowed!'));
+            cb(new Error('Only image files allowed!'));
         }
     }
 });
 
 /**
- * 📤 POST /api/admin/upload-exam
- * העלאת תמונת מבחן ועיבוד עם Claude Vision
+ * 📤 POST /api/admin/upload-exam-enhanced
+ * העלאת מבחן עם חילוץ משוואות וגרפים
  */
-router.post('/upload-exam', upload.single('image'), async (req, res) => {
+router.post('/upload-exam-enhanced', upload.single('image'), async (req, res) => {
     try {
-        console.log('📤 Admin upload exam request');
+        console.log('📤 Enhanced exam upload');
 
         if (!req.file) {
-            return res.status(400).json({ success: false, error: 'No image uploaded' });
+            return res.status(400).json({ success: false, error: 'No image' });
         }
 
-        const {
-            examTitle,
-            gradeLevel,
-            subject,
-            units,
-            examType,
-            uploadedBy
-        } = req.body;
+        const { examTitle, gradeLevel, subject, units, examType, uploadedBy } = req.body;
 
-        // 1. שמור פרטי העלאה ל-DB
         const uploadResult = await pool.query(
             `INSERT INTO exam_uploads (
                 filename, original_name, file_path, file_size, mime_type,
@@ -68,332 +61,308 @@ router.post('/upload-exam', upload.single('image'), async (req, res) => {
                 uploaded_by, status
             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'processing')
                  RETURNING id`,
-            [
-                req.file.filename,
-                req.file.originalname,
-                req.file.path,
-                req.file.size,
-                req.file.mimetype,
-                examTitle,
-                examType,
-                parseInt(gradeLevel),
-                subject,
-                units ? parseInt(units) : null,
-                uploadedBy,
-            ]
+            [req.file.filename, req.file.originalname, req.file.path, req.file.size,
+                req.file.mimetype, examTitle, examType, parseInt(gradeLevel),
+                subject, units ? parseInt(units) : null, uploadedBy]
         );
 
         const uploadId = uploadResult.rows[0].id;
+        await pool.query('UPDATE exam_uploads SET processing_started_at = NOW() WHERE id = $1', [uploadId]);
 
-        // 2. עדכן שהעיבוד התחיל
-        await pool.query(
-            'UPDATE exam_uploads SET processing_started_at = NOW() WHERE id = $1',
-            [uploadId]
-        );
-
-        // 3. קרא את התמונה
         const imageBuffer = fs.readFileSync(req.file.path);
 
-        // 4. עבד עם Claude Vision
-        const visionResult = await visionProcessorService.processExamImage(imageBuffer, {
-            examTitle,
-            gradeLevel: parseInt(gradeLevel),
-            subject,
-            units: units ? parseInt(units) : null,
-            examType
-        });
-
-        if (!visionResult.success) {
-            throw new Error('Vision processing failed');
-        }
-
-        // 5. שמור את השאלות שחולצו
-        const saveResult = await visionProcessorService.saveExtractedQuestions(
-            visionResult.questions,
-            uploadId,
-            {
-                examTitle,
-                gradeLevel: parseInt(gradeLevel),
-                subject,
-                units: units ? parseInt(units) : null,
-                examType
-            }
+        const enhancedResult = await enhancedVisionProcessor.processExamImageEnhanced(
+            imageBuffer,
+            { examTitle, gradeLevel: parseInt(gradeLevel), subject,
+                units: units ? parseInt(units) : null, examType }
         );
 
-        // 6. עדכן סטטוס
+        if (!enhancedResult.success) {
+            throw new Error('Enhanced vision failed');
+        }
+
+        const saveResult = await enhancedVisionProcessor.saveEnhancedQuestions(
+            enhancedResult.questions,
+            uploadId,
+            { examTitle, gradeLevel: parseInt(gradeLevel), subject,
+                units: units ? parseInt(units) : null, examType }
+        );
+
         await pool.query(
             `UPDATE exam_uploads SET
                                      status = 'completed',
                                      processing_completed_at = NOW(),
                                      questions_extracted = $1,
                                      total_questions = $2,
-                                     extracted_data = $3
-             WHERE id = $4`,
-            [
-                saveResult.savedCount,
-                visionResult.questions.length,
-                JSON.stringify(visionResult.metadata),
-                uploadId
-            ]
+                                     contains_diagrams = $3,
+                                     extracted_data = $4
+             WHERE id = $5`,
+            [saveResult.savedCount, enhancedResult.questions.length,
+                enhancedResult.containsDiagrams || false,
+                JSON.stringify({
+                    ...enhancedResult.metadata,
+                    totalEquations: enhancedResult.totalEquations || 0,
+                    totalDiagrams: enhancedResult.totalDiagrams || 0
+                }),
+                uploadId]
         );
 
         res.json({
             success: true,
             uploadId,
             questionsExtracted: saveResult.savedCount,
-            totalQuestions: visionResult.questions.length,
-            upload: {
-                id: uploadId,
-                exam_title: examTitle,
-                grade_level: parseInt(gradeLevel),
-                units: units ? parseInt(units) : null,
-                total_questions: visionResult.questions.length,
-                status: 'completed'
-            }
+            totalQuestions: enhancedResult.questions.length,
+            totalEquations: enhancedResult.totalEquations || 0,
+            totalDiagrams: enhancedResult.totalDiagrams || 0
         });
 
     } catch (error) {
-        console.error('❌ Upload exam error:', error);
+        console.error('❌ Enhanced upload error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
 
-        // עדכן סטטוס שגיאה
-        if (req.body.uploadId) {
-            await pool.query(
-                `UPDATE exam_uploads SET
-                                         status = 'failed',
-                                         error_message = $1,
-                                         processing_completed_at = NOW()
-                 WHERE id = $2`,
-                [error.message, req.body.uploadId]
-            );
+/**
+ * 📤 POST /api/admin/upload-exam
+ * העלאת מבחן רגילה (backward compatibility)
+ */
+router.post('/upload-exam', upload.single('image'), async (req, res) => {
+    try {
+        if (!req.file) {
+            return res.status(400).json({ success: false, error: 'No image' });
         }
 
-        res.status(500).json({
-            success: false,
-            error: error.message
+        const { examTitle, gradeLevel, subject, units, examType, uploadedBy } = req.body;
+
+        const uploadResult = await pool.query(
+            `INSERT INTO exam_uploads (
+                filename, original_name, file_path, file_size, mime_type,
+                exam_title, exam_type, grade_level, subject, units,
+                uploaded_by, status
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'processing')
+            RETURNING id`,
+            [req.file.filename, req.file.originalname, req.file.path, req.file.size,
+                req.file.mimetype, examTitle, examType, parseInt(gradeLevel),
+                subject, units ? parseInt(units) : null, uploadedBy]
+        );
+
+        const uploadId = uploadResult.rows[0].id;
+        const imageBuffer = fs.readFileSync(req.file.path);
+
+        const visionResult = await visionProcessorService.processExamImage(imageBuffer, {
+            examTitle, gradeLevel: parseInt(gradeLevel), subject,
+            units: units ? parseInt(units) : null, examType
         });
+
+        if (!visionResult.success) throw new Error('Vision processing failed');
+
+        const saveResult = await visionProcessorService.saveExtractedQuestions(
+            visionResult.questions, uploadId,
+            { examTitle, gradeLevel: parseInt(gradeLevel), subject,
+                units: units ? parseInt(units) : null, examType }
+        );
+
+        await pool.query(
+            `UPDATE exam_uploads SET
+                status = 'completed',
+                processing_completed_at = NOW(),
+                questions_extracted = $1,
+                total_questions = $2
+            WHERE id = $3`,
+            [saveResult.savedCount, visionResult.questions.length, uploadId]
+        );
+
+        res.json({
+            success: true,
+            uploadId,
+            questionsExtracted: saveResult.savedCount,
+            totalQuestions: visionResult.questions.length
+        });
+
+    } catch (error) {
+        console.error('❌ Upload error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * 📤 POST /api/admin/upload-exam-grouped-enhanced
+ * העלאת קובץ כחלק מקבוצה
+ */
+router.post('/upload-exam-grouped-enhanced', upload.single('image'), async (req, res) => {
+    try {
+        if (!req.file) {
+            return res.status(400).json({ success: false, error: 'No image' });
+        }
+
+        const {
+            examTitle, gradeLevel, subject, units, examType,
+            examGroupId, fileOrder, isSolutionPage, totalFilesInGroup, uploadedBy
+        } = req.body;
+
+        const uploadResult = await pool.query(
+            `INSERT INTO exam_uploads (
+                filename, original_name, file_path, file_size, mime_type,
+                exam_title, exam_type, grade_level, subject, units,
+                uploaded_by, status,
+                exam_group_id, file_order, is_solution_page, total_files_in_group
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'processing', $12, $13, $14, $15)
+            RETURNING id`,
+            [req.file.filename, req.file.originalname, req.file.path, req.file.size,
+                req.file.mimetype, examTitle, examType, parseInt(gradeLevel),
+                subject, units ? parseInt(units) : null, uploadedBy,
+                examGroupId, parseInt(fileOrder), isSolutionPage === 'true', parseInt(totalFilesInGroup)]
+        );
+
+        const uploadId = uploadResult.rows[0].id;
+        const imageBuffer = fs.readFileSync(req.file.path);
+
+        if (isSolutionPage === 'true') {
+            const solutionResult = await enhancedVisionProcessor.extractSolutions(imageBuffer, examGroupId);
+            await pool.query(
+                `UPDATE exam_uploads SET status = 'completed', processing_completed_at = NOW(),
+                 questions_extracted = $1 WHERE id = $2`,
+                [solutionResult.matchedCount || 0, uploadId]
+            );
+
+            res.json({
+                success: true,
+                uploadId,
+                solutionsMatched: solutionResult.matchedCount || 0,
+                isSolutionPage: true
+            });
+        } else {
+            const enhancedResult = await enhancedVisionProcessor.processExamImageEnhanced(
+                imageBuffer,
+                { examTitle, gradeLevel: parseInt(gradeLevel), subject,
+                    units: units ? parseInt(units) : null, examType }
+            );
+
+            const saveResult = await enhancedVisionProcessor.saveEnhancedQuestions(
+                enhancedResult.questions, uploadId,
+                { examTitle, gradeLevel: parseInt(gradeLevel), subject,
+                    units: units ? parseInt(units) : null, examType }
+            );
+
+            await pool.query(
+                `UPDATE exam_uploads SET status = 'completed', processing_completed_at = NOW(),
+                 questions_extracted = $1, total_questions = $2, contains_diagrams = $3
+                 WHERE id = $4`,
+                [saveResult.savedCount, enhancedResult.questions.length,
+                    enhancedResult.containsDiagrams || false, uploadId]
+            );
+
+            res.json({
+                success: true,
+                uploadId,
+                questionsExtracted: saveResult.savedCount,
+                totalEquations: enhancedResult.totalEquations || 0,
+                isSolutionPage: false
+            });
+        }
+
+    } catch (error) {
+        console.error('❌ Grouped upload error:', error);
+        res.status(500).json({ success: false, error: error.message });
     }
 });
 
 /**
  * 🎯 POST /api/admin/create-exam
- * צור מבחן מתמונה שכבר הועלתה
+ * צור מבחן מתמונה
  */
 router.post('/create-exam', async (req, res) => {
-    console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('🎯 CREATE EXAM FROM UPLOADED IMAGE');
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-
     try {
-        const {
-            imageUrl,
-            examTitle,
-            gradeLevel,
-            subject,
-            units,
-            examType
-        } = req.body;
-
-        console.log('📝 Request data:', {
-            imageUrl,
-            examTitle,
-            gradeLevel,
-            units,
-            examType
-        });
+        const { imageUrl, examTitle, gradeLevel, subject, units, examType, useEnhanced = true } = req.body;
 
         if (!imageUrl) {
-            return res.status(400).json({
-                success: false,
-                error: 'imageUrl is required'
-            });
+            return res.status(400).json({ success: false, error: 'imageUrl required' });
         }
 
-        // חלץ filename מה-URL
         const filename = imageUrl.split('/').pop() || 'uploaded-image.png';
-        console.log('📝 Extracted filename:', filename);
-
-        // 1. שמור העלאה ל-DB
-        console.log('💾 Creating upload record...');
 
         const uploadResult = await pool.query(
             `INSERT INTO exam_uploads (
-                filename,
-                original_name,
-                image_url,
-                exam_title,
-                grade_level,
-                subject,
-                units,
-                exam_type,
-                status,
-                uploaded_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
-                 RETURNING id`,
-            [
-                filename,
-                'uploaded-image.png',
-                imageUrl,
-                examTitle || 'Untitled Exam',
-                parseInt(gradeLevel) || 12,
-                subject || 'mathematics',
-                units ? parseInt(units) : 5,
-                examType || 'bagrut',
-                'processing'
-            ]
+                filename, original_name, image_url, exam_title, grade_level,
+                subject, units, exam_type, status, uploaded_at
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW()) RETURNING id`,
+            [filename, 'uploaded-image.png', imageUrl, examTitle || 'Untitled',
+                parseInt(gradeLevel) || 12, subject || 'mathematics',
+                units ? parseInt(units) : 5, examType || 'bagrut', 'processing']
         );
 
         const uploadId = uploadResult.rows[0].id;
-        console.log(`✅ Created upload ID: ${uploadId}`);
+        const imagePath = imageUrl.startsWith('/') ? path.join(process.cwd(), imageUrl) : imageUrl;
+        const imageBuffer = fs.readFileSync(imagePath);
 
-        // 2. קרא את התמונה מהנתיב
-        console.log('📸 Reading image from:', imageUrl);
+        let result, savedCount;
 
-        const imagePath = imageUrl.startsWith('/')
-            ? path.join(process.cwd(), imageUrl)
-            : imageUrl;
-
-        let imageBuffer;
-        try {
-            imageBuffer = fs.readFileSync(imagePath);
-            console.log(`✅ Image loaded: ${imageBuffer.length} bytes`);
-        } catch (readError) {
-            console.error('❌ Failed to read image:', readError.message);
-
-            await pool.query(
-                `UPDATE exam_uploads
-                 SET status = $1, error_message = $2, processed_at = NOW()
-                 WHERE id = $3`,
-                ['failed', 'Failed to read image: ' + readError.message, uploadId]
-            );
-
-            return res.status(500).json({
-                success: false,
-                error: 'Failed to read image file'
-            });
-        }
-
-        // 3. עבד עם Claude Vision
-        console.log('🤖 Processing with Claude Vision...');
-
-        let visionResult;
-        try {
-            visionResult = await visionProcessorService.processExamImage(
+        if (useEnhanced) {
+            result = await enhancedVisionProcessor.processExamImageEnhanced(
                 imageBuffer,
-                {
-                    examTitle,
-                    gradeLevel: parseInt(gradeLevel),
-                    subject,
-                    units: units ? parseInt(units) : 5,
-                    examType
-                }
+                { examTitle, gradeLevel: parseInt(gradeLevel), subject,
+                    units: units ? parseInt(units) : 5, examType }
             );
 
-            console.log(`✅ Extracted ${visionResult.questions.length} questions`);
+            const saveResult = await enhancedVisionProcessor.saveEnhancedQuestions(
+                result.questions, uploadId,
+                { examTitle, gradeLevel: parseInt(gradeLevel), units: units ? parseInt(units) : 5 }
+            );
 
-        } catch (visionError) {
-            console.error('❌ Vision processing failed:', visionError.message);
+            savedCount = saveResult.savedCount;
 
             await pool.query(
-                `UPDATE exam_uploads
-                 SET status = $1, error_message = $2, processed_at = NOW()
-                 WHERE id = $3`,
-                ['failed', 'AI processing failed: ' + visionError.message, uploadId]
+                `UPDATE exam_uploads SET status = $1, total_questions = $2,
+                 questions_extracted = $3, contains_diagrams = $4, processed_at = NOW()
+                 WHERE id = $5`,
+                ['completed', result.questions.length, savedCount,
+                    result.containsDiagrams || false, uploadId]
+            );
+        } else {
+            result = await visionProcessorService.processExamImage(
+                imageBuffer,
+                { examTitle, gradeLevel: parseInt(gradeLevel), subject,
+                    units: units ? parseInt(units) : 5, examType }
             );
 
-            return res.status(500).json({
-                success: false,
-                error: 'AI processing failed: ' + visionError.message
-            });
-        }
-
-        // 4. שמור שאלות
-        console.log('💾 Saving questions...');
-
-        try {
             const saveResult = await visionProcessorService.saveExtractedQuestions(
-                visionResult.questions,
-                uploadId,
-                {
-                    examTitle,
-                    gradeLevel: parseInt(gradeLevel),
-                    units: units ? parseInt(units) : 5
-                }
+                result.questions, uploadId,
+                { examTitle, gradeLevel: parseInt(gradeLevel), units: units ? parseInt(units) : 5 }
             );
 
-            console.log(`✅ Saved ${saveResult.savedCount} questions`);
-
-            // עדכן סטטוס
-            await pool.query(
-                `UPDATE exam_uploads
-                 SET status = $1,
-                     total_questions = $2,
-                     questions_extracted = $3,
-                     processed_at = NOW()
-                 WHERE id = $4`,
-                [
-                    'completed',
-                    visionResult.questions.length,
-                    saveResult.savedCount,
-                    uploadId
-                ]
-            );
-
-            console.log('✅ Exam created successfully!');
-            console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
-
-            return res.json({
-                success: true,
-                uploadId,
-                questionsExtracted: saveResult.savedCount,
-                totalQuestions: visionResult.questions.length,
-                questionIds: saveResult.questionIds
-            });
-
-        } catch (saveError) {
-            console.error('❌ Failed to save questions:', saveError.message);
+            savedCount = saveResult.savedCount;
 
             await pool.query(
-                `UPDATE exam_uploads
-                 SET status = $1, error_message = $2, processed_at = NOW()
-                 WHERE id = $3`,
-                ['failed', 'Failed to save: ' + saveError.message, uploadId]
+                `UPDATE exam_uploads SET status = $1, total_questions = $2,
+                 questions_extracted = $3, processed_at = NOW() WHERE id = $4`,
+                ['completed', result.questions.length, savedCount, uploadId]
             );
-
-            return res.status(500).json({
-                success: false,
-                error: 'Failed to save questions'
-            });
         }
+
+        res.json({
+            success: true,
+            uploadId,
+            questionsExtracted: savedCount,
+            totalQuestions: result.questions.length,
+            totalEquations: result.totalEquations || 0,
+            enhanced: useEnhanced
+        });
 
     } catch (error) {
-        console.error('❌ CREATE EXAM ERROR:', error);
-        console.error('   Stack:', error.stack);
-        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
-
-        res.status(500).json({
-            success: false,
-            error: error.message || 'Internal server error'
-        });
+        console.error('❌ Create exam error:', error);
+        res.status(500).json({ success: false, error: error.message });
     }
 });
 
 /**
  * 📊 GET /api/admin/uploads
- * קבל רשימת העלאות
  */
 router.get('/uploads', async (req, res) => {
     try {
         const result = await pool.query(
-            `SELECT * FROM exam_uploads
-             ORDER BY uploaded_at DESC
-                 LIMIT 50`
+            `SELECT * FROM exam_uploads ORDER BY uploaded_at DESC LIMIT 50`
         );
-
-        res.json({
-            success: true,
-            uploads: result.rows
-        });
-
+        res.json({ success: true, uploads: result.rows });
     } catch (error) {
         console.error('❌ Get uploads error:', error);
         res.status(500).json({ success: false, error: error.message });
@@ -401,34 +370,55 @@ router.get('/uploads', async (req, res) => {
 });
 
 /**
+ * 📊 GET /api/admin/exam-groups
+ */
+router.get('/exam-groups', async (req, res) => {
+    try {
+        const groupsResult = await pool.query(`
+            SELECT exam_group_id, MIN(uploaded_at) as first_uploaded_at,
+                   MAX(uploaded_at) as last_uploaded_at, COUNT(*) as total_files,
+                   SUM(questions_extracted) as total_questions,
+                   STRING_AGG(exam_title, ' | ' ORDER BY file_order) as combined_title,
+                   MAX(grade_level) as grade_level, MAX(units) as units,
+                   MAX(exam_type) as exam_type,
+                   CASE 
+                       WHEN COUNT(*) = COUNT(*) FILTER (WHERE status = 'completed') THEN 'completed'
+                       WHEN COUNT(*) FILTER (WHERE status = 'failed') > 0 THEN 'partial'
+                       ELSE 'processing'
+                   END as group_status
+            FROM exam_uploads WHERE exam_group_id IS NOT NULL
+            GROUP BY exam_group_id ORDER BY first_uploaded_at DESC
+        `);
+
+        const groups = [];
+        for (const group of groupsResult.rows) {
+            const filesResult = await pool.query(`
+                SELECT id, exam_title, grade_level, units, exam_type, image_url,
+                       status, file_order, is_solution_page, questions_extracted,
+                       uploaded_at, processing_completed_at
+                FROM exam_uploads WHERE exam_group_id = $1 ORDER BY file_order ASC
+            `, [group.exam_group_id]);
+
+            groups.push({ ...group, files: filesResult.rows });
+        }
+
+        res.json({ success: true, groups, total: groups.length });
+    } catch (error) {
+        console.error('❌ Fetch groups error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+/**
  * 📄 GET /api/admin/uploads/:id
- * קבל מבחן ספציפי
  */
 router.get('/uploads/:id', async (req, res) => {
     try {
-        const { id } = req.params;
-
-        console.log(`📥 Fetching upload ${id}...`);
-
-        const result = await pool.query(
-            `SELECT * FROM exam_uploads WHERE id = $1`,
-            [id]
-        );
-
+        const result = await pool.query('SELECT * FROM exam_uploads WHERE id = $1', [req.params.id]);
         if (result.rows.length === 0) {
-            return res.status(404).json({
-                success: false,
-                error: 'Upload not found'
-            });
+            return res.status(404).json({ success: false, error: 'Not found' });
         }
-
-        console.log(`✅ Upload found: ${result.rows[0].exam_title}`);
-
-        res.json({
-            success: true,
-            upload: result.rows[0]
-        });
-
+        res.json({ success: true, upload: result.rows[0] });
     } catch (error) {
         console.error('❌ Get upload error:', error);
         res.status(500).json({ success: false, error: error.message });
@@ -436,51 +426,91 @@ router.get('/uploads/:id', async (req, res) => {
 });
 
 /**
- * 📚 GET /api/admin/exam/:id/questions
- * קבל שאלות של מבחן ספציפי
+ * 📄 GET /api/admin/exam/:id/enhanced
  */
-router.get('/exam/:id/questions', async (req, res) => {
+router.get('/exam/:id/enhanced', async (req, res) => {
     try {
-        const { id } = req.params;
+        const examResult = await pool.query('SELECT * FROM exam_uploads WHERE id = $1', [req.params.id]);
+        if (examResult.rows.length === 0) {
+            return res.status(404).json({ success: false, error: 'Not found' });
+        }
 
-        console.log(`📚 Fetching questions for exam ${id}...`);
+        const exam = examResult.rows[0];
 
-        const result = await pool.query(
-            `SELECT * FROM question_bank 
-             WHERE metadata->>'uploadId' = $1
-             ORDER BY created_at ASC`,
-            [id]
-        );
+        const questionsResult = await pool.query(`
+            SELECT id, question_text, topic, subtopic, difficulty, has_image,
+                   hints, correct_answer, explanation, solution_steps,
+                   equations, question_images, has_diagrams, diagram_description,
+                   raw_math_content, full_solution, has_solution, created_at
+            FROM question_bank WHERE metadata->>'uploadId' = $1 ORDER BY created_at ASC
+        `, [req.params.id]);
 
-        console.log(`✅ Found ${result.rows.length} questions`);
+        const questions = questionsResult.rows;
+        const totalEquations = questions.reduce((sum, q) => {
+            const equations = q.equations || [];
+            return sum + (Array.isArray(equations) ? equations.length : 0);
+        }, 0);
+        const totalDiagrams = questions.filter(q => q.has_diagrams).length;
 
         res.json({
             success: true,
-            questions: result.rows
+            exam,
+            questions,
+            totalQuestions: questions.length,
+            totalEquations,
+            totalDiagrams
         });
-
     } catch (error) {
-        console.error('❌ Get exam questions error:', error);
+        console.error('❌ Get enhanced exam error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * 📚 GET /api/admin/exam/:id/questions
+ */
+router.get('/exam/:id/questions', async (req, res) => {
+    try {
+        const result = await pool.query(
+            `SELECT * FROM question_bank WHERE metadata->>'uploadId' = $1 ORDER BY created_at ASC`,
+            [req.params.id]
+        );
+        res.json({ success: true, questions: result.rows });
+    } catch (error) {
+        console.error('❌ Get questions error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * 📄 GET /api/questions/:questionId/solution
+ */
+router.get('/questions/:questionId/solution', async (req, res) => {
+    try {
+        const result = await pool.query(`
+            SELECT id, question_text, full_solution, correct_answer,
+                   solution_steps, explanation, has_solution
+            FROM question_bank WHERE id = $1
+        `, [req.params.questionId]);
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ success: false, error: 'Not found' });
+        }
+
+        res.json({ success: true, question: result.rows[0] });
+    } catch (error) {
+        console.error('❌ Fetch solution error:', error);
         res.status(500).json({ success: false, error: error.message });
     }
 });
 
 /**
  * 🗑️ DELETE /api/admin/questions/:id
- * מחק שאלה
  */
 router.delete('/questions/:id', async (req, res) => {
     try {
-        const { id } = req.params;
-
-        console.log(`🗑️ Deleting question ${id}...`);
-
-        await pool.query('DELETE FROM question_bank WHERE id = $1', [id]);
-
-        console.log(`✅ Question ${id} deleted`);
-
+        await pool.query('DELETE FROM question_bank WHERE id = $1', [req.params.id]);
         res.json({ success: true });
-
     } catch (error) {
         console.error('❌ Delete question error:', error);
         res.status(500).json({ success: false, error: error.message });
@@ -489,27 +519,12 @@ router.delete('/questions/:id', async (req, res) => {
 
 /**
  * 🗑️ DELETE /api/admin/upload/:id
- * מחק העלאה
  */
 router.delete('/upload/:id', async (req, res) => {
     try {
-        const { id } = req.params;
-
-        console.log(`🗑️ Deleting upload ${id}...`);
-
-        // מחק שאלות קשורות
-        await pool.query(
-            `DELETE FROM question_bank WHERE metadata->>'uploadId' = $1`,
-            [id]
-        );
-
-        // מחק את ההעלאה
-        await pool.query('DELETE FROM exam_uploads WHERE id = $1', [id]);
-
-        console.log(`✅ Upload ${id} and related questions deleted`);
-
+        await pool.query(`DELETE FROM question_bank WHERE metadata->>'uploadId' = $1`, [req.params.id]);
+        await pool.query('DELETE FROM exam_uploads WHERE id = $1', [req.params.id]);
         res.json({ success: true });
-
     } catch (error) {
         console.error('❌ Delete upload error:', error);
         res.status(500).json({ success: false, error: error.message });
