@@ -185,6 +185,9 @@ class VisionProcessorService {
     /**
      * 💾 שמירת שאלות שחולצו מתמונה
      */
+    /**
+     * 💾 שמירת שאלות שחולצו מתמונה
+     */
     async saveExtractedQuestions(questions, uploadId, metadata) {
         try {
             const savedQuestions = [];
@@ -231,7 +234,7 @@ class VisionProcessorService {
                                 position: question.imagePosition,
                                 uploadId: uploadId
                             }),
-                            JSON.stringify(question.tags || []),
+                            question.tags || [],  // ← FIX: הסרתי JSON.stringify
                             JSON.stringify({
                                 originalNumber: question.questionNumber,
                                 uploadId: uploadId,
@@ -262,7 +265,6 @@ class VisionProcessorService {
             throw error;
         }
     }
-
     /**
      * 📝 עיצוב טקסט השאלה
      */
