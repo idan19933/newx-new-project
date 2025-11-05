@@ -46,52 +46,31 @@ const AdminDashboard = () => {
      */
     const handleImageUpload = async (file) => {
         try {
-            setProcessing(true);
+            console.log('📤 Uploading image:', file.name);
 
-            const uploadData = new FormData();
-            uploadData.append('image', file);
-            uploadData.append('examTitle', formData.examTitle);
-            uploadData.append('gradeLevel', formData.gradeLevel);
-            uploadData.append('subject', formData.subject);
-            uploadData.append('units', formData.units);
-            uploadData.append('examType', formData.examType);
-            uploadData.append('uploadedBy', user?.email || user?.uid);
+            const formData = new FormData();
+            formData.append('image', file);
 
-            toast.loading(`מעלה ומעבד: ${file.name}...`, { id: 'upload' });
+            const response = await axios.post(
+                `${import.meta.env.VITE_API_URL}/api/admin/upload-image`,
+                formData,
+                {
+                    headers: {
+                        'Content-Type': 'multipart/form-data'
+                    }
+                }
+            );
 
-            const response = await fetch(`${API_URL}/api/admin/upload-exam`, {
-                method: 'POST',
-                body: uploadData
-            });
-
-            const data = await response.json();
-
-            if (data.success) {
-                toast.success(
-                    `✅ הועלו ${data.questionsExtracted} שאלות!\n🎯 סה"כ: ${data.totalQuestions} שאלות`,
-                    { id: 'upload', duration: 5000 }
-                );
-
-                setUploads(prev => [data.upload, ...prev]);
-
-                // Reset form
-                setFormData({
-                    examTitle: '',
-                    gradeLevel: '12',
-                    subject: 'mathematics',
-                    units: '5',
-                    examType: 'bagrut'
-                });
-
+            if (response.data.success) {
+                console.log('✅ Image uploaded:', response.data.imageUrl);
+                return response.data.imageUrl;
             } else {
-                toast.error(data.error || 'שגיאה בעיבוד התמונה', { id: 'upload' });
+                throw new Error(response.data.error || 'Upload failed');
             }
 
         } catch (error) {
-            console.error('Upload error:', error);
-            toast.error('שגיאה בהעלאת הקובץ', { id: 'upload' });
-        } finally {
-            setProcessing(false);
+            console.error('❌ Upload error:', error);
+            throw error;
         }
     };
 

@@ -2629,6 +2629,65 @@ app.get('/api/ai/question-history/:userId/:topicId', async (req, res) => {
         });
     }
 });
+// ==================== IMAGE UPLOAD ENDPOINT ====================
+import fs from 'fs/promises';
+
+const uploadStorage = multer.diskStorage({
+    destination: async (req, file, cb) => {
+        const dir = 'uploads/admin-images';
+        await fs.mkdir(dir, { recursive: true });
+        cb(null, dir);
+    },
+    filename: (req, file, cb) => {
+        const uniqueName = `admin-${Date.now()}-${Math.random().toString(36).substr(2, 9)}${path.extname(file.originalname)}`;
+        cb(null, uniqueName);
+    }
+});
+
+const adminUpload = multer({
+    storage: uploadStorage,
+    limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
+    fileFilter: (req, file, cb) => {
+        const allowed = /jpeg|jpg|png|gif|webp/;
+        const ext = allowed.test(path.extname(file.originalname).toLowerCase());
+        const mime = allowed.test(file.mimetype);
+
+        if (ext && mime) {
+            cb(null, true);
+        } else {
+            cb(new Error('Only images allowed'));
+        }
+    }
+});
+
+app.post('/api/admin/upload-image', adminUpload.single('image'), (req, res) => {
+    try {
+        if (!req.file) {
+            return res.status(400).json({
+                success: false,
+                error: 'No image uploaded'
+            });
+        }
+
+        const imageUrl = `/uploads/admin-images/${req.file.filename}`;
+
+        res.json({
+            success: true,
+            imageUrl: imageUrl,
+            filename: req.file.filename
+        });
+
+    } catch (error) {
+        console.error('Image upload error:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+// Serve uploaded files
+app.use('/uploads', express.static('uploads'));
 
 app.listen(PORT, '0.0.0.0', async () => {
     await loadPersonalityFromStorage();
