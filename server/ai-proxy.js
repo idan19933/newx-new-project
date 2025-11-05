@@ -25,6 +25,8 @@ import aiAnalysisRoutes from './routes/aiAnalysisRoutes.js';
 import performanceRoutes from './routes/performanceRoutes.js';  // ✅ הוסף שורה זו
 import adaptiveDifficultyRoutes from './routes/adaptiveDifficultyRoutes.js';
 import enhancedQuestionsRouter from './routes/enhancedQuestions.js';
+import bagrutExamRoutes from './routes/bagrExamRoutes.js'; // ✅ ADD THIS
+
 import * as cronManager from './services/cronJobs.js';
 import israeliSourcesRoutes from './routes/israeliSourcesRoutes.js';
 import adaptiveRoutes from './routes/adaptive.js';
@@ -84,6 +86,8 @@ app.use('/api/adaptive', adaptiveDifficultyRoutes);//
 app.use('/api/questions', enhancedQuestionsRouter);  // ← חדש!
 app.use('/api/israeli-sources', israeliSourcesRoutes);
 app.use('/api/adaptive', adaptiveRoutes);
+app.use('/api/bagrut', bagrutExamRoutes); // ✅ ADD THIS
+
 
 console.log('✅ All routes registered!');
 app.post('/api/test-progress', (req, res) => {
