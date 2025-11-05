@@ -1,4 +1,4 @@
-// src/pages/PersonalizedDashboard.jsx - ENHANCED WITH ADAPTIVE DIFFICULTY 🎯
+// src/pages/PersonalizedDashboard.jsx - FULLY FIXED WITH GRADE FILTERING ✅
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -50,12 +50,22 @@ const PersonalizedDashboard = () => {
     const currentGrade = profile?.grade || user?.grade || 'grade10';
     const currentTrack = profile?.track || user?.track || '3-units';
 
+    // ✅ Extract numeric grade for API calls
+    const numericGrade = parseInt(currentGrade.replace('grade', ''));
+
     // Get onboarding data
     const mathFeeling = profile?.mathFeeling || 'okay';
     const goalFocus = profile?.goalFocus || 'understanding';
     const weakTopics = profile?.weakTopics || [];
 
-    console.log('🎓 Dashboard Info:', { currentGrade, currentTrack, mathFeeling, goalFocus, weakTopics });
+    console.log('🎓 Dashboard Info:', {
+        currentGrade,
+        numericGrade,
+        currentTrack,
+        mathFeeling,
+        goalFocus,
+        weakTopics
+    });
 
     const gradeId = getUserGradeId(currentGrade, currentTrack);
     const gradeConfig = getGradeConfig(gradeId);
@@ -63,7 +73,7 @@ const PersonalizedDashboard = () => {
 
     const availableTopics = curriculumTopics;
 
-    // ✅ CHECK FOR AUTO-START FROM NAVIGATION (e.g., from Notebook)
+    // ✅ CHECK FOR AUTO-START FROM NAVIGATION
     useEffect(() => {
         const navigationState = location.state;
 
@@ -94,7 +104,7 @@ const PersonalizedDashboard = () => {
     useEffect(() => {
         if (currentMode === 'dashboard') {
             loadAllStats();
-            fetchAdaptiveDifficulty(); // ✅ Fetch difficulty recommendation
+            fetchAdaptiveDifficulty();
         }
     }, [user?.uid, refreshTrigger, currentMode]);
 
@@ -199,7 +209,7 @@ const PersonalizedDashboard = () => {
         setSelectedTopic(null);
         setSelectedSubtopic(null);
         setRefreshTrigger(prev => prev + 1);
-        fetchAdaptiveDifficulty(); // ✅ Refresh difficulty on return
+        fetchAdaptiveDifficulty();
     };
 
     const handleAnswerSubmitted = async (isCorrect) => {
@@ -287,7 +297,9 @@ const PersonalizedDashboard = () => {
         return colors[difficulty] || 'from-blue-400 to-cyan-500';
     };
 
-    // Learning Mode
+    // ========================================
+    // LEARNING MODE
+    // ========================================
     if (currentMode === 'learning') {
         return (
             <div className="min-h-screen bg-gradient-to-br from-blue-50 to-purple-50 p-4 md:p-6">
@@ -304,6 +316,7 @@ const PersonalizedDashboard = () => {
                     <AILearningArea
                         topic={selectedTopic}
                         subtopic={selectedSubtopic}
+                        gradeLevel={numericGrade}
                         onComplete={handleLearningComplete}
                     />
                 </div>
@@ -311,7 +324,9 @@ const PersonalizedDashboard = () => {
         );
     }
 
-    // ✅ PRACTICE MODE - WITH ADAPTIVE DIFFICULTY
+    // ========================================
+    // ✅ PRACTICE MODE - WITH GRADE LEVEL
+    // ========================================
     if (currentMode === 'practice') {
         return (
             <div className="min-h-screen bg-gradient-to-br from-purple-50 to-pink-50 p-4 md:p-6">
@@ -329,7 +344,8 @@ const PersonalizedDashboard = () => {
                         selectedTopic={selectedTopic}
                         selectedSubtopic={selectedSubtopic}
                         userId={user?.uid}
-                        initialDifficulty={suggestedDifficulty} // ✅ PASS INITIAL DIFFICULTY
+                        gradeLevel={numericGrade} // ✅ CRITICAL FIX: Pass numeric grade!
+                        initialDifficulty={suggestedDifficulty}
                         onAnswerSubmitted={handleAnswerSubmitted}
                         onClose={handleBackToDashboard}
                         mode="practice"
@@ -339,11 +355,13 @@ const PersonalizedDashboard = () => {
         );
     }
 
-    // Dashboard Mode
+    // ========================================
+    // DASHBOARD MODE
+    // ========================================
     return (
         <div className="min-h-screen bg-gradient-to-br from-blue-500 via-purple-500 to-pink-500" dir="rtl">
             <div className="max-w-7xl mx-auto px-4 md:px-6 py-6 md:py-12 space-y-6 md:space-y-12">
-                {/* Header - Enhanced with animation */}
+                {/* Header */}
                 <motion.div
                     initial={{ opacity: 0, y: -30 }}
                     animate={{ opacity: 1, y: 0 }}
@@ -404,7 +422,7 @@ const PersonalizedDashboard = () => {
                     </motion.div>
                 )}
 
-                {/* Stats Cards - Enhanced with better animations */}
+                {/* Stats Cards */}
                 <motion.div
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
@@ -448,7 +466,7 @@ const PersonalizedDashboard = () => {
                     ))}
                 </motion.div>
 
-                {/* Personalized Motivation Banner - Enhanced */}
+                {/* Personalized Motivation Banner */}
                 <motion.div
                     initial={{ opacity: 0, scale: 0.95 }}
                     animate={{ opacity: 1, scale: 1 }}
@@ -479,7 +497,7 @@ const PersonalizedDashboard = () => {
                     </div>
                 </motion.div>
 
-                {/* Weak Topics Highlight - Enhanced */}
+                {/* Weak Topics Highlight */}
                 {weakTopics && weakTopics.length > 0 && (
                     <motion.div
                         initial={{ opacity: 0, y: 20 }}
@@ -504,7 +522,7 @@ const PersonalizedDashboard = () => {
                     </motion.div>
                 )}
 
-                {/* Topics Section - SAME AS BEFORE BUT WITH ADAPTIVE DIFFICULTY */}
+                {/* Topics Section */}
                 <motion.div
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
@@ -613,7 +631,7 @@ const PersonalizedDashboard = () => {
                                                 </div>
                                             </div>
 
-                                            {/* Back of card - SAME AS BEFORE */}
+                                            {/* Back of card */}
                                             <div
                                                 className="absolute inset-0 bg-gradient-to-br from-purple-600 to-pink-600 rounded-2xl md:rounded-3xl p-4 md:p-6 shadow-2xl"
                                                 style={{
@@ -695,7 +713,7 @@ const PersonalizedDashboard = () => {
                     )}
                 </motion.div>
 
-                {/* Goal Focus Reminder - Enhanced */}
+                {/* Goal Focus Reminder */}
                 {goalFocus && (
                     <motion.div
                         initial={{ opacity: 0, y: 20 }}
