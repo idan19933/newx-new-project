@@ -418,6 +418,7 @@ router.delete('/upload/:id', async (req, res) => {
 
     } catch (error) {
         console.error('❌ Delete upload error:', error);
+        console.error('❌ Delete upload error:', error);
         res.status(500).json({ success: false, error: error.message });
     }
 });
