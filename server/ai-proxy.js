@@ -32,6 +32,8 @@ import israeliSourcesRoutes from './routes/israeliSourcesRoutes.js';
 import adaptiveRoutes from './routes/adaptive.js';
 import notebookService from './services/notebookService.js';
 import smartQuestionService from './services/smartQuestionService.js';
+import adminBagrutRoutes from './routes/adminBagrutRoutes.js';
+
 
 import userRoutes from './routes/userRoutes.js';
 import pool from './config/database.js';
@@ -87,6 +89,8 @@ app.use('/api/questions', enhancedQuestionsRouter);  // ← חדש!
 app.use('/api/israeli-sources', israeliSourcesRoutes);
 app.use('/api/adaptive', adaptiveRoutes);
 app.use('/api/bagrut', bagrutExamRoutes); // ✅ ADD THIS
+app.use('/api/admin/bagrut', adminBagrutRoutes);
+
 
 
 console.log('✅ All routes registered!');

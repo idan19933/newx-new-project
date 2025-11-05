@@ -1,4 +1,4 @@
-// src/App.jsx - UPDATED WITH BAGRUT EXAMS
+// src/App.jsx - UPDATED WITH BAGRUT EXAMS + ADMIN PANEL
 import React, { useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, useNavigate, useLocation } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
@@ -29,8 +29,9 @@ import MathTutor from './components/ai/MathTutor';
 import OnboardingFlow from './pages/OnboardingFlow';
 import PersonalizedDashboard from './pages/PersonalizedDashboard';
 
-// 🎓 BAGRUT EXAMS SYSTEM - NEW!
+// 🎓 BAGRUT EXAMS SYSTEM
 import BagrutExamsPage from './pages/BagrutExamsPage';
+import AdminAddQuestion from './pages/AdminAddQuestion';  // ✅ NEW!
 
 // Admin
 import AdminDashboard from './pages/AdminDashboard';
@@ -49,7 +50,7 @@ function GlobalNexonAsk() {
     const user = useAuthStore(state => state.user);
     const isPremium = useAuthStore(state => state.isPremium);
 
-    const hiddenPaths = ['/onboarding', '/login', '/register', '/math-tutor', '/bagrut-exams'];
+    const hiddenPaths = ['/onboarding', '/login', '/register', '/math-tutor', '/bagrut-exams', '/admin'];
     const shouldHide = hiddenPaths.some(path => location.pathname.startsWith(path));
 
     if (!user || shouldHide || !isPremium) {
@@ -220,6 +221,16 @@ function App() {
                         element={
                             <AdminRoute>
                                 <PersonalityUploader />
+                            </AdminRoute>
+                        }
+                    />
+
+                    {/* 🎓 BAGRUT ADMIN ROUTES - NEW! */}
+                    <Route
+                        path="admin/exams/:examId/add-question"
+                        element={
+                            <AdminRoute>
+                                <AdminAddQuestion />
                             </AdminRoute>
                         }
                     />
