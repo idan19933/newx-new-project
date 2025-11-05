@@ -219,4 +219,201 @@ router.delete('/upload/:id', async (req, res) => {
     }
 });
 
+/**
+ * 🎯 POST /api/admin/create-exam
+ * צור מבחן מתמונה שכבר הועלתה
+ */
+router.post('/create-exam', async (req, res) => {
+    console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log('🎯 CREATE EXAM FROM UPLOADED IMAGE');
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+
+    try {
+        const {
+            imageUrl,
+            examTitle,
+            gradeLevel,
+            subject,
+            units,
+            examType
+        } = req.body;
+
+        console.log('📝 Request data:', {
+            imageUrl,
+            examTitle,
+            gradeLevel,
+            units,
+            examType
+        });
+
+        if (!imageUrl) {
+            return res.status(400).json({
+                success: false,
+                error: 'imageUrl is required'
+            });
+        }
+
+        // 1. שמור העלאה ל-DB
+        console.log('💾 Creating upload record...');
+
+        const uploadResult = await pool.query(
+            `INSERT INTO exam_uploads (
+                original_name,
+                image_url,
+                exam_title,
+                grade_level,
+                subject,
+                units,
+                exam_type,
+                status,
+                uploaded_at
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+            RETURNING id`,
+            [
+                'uploaded-image.png',
+                imageUrl,
+                examTitle || 'Untitled Exam',
+                parseInt(gradeLevel) || 12,
+                subject || 'mathematics',
+                units ? parseInt(units) : 5,
+                examType || 'bagrut',
+                'processing'
+            ]
+        );
+
+        const uploadId = uploadResult.rows[0].id;
+        console.log(`✅ Created upload ID: ${uploadId}`);
+
+        // 2. קרא את התמונה מהנתיב
+        console.log('📸 Reading image from:', imageUrl);
+
+        const imagePath = imageUrl.startsWith('/')
+            ? path.join(process.cwd(), imageUrl)
+            : imageUrl;
+
+        let imageBuffer;
+        try {
+            imageBuffer = fs.readFileSync(imagePath);
+            console.log(`✅ Image loaded: ${imageBuffer.length} bytes`);
+        } catch (readError) {
+            console.error('❌ Failed to read image:', readError.message);
+
+            await pool.query(
+                `UPDATE exam_uploads 
+                SET status = $1, error_message = $2, processed_at = NOW()
+                WHERE id = $3`,
+                ['failed', 'Failed to read image: ' + readError.message, uploadId]
+            );
+
+            return res.status(500).json({
+                success: false,
+                error: 'Failed to read image file'
+            });
+        }
+
+        // 3. עבד עם Claude Vision
+        console.log('🤖 Processing with Claude Vision...');
+
+        let visionResult;
+        try {
+            visionResult = await visionProcessorService.processExamImage(
+                imageBuffer,
+                {
+                    examTitle,
+                    gradeLevel: parseInt(gradeLevel),
+                    subject,
+                    units: units ? parseInt(units) : 5,
+                    examType
+                }
+            );
+
+            console.log(`✅ Extracted ${visionResult.questions.length} questions`);
+
+        } catch (visionError) {
+            console.error('❌ Vision processing failed:', visionError.message);
+
+            await pool.query(
+                `UPDATE exam_uploads 
+                SET status = $1, error_message = $2, processed_at = NOW()
+                WHERE id = $3`,
+                ['failed', 'AI processing failed: ' + visionError.message, uploadId]
+            );
+
+            return res.status(500).json({
+                success: false,
+                error: 'AI processing failed: ' + visionError.message
+            });
+        }
+
+        // 4. שמור שאלות
+        console.log('💾 Saving questions...');
+
+        try {
+            const saveResult = await visionProcessorService.saveExtractedQuestions(
+                visionResult.questions,
+                uploadId,
+                {
+                    examTitle,
+                    gradeLevel: parseInt(gradeLevel),
+                    units: units ? parseInt(units) : 5
+                }
+            );
+
+            console.log(`✅ Saved ${saveResult.savedCount} questions`);
+
+            // עדכן סטטוס
+            await pool.query(
+                `UPDATE exam_uploads 
+                SET status = $1, 
+                    total_questions = $2,
+                    questions_extracted = $3,
+                    processed_at = NOW()
+                WHERE id = $4`,
+                [
+                    'completed',
+                    visionResult.questions.length,
+                    saveResult.savedCount,
+                    uploadId
+                ]
+            );
+
+            console.log('✅ Exam created successfully!');
+            console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+
+            return res.json({
+                success: true,
+                uploadId,
+                questionsExtracted: saveResult.savedCount,
+                totalQuestions: visionResult.questions.length,
+                questionIds: saveResult.questionIds
+            });
+
+        } catch (saveError) {
+            console.error('❌ Failed to save questions:', saveError.message);
+
+            await pool.query(
+                `UPDATE exam_uploads 
+                SET status = $1, error_message = $2, processed_at = NOW()
+                WHERE id = $3`,
+                ['failed', 'Failed to save: ' + saveError.message, uploadId]
+            );
+
+            return res.status(500).json({
+                success: false,
+                error: 'Failed to save questions'
+            });
+        }
+
+    } catch (error) {
+        console.error('❌ CREATE EXAM ERROR:', error);
+        console.error('   Stack:', error.stack);
+        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+
+        res.status(500).json({
+            success: false,
+            error: error.message || 'Internal server error'
+        });
+    }
+});
+
 export default router;

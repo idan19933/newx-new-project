@@ -1,18 +1,21 @@
-// src/pages/AdminDashboard.jsx - ADMIN PANEL WITH IMAGE UPLOAD
+// src/pages/AdminDashboard.jsx - FIXED FOR RAILWAY
 import React, { useState, useCallback } from 'react';
-import axios from 'axios';  // ✅ הוסף שורה זו!
-
-import { motion, AnimatePresence } from 'framer-motion';
+import axios from 'axios';
+import { motion } from 'framer-motion';
 import {
     Upload, Image, FileText, CheckCircle, XCircle,
-    Loader, Eye, Trash2, Download, RefreshCw,
-    Camera, Sparkles, Brain, Zap, Award, BookOpen
+    Loader, Eye, RefreshCw, Camera, Sparkles,
+    Brain, Zap, Award, BookOpen
 } from 'lucide-react';
 import { useDropzone } from 'react-dropzone';
 import useAuthStore from '../store/authStore';
 import toast from 'react-hot-toast';
 
-const API_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
+// ✅ API URL from environment variable
+const API_URL =
+    'https://nexons-production-1915.up.railway.app';
+
+console.log('🔧 API_URL configured:', API_URL);
 
 const AdminDashboard = () => {
     const { user } = useAuthStore();
@@ -44,52 +47,122 @@ const AdminDashboard = () => {
     });
 
     /**
-     * 📸 העלאת תמונה ועיבוד
+     * 📸 העלאת תמונה - FIXED VERSION
+     */
+    /**
+     * 📸 העלאת תמונה ויצירת מבחן
      */
     const handleImageUpload = async (file) => {
+        const uploadToast = toast.loading('מעלה תמונה...');
+
         try {
-            console.log('📤 Uploading image:', file.name);
+            console.log('📤 Uploading to:', `${API_URL}/api/admin/upload-image`);
+            console.log('📤 File:', file.name, file.size, 'bytes');
 
-            const formData = new FormData();
-            formData.append('image', file);
+            setProcessing(true);
 
-            const response = await axios.post(
-                `${import.meta.env.VITE_API_URL}/api/admin/upload-image`,
-                formData,
+            const uploadFormData = new FormData();
+            uploadFormData.append('image', file);
+
+            // Step 1: Upload image
+            const uploadResponse = await axios.post(
+                `${API_URL}/api/admin/upload-image`,
+                uploadFormData,
                 {
                     headers: {
                         'Content-Type': 'multipart/form-data'
-                    }
+                    },
+                    timeout: 30000
                 }
             );
 
-            if (response.data.success) {
-                console.log('✅ Image uploaded:', response.data.imageUrl);
-                return response.data.imageUrl;
-            } else {
-                throw new Error(response.data.error || 'Upload failed');
+            console.log('✅ Upload response:', uploadResponse.data);
+
+            if (!uploadResponse.data.success) {
+                throw new Error(uploadResponse.data.error || 'Upload failed');
             }
+
+            toast.success('✅ התמונה הועלתה!', { id: uploadToast });
+
+            // Step 2: Create exam from image
+            const createToast = toast.loading('מעבד עם AI...');
+
+            const examData = {
+                imageUrl: uploadResponse.data.imageUrl,
+                examTitle: formData.examTitle,
+                gradeLevel: formData.gradeLevel,
+                subject: formData.subject,
+                units: formData.units,
+                examType: formData.examType
+            };
+
+            const createResponse = await axios.post(
+                `${API_URL}/api/admin/create-exam`,
+                examData,
+                { timeout: 60000 } // 60 seconds for AI processing
+            );
+
+            console.log('✅ Exam created:', createResponse.data);
+
+            toast.success(`✅ נוצר מבחן עם ${createResponse.data.questionsExtracted} שאלות!`, {
+                id: createToast,
+                duration: 5000
+            });
+
+            // Refresh uploads list
+            await loadUploads();
+
+            return createResponse.data;
 
         } catch (error) {
             console.error('❌ Upload error:', error);
+
+            let errorMessage = 'שגיאה בהעלאת התמונה';
+
+            if (error.code === 'ERR_NETWORK') {
+                errorMessage = 'אין חיבור לשרת';
+            } else if (error.response) {
+                errorMessage = error.response.data?.error || `שגיאה: ${error.response.status}`;
+            } else if (error.request) {
+                errorMessage = 'השרת לא מגיב';
+            } else {
+                errorMessage = error.message;
+            }
+
+            toast.error(errorMessage, { id: uploadToast });
             throw error;
+
+        } finally {
+            setProcessing(false);
         }
     };
-
     /**
      * 📊 טעינת העלאות קיימות
      */
     const loadUploads = async () => {
         try {
             setLoading(true);
-            const response = await fetch(`${API_URL}/api/admin/uploads`);
-            const data = await response.json();
+            console.log('📥 Loading uploads from:', `${API_URL}/api/admin/uploads`);
 
-            if (data.success) {
-                setUploads(data.uploads);
+            const response = await axios.get(`${API_URL}/api/admin/uploads`, {
+                timeout: 10000
+            });
+
+            console.log('✅ Uploads loaded:', response.data);
+
+            if (response.data.success) {
+                setUploads(response.data.uploads || []);
             }
+
         } catch (error) {
-            console.error('Load uploads error:', error);
+            console.error('❌ Load uploads error:', error);
+
+            if (error.code === 'ERR_NETWORK') {
+                toast.error('אין חיבור לשרת');
+            } else {
+                toast.error('שגיאה בטעינת המבחנים');
+            }
+
         } finally {
             setLoading(false);
         }
@@ -98,6 +171,29 @@ const AdminDashboard = () => {
     React.useEffect(() => {
         loadUploads();
     }, []);
+
+    /**
+     * 🧪 בדיקת חיבור לשרת
+     */
+    const testConnection = async () => {
+        const testToast = toast.loading('בודק חיבור לשרת...');
+
+        try {
+            console.log('🧪 Testing connection to:', `${API_URL}/health`);
+
+            const response = await axios.get(`${API_URL}/health`, {
+                timeout: 5000
+            });
+
+            console.log('✅ Server health:', response.data);
+
+            toast.success('✅ השרת פעיל!', { id: testToast });
+
+        } catch (error) {
+            console.error('❌ Connection test failed:', error);
+            toast.error('❌ השרת לא זמין', { id: testToast });
+        }
+    };
 
     return (
         <div className="min-h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-900 py-8 px-4" dir="rtl">
@@ -118,9 +214,22 @@ const AdminDashboard = () => {
                     <h1 className="text-5xl font-black text-white mb-4">
                         פאנל ניהול - Admin Dashboard
                     </h1>
-                    <p className="text-xl text-gray-200">
+                    <p className="text-xl text-gray-200 mb-4">
                         העלה תמונות של מבחנים וה-AI יחלץ את השאלות אוטומטית 🚀
                     </p>
+
+                    {/* Server Status */}
+                    <div className="flex items-center justify-center gap-4 mt-4">
+                        <div className="bg-white/10 backdrop-blur-sm px-4 py-2 rounded-full text-white text-sm">
+                            🌐 Server: {API_URL}
+                        </div>
+                        <button
+                            onClick={testConnection}
+                            className="bg-green-500 hover:bg-green-600 px-4 py-2 rounded-full text-white text-sm font-bold transition-colors"
+                        >
+                            🧪 בדוק חיבור
+                        </button>
+                    </div>
                 </motion.div>
 
                 {/* Upload Form */}
@@ -206,9 +315,9 @@ const AdminDashboard = () => {
                             isDragActive
                                 ? 'border-purple-500 bg-purple-50'
                                 : 'border-gray-300 hover:border-purple-400 hover:bg-gray-50'
-                        }`}
+                        } ${processing ? 'opacity-50 cursor-not-allowed' : ''}`}
                     >
-                        <input {...getInputProps()} />
+                        <input {...getInputProps()} disabled={processing} />
                         <motion.div
                             animate={{ scale: isDragActive ? 1.1 : 1 }}
                             className="flex flex-col items-center"
@@ -217,10 +326,10 @@ const AdminDashboard = () => {
                                 <>
                                     <Loader className="w-20 h-20 text-purple-600 animate-spin mb-4" />
                                     <p className="text-2xl font-black text-purple-600 mb-2">
-                                        מעבד עם AI... ⚡
+                                        מעלה תמונה... ⚡
                                     </p>
                                     <p className="text-gray-600">
-                                        Claude Vision מחלץ את השאלות מהתמונה
+                                        אנא המתן...
                                     </p>
                                 </>
                             ) : isDragActive ? (
@@ -265,9 +374,10 @@ const AdminDashboard = () => {
                             whileHover={{ scale: 1.05 }}
                             whileTap={{ scale: 0.95 }}
                             onClick={loadUploads}
-                            className="px-6 py-3 bg-blue-600 text-white rounded-xl font-bold shadow-lg hover:shadow-xl"
+                            disabled={loading}
+                            className="px-6 py-3 bg-blue-600 text-white rounded-xl font-bold shadow-lg hover:shadow-xl disabled:opacity-50"
                         >
-                            <RefreshCw className="w-5 h-5 inline-block ml-2" />
+                            <RefreshCw className={`w-5 h-5 inline-block ml-2 ${loading ? 'animate-spin' : ''}`} />
                             רענן
                         </motion.button>
                     </div>
