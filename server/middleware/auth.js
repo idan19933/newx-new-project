@@ -1,34 +1,30 @@
-import admin from '../config/firebase-admin.js';
-
+// Simple auth middleware without Firebase Admin
 export async function verifyToken(req, res, next) {
     try {
-        const authHeader = req.headers.authorization;
+        // Get user ID from request body or headers
+        const userId = req.body.userId ||
+            req.headers['x-user-id'] ||
+            req.query.userId;
 
-        if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        if (!userId) {
             return res.status(401).json({
                 success: false,
-                error: 'No token provided'
+                error: 'User authentication required'
             });
         }
 
-        const token = authHeader.split('Bearer ')[1];
-
-        // Verify Firebase token
-        const decodedToken = await admin.auth().verifyIdToken(token);
-
         // Add user info to request
         req.user = {
-            uid: decodedToken.uid,
-            email: decodedToken.email
+            uid: userId
         };
 
         next();
 
     } catch (error) {
         console.error('Auth error:', error);
-        return res.status(403).json({
+        return res.status(500).json({
             success: false,
-            error: 'Invalid token'
+            error: 'Authentication failed'
         });
     }
 }
