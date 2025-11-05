@@ -8,6 +8,7 @@ import dotenv from 'dotenv';
 dotenv.config();
 import multer from 'multer';
 import fs from 'fs';
+import fsPromises from 'fs/promises';  // ✅ FIXED: Different name to avoid duplicate
 import path from 'path';
 import { fileURLToPath } from 'url';
 import personalitySystem from './services/personalityLoader.js';
@@ -22,10 +23,10 @@ import chatRoutes from './routes/chatRoutes.js';
 import nexonRoutes from './routes/nexonRoutes.js';
 import notebookRoutes from './routes/notebookRoutes.js';
 import aiAnalysisRoutes from './routes/aiAnalysisRoutes.js';
-import performanceRoutes from './routes/performanceRoutes.js';  // ✅ הוסף שורה זו
+import performanceRoutes from './routes/performanceRoutes.js';
 import adaptiveDifficultyRoutes from './routes/adaptiveDifficultyRoutes.js';
 import enhancedQuestionsRouter from './routes/enhancedQuestions.js';
-import bagrutExamRoutes from './routes/bagrExamRoutes.js'; // ✅ ADD THIS
+import bagrutExamRoutes from './routes/bagrExamRoutes.js';
 import adminRoutes from './routes/adminRoutes.js';
 
 import * as cronManager from './services/cronJobs.js';
@@ -35,10 +36,8 @@ import notebookService from './services/notebookService.js';
 import smartQuestionService from './services/smartQuestionService.js';
 import adminBagrutRoutes from './routes/adminBagrutRoutes.js';
 
-
 import userRoutes from './routes/userRoutes.js';
 import pool from './config/database.js';
-
 
 import ISRAELI_CURRICULUM, {
     getGradeConfig,
@@ -72,9 +71,10 @@ app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // SIMPLE TEST ROUTE
 app.get('/test', (req, res) => {
-    console.error('?? TEST ROUTE HIT!');
+    console.error('✓✓ TEST ROUTE HIT!');
     res.json({ success: true, message: 'Server is reachable!' });
 });
+
 // ==================== REGISTER ROUTES ====================
 console.log('📍 Registering routes...');
 app.use('/api/users', userRoutes);
@@ -85,39 +85,34 @@ app.use('/api/learning', learningRoutes);
 app.use('/api/chat', chatRoutes);
 app.use('/api/performance', performanceRoutes);
 app.use('/api/progress', progressRoutes);
-app.use('/api/adaptive', adaptiveDifficultyRoutes);//
-app.use('/api/questions', enhancedQuestionsRouter);  // ← חדש!
+app.use('/api/adaptive', adaptiveDifficultyRoutes);
+app.use('/api/questions', enhancedQuestionsRouter);
 app.use('/api/israeli-sources', israeliSourcesRoutes);
 app.use('/api/adaptive', adaptiveRoutes);
-app.use('/api/bagrut', bagrutExamRoutes); // ✅ ADD THIS
+app.use('/api/bagrut', bagrutExamRoutes);
 app.use('/api/admin/bagrut', adminBagrutRoutes);
 app.use('/api/admin', adminRoutes);
-
-
-
+app.use('/api/ai', aiAnalysisRoutes);
 
 console.log('✅ All routes registered!');
+
 app.post('/api/test-progress', (req, res) => {
-    console.error('?? TEST PROGRESS ROUTE HIT!');
+    console.error('✓✓ TEST PROGRESS ROUTE HIT!');
     res.json({ success: true, message: 'Test progress endpoint works!' });
 });
-
-
-
 
 // LOG ALL INCOMING REQUESTS
 app.use((req, res, next) => {
     console.log('='.repeat(60));
-    console.error('?? INCOMING REQUEST');
-    console.error('?? Method:', req.method);
-    console.error('?? URL:', req.url);
+    console.error('✓✓ INCOMING REQUEST');
+    console.error('✓✓ Method:', req.method);
+    console.error('✓✓ URL:', req.url);
     console.log('Body:', JSON.stringify(req.body));
     console.log('='.repeat(60));
     next();
 });
 
 // ==================== MULTER CONFIGURATION ====================
-// ==================== MULTER CONFIGURATION - ENHANCED ====================
 const storage = multer.memoryStorage();
 
 const upload = multer({
@@ -130,7 +125,6 @@ const upload = multer({
         console.log('   Original name:', file.originalname);
         console.log('   MIME type:', file.mimetype);
 
-        // Check if it's an Excel file
         const isExcel = file.originalname.toLowerCase().endsWith('.xlsx') ||
             file.originalname.toLowerCase().endsWith('.xls');
 
@@ -141,7 +135,6 @@ const upload = multer({
             'application/zip'
         ];
 
-        // Check if it's an image file
         const isImage = file.mimetype.startsWith('image/');
 
         const imageMimeTypes = [
@@ -166,18 +159,15 @@ const upload = multer({
 });
 
 // ==================== HELPER: CLEAN JSON ====================
-// ==================== HELPER: CLEAN JSON - ENHANCED ====================
 function cleanJsonText(rawText) {
     let jsonText = rawText.trim();
 
-    // Remove markdown code blocks
     if (jsonText.startsWith('```json')) {
         jsonText = jsonText.replace(/```json\n?/g, '').replace(/```\n?$/g, '');
     } else if (jsonText.startsWith('```')) {
         jsonText = jsonText.replace(/```\n?/g, '');
     }
 
-    // Find JSON boundaries
     const jsonStart = jsonText.indexOf('{');
     const jsonEnd = jsonText.lastIndexOf('}') + 1;
 
@@ -185,26 +175,19 @@ function cleanJsonText(rawText) {
         jsonText = jsonText.substring(jsonStart, jsonEnd);
     }
 
-    // 🔥 FIX 1: Remove control characters EXCEPT newlines in specific contexts
     jsonText = jsonText
         .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F]/g, '');
 
-    // 🔥 FIX 2: Fix newlines inside string values
-    // This regex finds strings and replaces \n with \\n inside them
     jsonText = jsonText.replace(
         /"([^"\\]|\\.)*"/g,
         match => match.replace(/\n/g, '\\n').replace(/\r/g, '\\r')
     );
 
-    // 🔥 FIX 3: Fix common JSON syntax errors
     jsonText = jsonText
-        // Fix trailing commas before } or ]
         .replace(/,(\s*[}\]])/g, '$1')
-        // Fix missing commas between properties (common Claude error)
         .replace(/("\s*:\s*"[^"]*")\s*("\w+"\s*:)/g, '$1,$2')
         .replace(/("\s*:\s*\d+)\s*("\w+"\s*:)/g, '$1,$2')
         .replace(/("\s*:\s*true|false)\s*("\w+"\s*:)/g, '$1,$2')
-        // Fix unescaped quotes in Hebrew text
         .replace(/:\\s*"([^"]*?)"([^,}\]]*?)"/g, (match, p1, p2) => {
             if (p2.includes('"')) {
                 return `: "${p1}\\"${p2}"`;
@@ -212,17 +195,13 @@ function cleanJsonText(rawText) {
             return match;
         });
 
-    // 🔥 FIX 4: Validate and repair structure
     try {
-        // Try to parse - if it works, return as-is
         JSON.parse(jsonText);
         return jsonText;
     } catch (e) {
         console.log('⚠️ JSON still invalid, attempting deep repair...');
         console.log('   Error:', e.message);
-        console.log('   Position:', e.message.match(/position (\d+)/)?.[1]);
 
-        // Log the problematic area
         const errorPos = parseInt(e.message.match(/position (\d+)/)?.[1] || '0');
         if (errorPos > 0) {
             const start = Math.max(0, errorPos - 50);
@@ -230,12 +209,9 @@ function cleanJsonText(rawText) {
             console.log('   Context:', jsonText.substring(start, end));
         }
 
-        // Last resort: Try to fix specific common patterns
         jsonText = jsonText
-            // Fix Hebrew quotes that break JSON
             .replace(/״/g, '\\"')
             .replace(/׳/g, "'")
-            // Fix double quotes in values
             .replace(/"([^"]*)"([^"]*?)"/g, (match, p1, p2) => {
                 if (p2.includes(':') || p2.includes(',') || p2.includes('}')) {
                     return `"${p1}"${p2}`;
@@ -351,7 +327,6 @@ function buildEnhancedSystemPrompt(studentProfile, gradeId, topic, subtopic) {
 
     let prompt = '';
 
-    // Personality
     if (personalitySystem.loaded) {
         const personality = personalitySystem.data.corePersonality;
         prompt += `אתה ${personality.teacher_name}, ${personality.description}.\n`;
@@ -360,7 +335,6 @@ function buildEnhancedSystemPrompt(studentProfile, gradeId, topic, subtopic) {
         prompt += `אתה נקסון, מורה דיגיטלי למתמטיקה.\n\n`;
     }
 
-    // Student context
     if (grade) {
         prompt += `התלמיד בכיתה ${grade}.\n`;
     }
@@ -371,7 +345,6 @@ function buildEnhancedSystemPrompt(studentProfile, gradeId, topic, subtopic) {
         prompt += `התלמיד אוהב מתמטיקה - אתגר אותו!\n`;
     }
 
-    // 🔥 CRITICAL: Core principles
     prompt += `\n🎯 עקרונות חובה:\n`;
     prompt += `✓ יצור שאלות ייחודיות ומגוונות\n`;
     prompt += `✓ עקוב אחר תכנית הלימודים הישראלית (תשפ"ה)\n`;
@@ -675,10 +648,6 @@ function ensureVisualDataForGraphQuestions(parsed, topic, subtopic) {
 }
 
 // ==================== DETECT GEOMETRY QUESTIONS ====================
-// ==================== DETECT GEOMETRY QUESTIONS - FIXED ====================
-// ==================== DETECT GEOMETRY QUESTIONS - FIXED V2 ====================
-// ==================== DETECT GEOMETRY QUESTIONS - FIXED V3 WITH HEIGHT FILTERING ====================
-// ==================== DETECT GEOMETRY QUESTIONS - COMPLETE FIXED VERSION ====================
 function detectGeometryVisual(parsed, topic, subtopic) {
     const questionText = (parsed?.question || '').toLowerCase();
 
@@ -700,7 +669,6 @@ function detectGeometryVisual(parsed, topic, subtopic) {
     console.log('🔺 Geometry question detected');
     console.log('   Question:', parsed.question);
 
-    // 🔥 STEP 1: Extract and exclude angles
     const anglePatterns = [
         /זווית.*?(\d+)°/gi,
         /זווית.*?(\d+)\s*מעלות/gi,
@@ -718,7 +686,6 @@ function detectGeometryVisual(parsed, topic, subtopic) {
     });
     console.log('   🚫 Angles to exclude:', Array.from(angleNumbers));
 
-    // 🔥 STEP 2: Extract and exclude height
     const heightPatterns = [
         /גובה.*?(\d+)/gi,
         /height.*?(\d+)/gi
@@ -734,7 +701,6 @@ function detectGeometryVisual(parsed, topic, subtopic) {
     });
     console.log('   🚫 Heights to exclude:', Array.from(heightNumbers));
 
-    // 🔥 STEP 3: Extract ALL numbers, then filter out angles and heights
     const allNumbers = (parsed.question || '')
         .match(/\d+(\.\d+)?/g)
         ?.map(n => parseFloat(n))
@@ -744,11 +710,9 @@ function detectGeometryVisual(parsed, topic, subtopic) {
 
     let visualData = null;
 
-    // ==================== TRIANGLE DETECTION ====================
     if (questionText.includes('משולש') || questionText.includes('triangle')) {
         console.log('   → Triangle detected');
 
-        // Detect triangle type
         const isRight = questionText.includes('ניצב') || questionText.includes('right') ||
             questionText.includes('ישר-זווית') || questionText.includes('ישר זווית');
         const isEquilateral = questionText.includes('שווה צלעות') || questionText.includes('equilateral');
@@ -764,11 +728,9 @@ function detectGeometryVisual(parsed, topic, subtopic) {
 
         let sideA, sideB, sideC;
 
-        // 🔥 ENHANCED ISOSCELES EXTRACTION
         if (isIsosceles) {
             console.log('   → Processing ISOSCELES triangle');
 
-            // 🔥 METHOD 1: Look for explicit "בסיס" and "שוקיים" keywords
             const basePatterns = [
                 /(?:אורך\s+ה?)?בסיס(?:\s+הוא)?\s+(\d+)/i,
                 /בסיס\s+(\d+)/i,
@@ -784,7 +746,6 @@ function detectGeometryVisual(parsed, topic, subtopic) {
             let base = null;
             let leg = null;
 
-            // Try to find base
             for (const pattern of basePatterns) {
                 const match = parsed.question.match(pattern);
                 if (match) {
@@ -794,7 +755,6 @@ function detectGeometryVisual(parsed, topic, subtopic) {
                 }
             }
 
-            // Try to find legs
             for (const pattern of legPatterns) {
                 const match = parsed.question.match(pattern);
                 if (match) {
@@ -804,58 +764,49 @@ function detectGeometryVisual(parsed, topic, subtopic) {
                 }
             }
 
-            // 🔥 METHOD 2: Fallback - use position in filtered numbers
             if (!base || !leg) {
                 console.log('   → Using fallback method');
 
                 if (allNumbers.length >= 2) {
-                    // First number is usually base, second is legs
                     base = allNumbers[0];
                     leg = allNumbers[1];
                     console.log('   ✅ Fallback - Base:', base, 'Legs:', leg);
                 } else if (allNumbers.length === 1) {
-                    // Only one number - make equilateral
                     base = allNumbers[0];
                     leg = allNumbers[0];
                     console.log('   ⚠️ Only one number - using equilateral');
                 } else {
-                    // No numbers - use defaults
                     base = 8;
                     leg = 10;
                     console.log('   ⚠️ No numbers found - using defaults');
                 }
             }
 
-            // Ensure we have valid numbers
             if (!angleNumbers.has(base) && !heightNumbers.has(base) &&
                 !angleNumbers.has(leg) && !heightNumbers.has(leg)) {
-                sideA = base;    // Base (BC)
-                sideB = leg;     // Left leg (AB)
-                sideC = leg;     // Right leg (AC)
+                sideA = base;
+                sideB = leg;
+                sideC = leg;
                 console.log('   ✅ FINAL ISOSCELES - Base:', sideA, 'Legs:', sideB, sideC);
             } else {
-                // Validation failed - use defaults
                 sideA = 8;
                 sideB = 10;
                 sideC = 10;
                 console.log('   ⚠️ Validation failed - using defaults');
             }
         }
-        // EQUILATERAL
         else if (isEquilateral) {
             sideA = allNumbers[0] || 8;
             sideB = sideA;
             sideC = sideA;
             console.log('   ✅ Equilateral - All sides:', sideA);
         }
-        // RIGHT TRIANGLE
         else if (isRight) {
             sideA = allNumbers[0] || 3;
             sideB = allNumbers[1] || 4;
             sideC = allNumbers[2] || 5;
             console.log('   ✅ Right triangle - Sides:', sideA, sideB, sideC);
         }
-        // SCALENE
         else {
             sideA = allNumbers[0] || 6;
             sideB = allNumbers[1] || 8;
@@ -877,7 +828,6 @@ function detectGeometryVisual(parsed, topic, subtopic) {
             }
         };
     }
-    // ==================== RECTANGLE ====================
     else if (questionText.includes('מלבן') || questionText.includes('rectangle')) {
         const width = allNumbers[0] || 5;
         const height = allNumbers[1] || 3;
@@ -886,7 +836,6 @@ function detectGeometryVisual(parsed, topic, subtopic) {
             svgData: { width, height, showLabels: true }
         };
     }
-    // ==================== CIRCLE ====================
     else if (questionText.includes('עיגול') || questionText.includes('מעגל') || questionText.includes('circle')) {
         const radius = allNumbers[0] || 5;
         visualData = {
@@ -918,11 +867,7 @@ app.get('/health', (req, res) => {
     });
 });
 
-// ==================== 🔥 SMART TOPIC-BASED QUESTION PROMPT ====================
-// ==================== 🔥 SMART TOPIC-BASED QUESTION PROMPT ====================
-// ==================== 🔥 SMART TOPIC-BASED QUESTION PROMPT ====================
-// ==================== 🔥 SMART TOPIC-BASED QUESTION PROMPT - COMPLETE ====================
-// ==================== 🔥 COMPLETE buildDynamicQuestionPrompt WITH EXAMPLE FILTERING ====================
+// ==================== SMART TOPIC-BASED QUESTION PROMPT ====================
 function buildDynamicQuestionPrompt(topic, subtopic, difficulty, studentProfile, gradeId) {
     try {
         if (!topic || typeof topic !== 'object') {
@@ -938,7 +883,6 @@ function buildDynamicQuestionPrompt(topic, subtopic, difficulty, studentProfile,
 
         const classification = classifyTopic(topicName, subtopicName);
 
-        // 🔥 FIX 1: START WITH CURRICULUM CONTEXT
         let prompt = buildCurriculumContext(gradeId, topic, subtopic);
 
         prompt += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
@@ -953,7 +897,6 @@ function buildDynamicQuestionPrompt(topic, subtopic, difficulty, studentProfile,
         prompt += `כיתה: ${studentGrade}\n`;
         prompt += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n`;
 
-        // 🔥 FIX 2: SHOW RECENT QUESTIONS PROMINENTLY
         const studentId = studentProfile?.studentId || studentProfile?.name || 'anonymous';
         const topicId = topic?.id || topicName;
         const recentQuestions = questionHistoryManager.getRecentQuestions(studentId, topicId, 10);
@@ -973,7 +916,6 @@ function buildDynamicQuestionPrompt(topic, subtopic, difficulty, studentProfile,
             prompt += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n`;
         }
 
-        // 🔥 FIX 3: GEOMETRY RULES (if applicable)
         if (classification.isPureGeometry) {
             prompt += `📐 גאומטריה טהורה - חובה:\n`;
             prompt += `✓ התחל ב"נתון/נתונה/נתונים"\n`;
@@ -994,7 +936,6 @@ function buildDynamicQuestionPrompt(topic, subtopic, difficulty, studentProfile,
             prompt += `• משולש כללי: בסיס + גובה (מותר)\n\n`;
         }
 
-        // 🔥 FIX 4: FILTER EXAMPLES AGGRESSIVELY
         if (personalitySystem.loaded) {
             const topicGuideline = personalitySystem.getTopicGuideline(topicName);
             if (topicGuideline?.curriculum_requirements) {
@@ -1005,7 +946,6 @@ function buildDynamicQuestionPrompt(topic, subtopic, difficulty, studentProfile,
                 let examples = personalitySystem.getExamplesForTopic(topicName, difficulty);
 
                 if (examples && examples.length > 0) {
-                    // 🔥 AGGRESSIVE FILTERING
                     const isTriangleTopic = topicName.includes('משולש') || topicName.includes('triangle') ||
                         topicName.includes('גאומטריה') || subtopicName.includes('משולש');
 
@@ -1019,7 +959,6 @@ function buildDynamicQuestionPrompt(topic, subtopic, difficulty, studentProfile,
                             const isIsosceles = /שווה[- ]?שוקיים|isosceles/i.test(q);
                             if (!isIsosceles) return true;
 
-                            // Reject if mentions height as given
                             const badPatterns = [
                                 /אם\s+גובה/i,
                                 /וגובה\s+המשולש/i,
@@ -1039,17 +978,15 @@ function buildDynamicQuestionPrompt(topic, subtopic, difficulty, studentProfile,
                         console.log(`   📊 ${examples.length} examples after filtering`);
                     }
 
-                    // 🔥 ALSO FILTER BY RECENT QUESTIONS
                     if (recentQuestions && recentQuestions.length > 0) {
                         examples = examples.filter(ex => {
                             const exQ = String(ex?.question || '').toLowerCase();
                             return !recentQuestions.some(recent => {
                                 const recentQ = recent.question.toLowerCase();
-                                // Check for similar context/numbers
                                 const exNums = exQ.match(/\d+/g) || [];
                                 const recentNums = recentQ.match(/\d+/g) || [];
                                 const numOverlap = exNums.filter(n => recentNums.includes(n)).length;
-                                return numOverlap > 2; // More than 2 same numbers = too similar
+                                return numOverlap > 2;
                             });
                         });
                     }
@@ -1079,7 +1016,6 @@ function buildDynamicQuestionPrompt(topic, subtopic, difficulty, studentProfile,
             }
         }
 
-        // 🔥 FIX 5: ADD VARIATION STRATEGIES
         if (!classification.isPureGeometry) {
             const strategies = [
                 'גישה מתמטית טהורה: "נתון..."',
@@ -1093,7 +1029,6 @@ function buildDynamicQuestionPrompt(topic, subtopic, difficulty, studentProfile,
             prompt += `🔢 השתמש במספרים מעניינים ומגוונים\n\n`;
         }
 
-        // Statistics requirements
         if (classification.isStatistics) {
             prompt += `📊 נתונים סטטיסטיים:\n`;
             prompt += `✅ לפחות 20 נקודות מידע\n`;
@@ -1101,7 +1036,6 @@ function buildDynamicQuestionPrompt(topic, subtopic, difficulty, studentProfile,
             prompt += `          משתנה Y: 45, 52, 48, 55..."\n\n`;
         }
 
-        // JSON format
         prompt += `\n🚨 פורמט JSON חובה:\n`;
         prompt += `{\n`;
         prompt += `  "question": "השאלה (ללא שורות חדשות אמיתיות)",\n`;
@@ -1124,19 +1058,14 @@ function buildDynamicQuestionPrompt(topic, subtopic, difficulty, studentProfile,
         throw new Error(`buildDynamicQuestionPrompt failed: ${error.message}`);
     }
 }
+
 // ==================== GENERATE QUESTION ENDPOINT ====================
-// ==================== GENERATE QUESTION ENDPOINT WITH RETRY LOGIC ====================
-// ==================== GENERATE QUESTION ====================
-// ==================== GENERATE QUESTION ====================
-// ==================== SMART QUESTION GENERATION (Enhanced with all features) ====================
-// ==================== SMART QUESTION GENERATION (Enhanced with all features) ====================
 app.post('/api/ai/generate-question', async (req, res) => {
     console.log('============================================================');
     console.log('📝 SMART QUESTION GENERATION (DB + AI) - DEBUG MODE');
     console.log('============================================================');
 
     try {
-        // ✅ EXTRACT PARAMETERS FROM REQUEST BODY FIRST!
         const {
             grade,
             topic,
@@ -1146,10 +1075,8 @@ app.post('/api/ai/generate-question', async (req, res) => {
             studentProfile = {}
         } = req.body;
 
-        // ✅ Get grade from studentProfile if not in root
         const actualGrade = grade || studentProfile.grade || '8';
 
-        // ✅ Handle both "12" and "grade_12" formats
         console.log('📦 Full Request Body:', JSON.stringify(req.body, null, 2));
 
         if (!topic) {
@@ -1171,11 +1098,9 @@ app.post('/api/ai/generate-question', async (req, res) => {
             previousQuestionsCount: previousQuestions.length
         });
 
-        // ✅ FIX: Convert userId to integer or null (database expects integer)
         const userId = studentProfile.studentId || studentProfile.id || null;
         const userIdInt = userId ? parseInt(userId) : null;
 
-        // Handle both "12" and "grade_12" formats
         const gradeLevel = typeof actualGrade === 'string'
             ? (actualGrade.includes('grade_') ? parseInt(actualGrade.replace('grade_', '')) : parseInt(actualGrade))
             : (parseInt(actualGrade) || 8);
@@ -1188,7 +1113,6 @@ app.post('/api/ai/generate-question', async (req, res) => {
             studentProfile: JSON.stringify(studentProfile)
         });
 
-        // ✅ CRITICAL: Determine session key EARLY
         const sessionKey = userIdInt || userId || 'anonymous';
         console.log('🔑 Session Key Details:', {
             sessionKey,
@@ -1199,7 +1123,6 @@ app.post('/api/ai/generate-question', async (req, res) => {
             isAnonymous: sessionKey === 'anonymous'
         });
 
-        // ✅ CHECK EXISTING HISTORY BEFORE ANYTHING ELSE
         console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
         console.log('📚 CHECKING EXISTING HISTORY BEFORE GENERATION');
         console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
@@ -1231,7 +1154,6 @@ app.post('/api/ai/generate-question', async (req, res) => {
         }
         console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
 
-        // 🎯 STEP 1: Try to get from database cache first
         console.log('🔍 Checking database cache...');
         const smartResult = await smartQuestionService.getQuestion({
             topicId,
@@ -1244,12 +1166,10 @@ app.post('/api/ai/generate-question', async (req, res) => {
             excludeQuestionIds: previousQuestions.map(q => q.id).filter(Boolean)
         });
 
-        // ✅ Found in database - return immediately (FAST & FREE!)
         if (smartResult.cached) {
             console.log('✅ Serving cached question from database');
             console.log('📝 Question:', smartResult.question.substring(0, 100));
 
-            // ✅ ALSO RECORD CACHED QUESTIONS TO HISTORY!
             console.log('📝 Recording cached question to history...');
             try {
                 questionHistoryManager.addQuestion(sessionKey, topicId, {
@@ -1278,10 +1198,8 @@ app.post('/api/ai/generate-question', async (req, res) => {
             });
         }
 
-        // 🤖 STEP 2: No cached question found - generate with AI
         console.log('🤖 No suitable cached question - generating with Claude AI...');
 
-        // 🔍 RETRIEVE RECENT QUESTIONS FROM MEMORY AGAIN (for AI prompt)
         console.log('📚 Retrieving recent questions for AI prompt...');
         const recentQuestionsFromMemory = questionHistoryManager.getRecentQuestions(sessionKey, topicId, 10);
 
@@ -1300,7 +1218,6 @@ app.post('/api/ai/generate-question', async (req, res) => {
             console.log('   ⚠️ No questions to exclude - AI might repeat');
         }
 
-        // Build personality-aware prompt
         const personalityContext = personalitySystem?.loaded ? `
 אתה ${personalitySystem.data.corePersonality.teacherName}, ${personalitySystem.data.corePersonality.role}.
 תכונות האישיות שלך:
@@ -1314,7 +1231,6 @@ app.post('/api/ai/generate-question', async (req, res) => {
 - ${personalitySystem.data.languageStyle.encouragementStyle}
 ` : 'אתה נקסון, מורה למתמטיקה ישראלי מנוסה וידידותי.';
 
-        // ✅ COMBINE previousQuestions from request AND recentQuestionsFromMemory
         const allPreviousQuestions = [
             ...previousQuestions,
             ...(recentQuestionsFromMemory || [])
@@ -1326,7 +1242,6 @@ app.post('/api/ai/generate-question', async (req, res) => {
             total: allPreviousQuestions.length
         });
 
-        // Remove duplicates based on question text
         const uniquePreviousQuestions = allPreviousQuestions.filter((q, index, self) => {
             const text = typeof q === 'string' ? q : (q.question || '');
             return index === self.findIndex(t => {
@@ -1373,7 +1288,6 @@ ${previousQuestionsText}
 
 חשוב: השתמש ב\\n לשורה חדשה, לא Enter אמיתי. החזר רק JSON, ללא טקסט נוסף.`;
 
-        // Call Claude API
         console.log('🔄 Calling Claude API...');
         console.log('   Model: claude-sonnet-4-5-20250929');
         console.log('   Max tokens: 3000');
@@ -1412,7 +1326,6 @@ ${previousQuestionsText}
             last100: rawText.substring(Math.max(0, rawText.length - 100))
         });
 
-        // Parse JSON
         let jsonText = rawText.trim();
         jsonText = jsonText.replace(/```json\n?/g, '').replace(/```\n?/g, '');
         const jsonMatch = jsonText.match(/\{[\s\S]*\}/);
@@ -1422,12 +1335,10 @@ ${previousQuestionsText}
 
         const questionData = JSON.parse(jsonText);
 
-        // ✅ Validate parsed data
         if (!questionData.question || !questionData.correctAnswer) {
             throw new Error('Missing required fields in generated question');
         }
 
-        // Clean and validate
         questionData.question = String(questionData.question).trim();
         questionData.correctAnswer = String(questionData.correctAnswer).trim();
 
@@ -1455,7 +1366,6 @@ ${previousQuestionsText}
         });
         console.log('✅ Answer:', questionData.correctAnswer.substring(0, 50));
 
-        // 💾 STEP 3: Cache the AI-generated question
         let cachedId = null;
         console.log('💾 Attempting to cache question...');
 
@@ -1483,7 +1393,6 @@ ${previousQuestionsText}
             console.error('❌ Cache error:', cacheError.message);
         }
 
-        // ✅ STEP 4: Record to question history (BULLETPROOF VERSION!)
         console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
         console.log('📝 RECORDING QUESTION TO HISTORY - BULLETPROOF');
         console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
@@ -1493,7 +1402,6 @@ ${previousQuestionsText}
             console.log('   Topic ID:', topicId);
             console.log('   Question (first 60):', questionData.question.substring(0, 60));
 
-            // Record to session memory
             const recordData = {
                 question: questionData.question,
                 difficulty,
@@ -1504,7 +1412,6 @@ ${previousQuestionsText}
             questionHistoryManager.addQuestion(sessionKey, topicId, recordData);
             console.log('   ✅ addQuestion() completed without error');
 
-            // Verify immediately
             console.log('   🔍 Verifying recording...');
             const verifyNow = questionHistoryManager.getRecentQuestions(sessionKey, topicId, 1);
             console.log('   Verification result:', {
@@ -1522,7 +1429,6 @@ ${previousQuestionsText}
                 console.log('   ✅✅✅ SUCCESS: Question is in memory!');
             }
 
-            // Try database (optional)
             if (userIdInt && typeof userIdInt === 'number') {
                 try {
                     console.log('   💾 Recording to database...');
@@ -1541,7 +1447,6 @@ ${previousQuestionsText}
                 console.log('   ⚠️ No valid userIdInt - skipping database');
             }
 
-            // Final verification - check total history
             const finalVerify = questionHistoryManager.getRecentQuestions(sessionKey, topicId, 20);
             console.log('   📊 Final history summary:', {
                 totalCount: finalVerify?.length || 0,
@@ -1564,7 +1469,6 @@ ${previousQuestionsText}
 
         console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
 
-        // ✅ STEP 5: Return response
         console.log('✅ Returning question to user');
         console.log('============================================================\n');
 
@@ -1593,13 +1497,8 @@ ${previousQuestionsText}
         });
     }
 });
-// ==================== VERIFY ANSWER ====================
 
-
-// Replace your existing endpoint with this:
 // ==================== VERIFY ANSWER ====================
-// ==================== ENHANCED VERIFY ANSWER WITH PRECISE MATH VALIDATION ====================
-// ==================== ENHANCED VERIFY ANSWER WITH AI RE-CALCULATION ====================
 app.post('/api/ai/verify-answer', async (req, res) => {
     console.log('🔍 VERIFYING ANSWER - WITH AI RE-CALCULATION');
     const startTime = Date.now();
@@ -1623,7 +1522,6 @@ app.post('/api/ai/verify-answer', async (req, res) => {
             });
         }
 
-        // STEP 1: AI RE-CALCULATES THE ANSWER
         const calculationPrompt = `אתה מורה למתמטיקה מומחה. פתור את השאלה הזו בדיוק.
 
 🎯 השאלה:
@@ -1674,7 +1572,6 @@ ${question}
         const aiCalculatedAnswer = String(calculationResult.calculatedAnswer).trim();
         const storedAnswer = String(correctAnswer).trim();
 
-        // STEP 2: COMPARE STORED ANSWER TO CALCULATED
         const answersMatch = compareMathAnswers(storedAnswer, aiCalculatedAnswer);
 
         let storedAnswerIsWrong = false;
@@ -1696,7 +1593,6 @@ ${question}
                 timestamp: new Date().toISOString()
             });
 
-            // Auto-fix in database if questionId exists
             if (questionId) {
                 try {
                     await pool.query(
@@ -1710,7 +1606,6 @@ ${question}
             }
         }
 
-        // STEP 3: VERIFY USER'S ANSWER
         const verificationPrompt = `בדוק האם תשובת התלמיד נכונה.
 
 השאלה: ${question}
@@ -1825,7 +1720,6 @@ ${storedAnswerIsWrong ? `⚠️ התשובה השמורה (${storedAnswer}) הי
 });
 
 // ==================== HELPER: COMPARE MATH ANSWERS ====================
-// ==================== HELPER: COMPARE MATH ANSWERS ====================
 function compareMathAnswers(answer1, answer2) {
     if (!answer1 || !answer2) return false;
 
@@ -1890,71 +1784,8 @@ async function logWrongStoredAnswer(errorData) {
         console.error('❌ Log failed:', error.message);
     }
 }
+
 // ==================== GET HINT ====================
-
-// ==================== ADMIN: UPLOAD PERSONALITY FILE ====================
-app.post('/api/admin/upload-personality', upload.single('file'), async (req, res) => {
-    try {
-        console.log('📤 PERSONALITY FILE UPLOAD');
-
-        if (!req.file) {
-            return res.status(400).json({
-                success: false,
-                error: 'No file uploaded'
-            });
-        }
-
-        console.log('   File:', req.file.originalname);
-        console.log('   Size:', req.file.size, 'bytes');
-
-        // Save to local uploads directory
-        const uploadsDir = path.join(__dirname, '../uploads');
-        if (!fs.existsSync(uploadsDir)) {
-            fs.mkdirSync(uploadsDir, { recursive: true });
-        }
-
-        const localPath = path.join(uploadsDir, 'personality-system.xlsx');
-        fs.writeFileSync(localPath, req.file.buffer);
-        console.log('   ✅ Saved locally:', localPath);
-
-        // Upload to Firebase Storage if available
-        if (bucket) {
-            const file = bucket.file('personality-system.xlsx');
-            await file.save(req.file.buffer, {
-                metadata: {
-                    contentType: req.file.mimetype,
-                    metadata: {
-                        uploadedAt: new Date().toISOString()
-                    }
-                }
-            });
-            console.log('   ✅ Uploaded to Firebase Storage');
-        } else {
-            console.log('   ⚠️ Firebase not configured - local only');
-        }
-
-        // Reload personality system
-        personalitySystem.loadFromExcel(localPath);
-        console.log('   ✅ Personality system reloaded');
-
-        res.json({
-            success: true,
-            message: 'Personality file uploaded and loaded successfully',
-            filename: req.file.originalname,
-            size: req.file.size,
-            firebaseUploaded: !!bucket,
-            personalityLoaded: personalitySystem.loaded
-        });
-
-    } catch (error) {
-        console.error('❌ Upload error:', error);
-        res.status(500).json({
-            success: false,
-            error: error.message
-        });
-    }
-});
-
 app.post('/api/ai/get-hint', async (req, res) => {
     try {
         const { question, hintIndex } = req.body;
@@ -2002,9 +1833,6 @@ app.post('/api/ai/get-hint', async (req, res) => {
 });
 
 // ==================== AI CHAT ====================
-// Replace the existing /api/ai/chat route (around line 1119) with this:
-
-// ==================== AI CHAT WITH PROGRESSIVE HINTS ====================
 app.post('/api/ai/chat', async (req, res) => {
     console.log('============================================================');
     console.log('💬 AI CHAT REQUEST');
@@ -2032,10 +1860,8 @@ app.post('/api/ai/chat', async (req, res) => {
             });
         }
 
-        // Build system prompt based on action type
         let systemPrompt = '';
 
-        // Add personality context
         if (personalitySystem.loaded) {
             const personality = personalitySystem.data.corePersonality;
             systemPrompt += `אתה ${personality.teacher_name}, ${personality.description}.\n`;
@@ -2050,7 +1876,6 @@ app.post('/api/ai/chat', async (req, res) => {
             systemPrompt += `התשובה הנכונה: ${context.answer}\n`;
         }
 
-        // Action-specific prompts
         let userPrompt = message;
         let maxTokens = 800;
 
@@ -2112,7 +1937,6 @@ app.post('/api/ai/chat', async (req, res) => {
 אם זו שאלה כללית, ענה בצורה ידידותית.`;
         }
 
-        // Add formatting instructions - UPDATED
         systemPrompt += `
 
 חשוב מאוד:
@@ -2158,7 +1982,6 @@ app.post('/api/ai/chat', async (req, res) => {
         const data = await response.json();
         const aiResponse = data.content[0].text;
 
-        // Format mathematical content for better display
         let formattedResponse = formatMathematicalContent(aiResponse);
 
         console.log('✅ AI Response generated');
@@ -2181,14 +2004,10 @@ app.post('/api/ai/chat', async (req, res) => {
     }
 });
 
-// Helper function to format mathematical content
-// BACKEND UPDATE - Replace the formatMathematicalContent function and update the AI chat route
-
 // ==================== ENHANCED MATH FORMATTER ====================
 function formatMathematicalContent(text) {
     let formatted = text;
 
-    // Remove LaTeX delimiters that shouldn't be visible
     formatted = formatted
         .replace(/\$\$/g, '')
         .replace(/\\\[/g, '')
@@ -2196,10 +2015,8 @@ function formatMathematicalContent(text) {
         .replace(/\\begin{equation}/g, '')
         .replace(/\\end{equation}/g, '');
 
-    // Clean up excessive line breaks
     formatted = formatted.replace(/\n{3,}/g, '\n\n');
 
-    // Ensure spaces around operators
     formatted = formatted
         .replace(/([a-zA-Z0-9\u0590-\u05FF])\+([a-zA-Z0-9\u0590-\u05FF])/g, '$1 + $2')
         .replace(/([a-zA-Z0-9\u0590-\u05FF])\-([a-zA-Z0-9\u0590-\u05FF])/g, '$1 - $2')
@@ -2207,21 +2024,16 @@ function formatMathematicalContent(text) {
         .replace(/([a-zA-Z0-9\u0590-\u05FF])\/([a-zA-Z0-9\u0590-\u05FF])/g, '$1 / $2')
         .replace(/([a-zA-Z0-9\u0590-\u05FF])\=([a-zA-Z0-9\u0590-\u05FF])/g, '$1 = $2');
 
-    // Fix powers - convert to superscript notation
     formatted = formatted
         .replace(/\^{([^}]+)}/g, '^$1')
         .replace(/\^(\d+)/g, '^$1');
 
-    // Fix subscripts
     formatted = formatted
         .replace(/_{([^}]+)}/g, '_$1')
         .replace(/_(\d+)/g, '_$1');
 
-    // Fix fractions - keep them for frontend to process
-    // But ensure they're properly formatted
     formatted = formatted.replace(/\\frac{([^}]*)}{([^}]*)}/g, '\\frac{$1}{$2}');
 
-    // Fix common math functions
     formatted = formatted
         .replace(/\\sqrt{([^}]*)}/g, '√($1)')
         .replace(/\\partial/g, '∂')
@@ -2236,7 +2048,7 @@ function formatMathematicalContent(text) {
     return formatted;
 }
 
-// ==================== 🔥 IMAGE ANALYSIS FOR HANDWRITTEN WORK ====================
+// ==================== IMAGE ANALYSIS FOR HANDWRITTEN WORK ====================
 app.post('/api/ai/analyze-handwritten-work', upload.single('image'), async (req, res) => {
     console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     console.log('📸 ANALYZING HANDWRITTEN WORK');
@@ -2274,10 +2086,8 @@ app.post('/api/ai/analyze-handwritten-work', upload.single('image'), async (req,
             });
         }
 
-        // Get base64 image from buffer
         const base64Image = req.file.buffer.toString('base64');
 
-        // Determine media type
         const mediaTypeMap = {
             'image/jpeg': 'image/jpeg',
             'image/jpg': 'image/jpeg',
@@ -2289,7 +2099,6 @@ app.post('/api/ai/analyze-handwritten-work', upload.single('image'), async (req,
 
         console.log('   Media Type:', mediaType);
 
-        // Build personality context
         let personalityContext = 'אתה נקסון - מורה דיגיטלי ידידותי, אופטימי ומעודד. השתמש באימוג׳ים והיה חיובי.';
 
         if (personalitySystem.loaded) {
@@ -2297,7 +2106,6 @@ app.post('/api/ai/analyze-handwritten-work', upload.single('image'), async (req,
             personalityContext = `אתה ${corePersonality.teacher_name}, ${corePersonality.description}. ${corePersonality.teaching_approach}`;
         }
 
-        // Student feeling context
         let feelingContext = '';
         if (mathFeeling === 'struggle') {
             feelingContext = 'התלמיד מתקשה - היה סבלני מאוד ומעודד.';
@@ -2343,14 +2151,12 @@ ${correctAnswer}
 
         console.log('   📤 Sending to Claude Sonnet Vision API...');
 
-        // 🔥 RETRY LOGIC WITH EXPONENTIAL BACKOFF
         let apiSuccess = false;
         let claudeResponse = null;
         let lastError = null;
 
         for (let retryAttempt = 0; retryAttempt < 3; retryAttempt++) {
             try {
-                // Wait before retry (exponential backoff: 2s, 4s, 8s)
                 if (retryAttempt > 0) {
                     const waitTime = Math.pow(2, retryAttempt) * 1000;
                     console.log(`   ⏳ API Retry ${retryAttempt}/3 - waiting ${waitTime}ms...`);
@@ -2365,7 +2171,7 @@ ${correctAnswer}
                         'anthropic-version': '2023-06-01'
                     },
                     body: JSON.stringify({
-                        model: 'claude-sonnet-4-5-20250929',  // ✅ MUST USE SONNET FOR VISION
+                        model: 'claude-sonnet-4-5-20250929',
                         max_tokens: 2000,
                         temperature: 0.5,
                         messages: [{
@@ -2390,20 +2196,17 @@ ${correctAnswer}
 
                 const data = await response.json();
 
-                // Handle 529 Overloaded error
                 if (response.status === 529) {
                     lastError = new Error('Overloaded');
                     console.log(`   ⚠️ API Overloaded (retry ${retryAttempt + 1}/3)`);
                     continue;
                 }
 
-                // Handle other errors
                 if (!response.ok) {
                     lastError = new Error(data.error?.message || `API error: ${response.status}`);
                     console.log(`   ❌ API Error: ${lastError.message}`);
                     console.log('   Full error:', JSON.stringify(data, null, 2));
 
-                    // If it's a rate limit or server error, retry
                     if (response.status >= 500 || response.status === 429) {
                         continue;
                     }
@@ -2411,7 +2214,6 @@ ${correctAnswer}
                     throw lastError;
                 }
 
-                // Success!
                 claudeResponse = data;
                 console.log('   ✅ API call successful');
                 apiSuccess = true;
@@ -2431,11 +2233,9 @@ ${correctAnswer}
             throw lastError || new Error('All API retry attempts failed');
         }
 
-        // Parse Claude's response
         const claudeText = claudeResponse.content[0].text;
         console.log('   📥 Raw response (first 200):', claudeText.substring(0, 200));
 
-        // Extract JSON from response
         let analysis;
         try {
             const jsonText = cleanJsonText(claudeText);
@@ -2444,7 +2244,6 @@ ${correctAnswer}
         } catch (parseError) {
             console.error('   ❌ JSON parse error:', parseError.message);
 
-            // Fallback analysis
             analysis = {
                 detectedAnswer: '',
                 isCorrect: false,
@@ -2454,7 +2253,6 @@ ${correctAnswer}
             };
         }
 
-        // Validate and clean analysis
         const cleanedAnalysis = {
             detectedAnswer: String(analysis.detectedAnswer || '').trim(),
             isCorrect: Boolean(analysis.isCorrect),
@@ -2470,11 +2268,10 @@ ${correctAnswer}
         console.log('      Steps:', cleanedAnalysis.stepsAnalysis.length);
         console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
 
-        // Return analysis
         res.json({
             success: true,
             analysis: cleanedAnalysis,
-            model: 'claude-sonnet-4-5-20250929',  // ✅ SONNET FOR VISION
+            model: 'claude-sonnet-4-5-20250929',
             timestamp: new Date().toISOString()
         });
 
@@ -2483,7 +2280,6 @@ ${correctAnswer}
         console.error('   Error details:', error.message);
         console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
 
-        // User-friendly error messages
         let errorMessage = error.message;
         if (error.message === 'Overloaded') {
             errorMessage = 'השרת עמוס כרגע. אנא נסה שוב בעוד כמה שניות.';
@@ -2500,83 +2296,66 @@ ${correctAnswer}
         });
     }
 });
-app.use('/api/ai', aiAnalysisRoutes);  // ✅ ADD THIS LINE
 
+// ==================== ADMIN: UPLOAD PERSONALITY FILE ====================
+app.post('/api/admin/upload-personality', upload.single('file'), async (req, res) => {
+    try {
+        console.log('📤 PERSONALITY FILE UPLOAD');
 
-// ==================== START SERVER ====================
-async function loadPersonalityFromStorage() {
-    if (!bucket) {
-        console.log('⚠️ Firebase not configured - using local storage');
-        const localPath = path.join(__dirname, '../uploads/personality-system.xlsx');
-        if (fs.existsSync(localPath)) {
-            personalitySystem.loadFromExcel(localPath);
-            console.log('✅ Loaded from local file');
+        if (!req.file) {
+            return res.status(400).json({
+                success: false,
+                error: 'No file uploaded'
+            });
         }
-        return;
-    }
 
-    try {
-        const file = bucket.file('personality-system.xlsx');
-        const [exists] = await file.exists();
-        if (exists) {
-            const tempPath = `/tmp/personality-system.xlsx`;
-            await file.download({ destination: tempPath });
-            personalitySystem.loadFromExcel(tempPath);
-            console.log('✅ Loaded from Firebase');
+        console.log('   File:', req.file.originalname);
+        console.log('   Size:', req.file.size, 'bytes');
+
+        const uploadsDir = path.join(__dirname, '../uploads');
+        if (!fs.existsSync(uploadsDir)) {
+            fs.mkdirSync(uploadsDir, { recursive: true });
         }
+
+        const localPath = path.join(uploadsDir, 'personality-system.xlsx');
+        fs.writeFileSync(localPath, req.file.buffer);
+        console.log('   ✅ Saved locally:', localPath);
+
+        if (bucket) {
+            const file = bucket.file('personality-system.xlsx');
+            await file.save(req.file.buffer, {
+                metadata: {
+                    contentType: req.file.mimetype,
+                    metadata: {
+                        uploadedAt: new Date().toISOString()
+                    }
+                }
+            });
+            console.log('   ✅ Uploaded to Firebase Storage');
+        } else {
+            console.log('   ⚠️ Firebase not configured - local only');
+        }
+
+        personalitySystem.loadFromExcel(localPath);
+        console.log('   ✅ Personality system reloaded');
+
+        res.json({
+            success: true,
+            message: 'Personality file uploaded and loaded successfully',
+            filename: req.file.originalname,
+            size: req.file.size,
+            firebaseUploaded: !!bucket,
+            personalityLoaded: personalitySystem.loaded
+        });
+
     } catch (error) {
-        console.error('❌ Error loading personality:', error.message);
-    }
-}
-
-
-
-// ==================== TEST DATABASE CONNECTION ====================
-pool.query('SELECT NOW()', (err, result) => {
-    if (err) {
-        console.error('❌ Database connection failed:', err.message);
-    } else {
-        console.log('✅ Database connected successfully!');
-        console.log('   Connection time:', result.rows[0].now);
+        console.error('❌ Upload error:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
     }
 });
-
-
-// ==================== INITIALIZE CRON JOBS ====================
-if (process.env.NODE_ENV === 'production') {
-    console.log('🕐 Initializing automated tasks...');
-    try {
-        cronManager.initialize();
-        console.log('✅ Cron jobs initialized successfully');
-    } catch (error) {
-        console.error('❌ Cron initialization failed:', error.message);
-    }
-}
-
-// ==================== CRON MANAGEMENT ENDPOINTS ====================
-app.get('/api/cron/status', (req, res) => {
-    try {
-        const status = cronManager.getAllStatus();
-        res.json({ success: true, jobs: status });
-    } catch (error) {
-        console.error('❌ Cron status error:', error);
-        res.status(500).json({ success: false, error: error.message });
-    }
-});
-
-app.post('/api/cron/run/:jobName', async (req, res) => {
-    try {
-        const { jobName } = req.params;
-        console.log(`🔄 Manually running job: ${jobName}`);
-        await cronManager.runJobNow(jobName);
-        res.json({ success: true, message: `Job ${jobName} completed successfully` });
-    } catch (error) {
-        console.error(`❌ Manual job run error (${req.params.jobName}):`, error);
-        res.status(500).json({ success: false, error: error.message });
-    }
-});
-
-console.log('✅ Enhanced Question System endpoints registered');
 
 // ==================== DEBUG: CHECK QUESTION HISTORY ====================
 app.get('/api/ai/question-history/:userId/:topicId', async (req, res) => {
@@ -2585,14 +2364,11 @@ app.get('/api/ai/question-history/:userId/:topicId', async (req, res) => {
 
         console.log('🔍 Checking question history:', { userId, topicId });
 
-        // Convert to int if needed
         const userIdInt = parseInt(userId);
         const sessionKey = isNaN(userIdInt) ? userId : userIdInt;
 
-        // Check session memory
         const sessionHistory = questionHistoryManager.getRecentQuestions(sessionKey, topicId, 20);
 
-        // Check database
         let dbHistory = [];
         if (!isNaN(userIdInt)) {
             const query = `
@@ -2629,13 +2405,12 @@ app.get('/api/ai/question-history/:userId/:topicId', async (req, res) => {
         });
     }
 });
-// ==================== IMAGE UPLOAD ENDPOINT ====================
-import fs from 'fs/promises';
 
+// ==================== IMAGE UPLOAD ENDPOINT ====================
 const uploadStorage = multer.diskStorage({
     destination: async (req, file, cb) => {
         const dir = 'uploads/admin-images';
-        await fs.mkdir(dir, { recursive: true });
+        await fsPromises.mkdir(dir, { recursive: true });  // ✅ FIXED: Using fsPromises
         cb(null, dir);
     },
     filename: (req, file, cb) => {
@@ -2646,7 +2421,7 @@ const uploadStorage = multer.diskStorage({
 
 const adminUpload = multer({
     storage: uploadStorage,
-    limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
+    limits: { fileSize: 10 * 1024 * 1024 },
     fileFilter: (req, file, cb) => {
         const allowed = /jpeg|jpg|png|gif|webp/;
         const ext = allowed.test(path.extname(file.originalname).toLowerCase());
@@ -2688,6 +2463,78 @@ app.post('/api/admin/upload-image', adminUpload.single('image'), (req, res) => {
 
 // Serve uploaded files
 app.use('/uploads', express.static('uploads'));
+
+// ==================== TEST DATABASE CONNECTION ====================
+pool.query('SELECT NOW()', (err, result) => {
+    if (err) {
+        console.error('❌ Database connection failed:', err.message);
+    } else {
+        console.log('✅ Database connected successfully!');
+        console.log('   Connection time:', result.rows[0].now);
+    }
+});
+
+// ==================== INITIALIZE CRON JOBS ====================
+if (process.env.NODE_ENV === 'production') {
+    console.log('🕐 Initializing automated tasks...');
+    try {
+        cronManager.initialize();
+        console.log('✅ Cron jobs initialized successfully');
+    } catch (error) {
+        console.error('❌ Cron initialization failed:', error.message);
+    }
+}
+
+// ==================== CRON MANAGEMENT ENDPOINTS ====================
+app.get('/api/cron/status', (req, res) => {
+    try {
+        const status = cronManager.getAllStatus();
+        res.json({ success: true, jobs: status });
+    } catch (error) {
+        console.error('❌ Cron status error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.post('/api/cron/run/:jobName', async (req, res) => {
+    try {
+        const { jobName } = req.params;
+        console.log(`🔄 Manually running job: ${jobName}`);
+        await cronManager.runJobNow(jobName);
+        res.json({ success: true, message: `Job ${jobName} completed successfully` });
+    } catch (error) {
+        console.error(`❌ Manual job run error (${req.params.jobName}):`, error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+console.log('✅ Enhanced Question System endpoints registered');
+
+// ==================== START SERVER ====================
+async function loadPersonalityFromStorage() {
+    if (!bucket) {
+        console.log('⚠️ Firebase not configured - using local storage');
+        const localPath = path.join(__dirname, '../uploads/personality-system.xlsx');
+        if (fs.existsSync(localPath)) {
+            personalitySystem.loadFromExcel(localPath);
+            console.log('✅ Loaded from local file');
+        }
+        return;
+    }
+
+    try {
+        const file = bucket.file('personality-system.xlsx');
+        const [exists] = await file.exists();
+        if (exists) {
+            const tempPath = `/tmp/personality-system.xlsx`;
+            await file.download({ destination: tempPath });
+            personalitySystem.loadFromExcel(tempPath);
+            console.log('✅ Loaded from Firebase');
+        }
+    } catch (error) {
+        console.error('❌ Error loading personality:', error.message);
+    }
+}
 
 app.listen(PORT, '0.0.0.0', async () => {
     await loadPersonalityFromStorage();
