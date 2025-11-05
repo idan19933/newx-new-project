@@ -1,5 +1,7 @@
 // src/pages/AdminDashboard.jsx - ADMIN PANEL WITH IMAGE UPLOAD
 import React, { useState, useCallback } from 'react';
+import axios from 'axios';  // ✅ הוסף שורה זו!
+
 import { motion, AnimatePresence } from 'framer-motion';
 import {
     Upload, Image, FileText, CheckCircle, XCircle,
