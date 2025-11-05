@@ -1,4 +1,4 @@
-// server/routes/adminRoutes.js
+// server/routes/adminRoutes.js - COMPLETE WITH EXAM VIEW ENDPOINTS
 import express from 'express';
 import multer from 'multer';
 import path from 'path';
@@ -228,7 +228,7 @@ router.post('/create-exam', async (req, res) => {
                 status,
                 uploaded_at
             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
-            RETURNING id`,
+                 RETURNING id`,
             [
                 filename,
                 'uploaded-image.png',
@@ -260,9 +260,9 @@ router.post('/create-exam', async (req, res) => {
             console.error('❌ Failed to read image:', readError.message);
 
             await pool.query(
-                `UPDATE exam_uploads 
-                SET status = $1, error_message = $2, processed_at = NOW()
-                WHERE id = $3`,
+                `UPDATE exam_uploads
+                 SET status = $1, error_message = $2, processed_at = NOW()
+                 WHERE id = $3`,
                 ['failed', 'Failed to read image: ' + readError.message, uploadId]
             );
 
@@ -294,9 +294,9 @@ router.post('/create-exam', async (req, res) => {
             console.error('❌ Vision processing failed:', visionError.message);
 
             await pool.query(
-                `UPDATE exam_uploads 
-                SET status = $1, error_message = $2, processed_at = NOW()
-                WHERE id = $3`,
+                `UPDATE exam_uploads
+                 SET status = $1, error_message = $2, processed_at = NOW()
+                 WHERE id = $3`,
                 ['failed', 'AI processing failed: ' + visionError.message, uploadId]
             );
 
@@ -324,12 +324,12 @@ router.post('/create-exam', async (req, res) => {
 
             // עדכן סטטוס
             await pool.query(
-                `UPDATE exam_uploads 
-                SET status = $1, 
-                    total_questions = $2,
-                    questions_extracted = $3,
-                    processed_at = NOW()
-                WHERE id = $4`,
+                `UPDATE exam_uploads
+                 SET status = $1,
+                     total_questions = $2,
+                     questions_extracted = $3,
+                     processed_at = NOW()
+                 WHERE id = $4`,
                 [
                     'completed',
                     visionResult.questions.length,
@@ -353,9 +353,9 @@ router.post('/create-exam', async (req, res) => {
             console.error('❌ Failed to save questions:', saveError.message);
 
             await pool.query(
-                `UPDATE exam_uploads 
-                SET status = $1, error_message = $2, processed_at = NOW()
-                WHERE id = $3`,
+                `UPDATE exam_uploads
+                 SET status = $1, error_message = $2, processed_at = NOW()
+                 WHERE id = $3`,
                 ['failed', 'Failed to save: ' + saveError.message, uploadId]
             );
 
@@ -384,9 +384,9 @@ router.post('/create-exam', async (req, res) => {
 router.get('/uploads', async (req, res) => {
     try {
         const result = await pool.query(
-            `SELECT * FROM exam_uploads 
-             ORDER BY uploaded_at DESC 
-             LIMIT 50`
+            `SELECT * FROM exam_uploads
+             ORDER BY uploaded_at DESC
+                 LIMIT 50`
         );
 
         res.json({
@@ -401,6 +401,93 @@ router.get('/uploads', async (req, res) => {
 });
 
 /**
+ * 📄 GET /api/admin/uploads/:id
+ * קבל מבחן ספציפי
+ */
+router.get('/uploads/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        console.log(`📥 Fetching upload ${id}...`);
+
+        const result = await pool.query(
+            `SELECT * FROM exam_uploads WHERE id = $1`,
+            [id]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({
+                success: false,
+                error: 'Upload not found'
+            });
+        }
+
+        console.log(`✅ Upload found: ${result.rows[0].exam_title}`);
+
+        res.json({
+            success: true,
+            upload: result.rows[0]
+        });
+
+    } catch (error) {
+        console.error('❌ Get upload error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * 📚 GET /api/admin/exam/:id/questions
+ * קבל שאלות של מבחן ספציפי
+ */
+router.get('/exam/:id/questions', async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        console.log(`📚 Fetching questions for exam ${id}...`);
+
+        const result = await pool.query(
+            `SELECT * FROM question_bank 
+             WHERE metadata->>'uploadId' = $1
+             ORDER BY created_at ASC`,
+            [id]
+        );
+
+        console.log(`✅ Found ${result.rows.length} questions`);
+
+        res.json({
+            success: true,
+            questions: result.rows
+        });
+
+    } catch (error) {
+        console.error('❌ Get exam questions error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * 🗑️ DELETE /api/admin/questions/:id
+ * מחק שאלה
+ */
+router.delete('/questions/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        console.log(`🗑️ Deleting question ${id}...`);
+
+        await pool.query('DELETE FROM question_bank WHERE id = $1', [id]);
+
+        console.log(`✅ Question ${id} deleted`);
+
+        res.json({ success: true });
+
+    } catch (error) {
+        console.error('❌ Delete question error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+/**
  * 🗑️ DELETE /api/admin/upload/:id
  * מחק העלאה
  */
@@ -408,16 +495,22 @@ router.delete('/upload/:id', async (req, res) => {
     try {
         const { id } = req.params;
 
-        // מחק מה-DB
+        console.log(`🗑️ Deleting upload ${id}...`);
+
+        // מחק שאלות קשורות
+        await pool.query(
+            `DELETE FROM question_bank WHERE metadata->>'uploadId' = $1`,
+            [id]
+        );
+
+        // מחק את ההעלאה
         await pool.query('DELETE FROM exam_uploads WHERE id = $1', [id]);
 
-        // מחק את הקובץ
-        // TODO: implement file deletion
+        console.log(`✅ Upload ${id} and related questions deleted`);
 
         res.json({ success: true });
 
     } catch (error) {
-        console.error('❌ Delete upload error:', error);
         console.error('❌ Delete upload error:', error);
         res.status(500).json({ success: false, error: error.message });
     }

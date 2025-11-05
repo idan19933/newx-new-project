@@ -1,4 +1,4 @@
-// src/App.jsx - UPDATED WITH BAGRUT EXAMS + ADMIN PANEL
+// src/App.jsx - UPDATED WITH ADMIN EXAM VIEW
 import React, { useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, useNavigate, useLocation } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
@@ -31,10 +31,11 @@ import PersonalizedDashboard from './pages/PersonalizedDashboard';
 
 // 🎓 BAGRUT EXAMS SYSTEM
 import BagrutExamsPage from './pages/BagrutExamsPage';
-import AdminAddQuestion from './pages/AdminAddQuestion';  // ✅ NEW!
+import AdminAddQuestion from './pages/AdminAddQuestion';
 
 // Admin
 import AdminDashboard from './pages/AdminDashboard';
+import AdminExamView from './pages/AdminExamView';  // ✅ NEW!
 import AdminUsers from './pages/AdminUsers';
 import AdminGoals from './pages/AdminGoals';
 import AdminCodes from './pages/AdminCodes';
@@ -171,6 +172,16 @@ function App() {
                         }
                     />
 
+                    {/* ✅ NEW - Admin Exam View */}
+                    <Route
+                        path="admin/exam/:id"
+                        element={
+                            <AdminRoute>
+                                <AdminExamView />
+                            </AdminRoute>
+                        }
+                    />
+
                     <Route
                         path="admin/goals"
                         element={
@@ -225,7 +236,7 @@ function App() {
                         }
                     />
 
-                    {/* 🎓 BAGRUT ADMIN ROUTES - NEW! */}
+                    {/* 🎓 BAGRUT ADMIN ROUTES */}
                     <Route
                         path="admin/exams/:examId/add-question"
                         element={

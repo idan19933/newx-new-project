@@ -1,3 +1,5 @@
+
+import { useNavigate } from 'react-router-dom';
 // src/pages/AdminDashboard.jsx - FIXED FOR RAILWAY
 import React, { useState, useCallback } from 'react';
 import axios from 'axios';
@@ -30,6 +32,8 @@ const AdminDashboard = () => {
         units: '5',
         examType: 'bagrut'
     });
+    const navigate = useNavigate();
+
 
     // 📤 Handle file drop
     const onDrop = useCallback((acceptedFiles) => {
@@ -458,9 +462,9 @@ const AdminDashboard = () => {
                                                 <motion.button
                                                     whileHover={{ scale: 1.1 }}
                                                     whileTap={{ scale: 0.9 }}
-                                                    onClick={() => window.open(upload.image_url, '_blank')}
+                                                    onClick={() => navigate(`/admin/exam/${upload.id}`)}
                                                     className="p-2 bg-blue-100 hover:bg-blue-200 rounded-lg transition-colors"
-                                                    title="צפה בתמונה"
+                                                    title="צפה במבחן"
                                                 >
                                                     <Eye className="w-5 h-5 text-blue-600" />
                                                 </motion.button>
