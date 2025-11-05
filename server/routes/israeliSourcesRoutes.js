@@ -432,15 +432,26 @@ router.post('/crawler/smart-crawl', async (req, res) => {
 
 router.get('/questions', async (req, res) => {
     try {
-        const { grade, topic, limit = 10 } = req.query;
+        const { grade, topic, limit = 10, units } = req.query;
 
-        let query = `SELECT * FROM question_bank WHERE source = 'israeli_source'`;
+        // ✅ FIX: Add is_active filter
+        let query = `
+            SELECT * FROM question_bank
+            WHERE source = 'israeli_source'
+              AND is_active = true
+        `;
         const params = [];
         let paramCount = 1;
 
         if (grade) {
             query += ` AND grade_level = $${paramCount}`;
             params.push(parseInt(grade));
+            paramCount++;
+        }
+
+        if (units) {
+            query += ` AND units = $${paramCount}`;
+            params.push(parseInt(units));
             paramCount++;
         }
 
@@ -451,7 +462,10 @@ router.get('/questions', async (req, res) => {
         }
 
         query += ` ORDER BY created_at DESC LIMIT $${paramCount}`;
-        params.push(parseInt(limit));
+        params.push(Math.min(parseInt(limit), 1000)); // Cap at 1000
+
+        console.log('🔍 Query:', query);
+        console.log('📊 Params:', params);
 
         const result = await pool.query(query, params);
 
@@ -469,7 +483,6 @@ router.get('/questions', async (req, res) => {
         });
     }
 });
-
 router.get('/stats', async (req, res) => {
     try {
         const [sourceStats, questionStats, totalSources, totalQuestions] = await Promise.all([
