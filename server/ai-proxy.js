@@ -1129,7 +1129,7 @@ app.post('/api/ai/generate-question', async (req, res) => {
             topic,
             subtopic,
             difficulty = 'medium',
-            grade = 'grade_8',
+            grade,  // ← הסר default!
             previousQuestions = [],
             studentProfile = {}
         } = req.body;
