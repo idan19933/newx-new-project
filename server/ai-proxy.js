@@ -102,12 +102,21 @@ app.post('/api/test-progress', (req, res) => {
 });
 
 // LOG ALL INCOMING REQUESTS
+// LOG ALL INCOMING REQUESTS
 app.use((req, res, next) => {
     console.log('='.repeat(60));
     console.error('✓✓ INCOMING REQUEST');
     console.error('✓✓ Method:', req.method);
     console.error('✓✓ URL:', req.url);
-    console.log('Body:', JSON.stringify(req.body));
+    console.error('✓✓ Content-Type:', req.headers['content-type']);
+
+    // Don't log body for multipart/form-data (file uploads)
+    if (!req.headers['content-type']?.includes('multipart/form-data')) {
+        console.log('Body:', JSON.stringify(req.body));
+    } else {
+        console.log('Body: [multipart/form-data - file upload]');
+    }
+
     console.log('='.repeat(60));
     next();
 });
