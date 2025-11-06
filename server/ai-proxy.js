@@ -1703,27 +1703,77 @@ ${storedAnswerIsWrong ? `⚠️ התשובה השמורה (${storedAnswer}) הי
 });
 
 // ==================== HELPER: COMPARE MATH ANSWERS ====================
+// ==================== HELPER: IMPROVED MATH COMPARISON ====================
 function compareMathAnswers(answer1, answer2) {
     if (!answer1 || !answer2) return false;
 
-    const a1 = String(answer1).trim().toLowerCase();
-    const a2 = String(answer2).trim().toLowerCase();
+    // Clean both answers
+    const clean = (str) => {
+        return String(str)
+            .trim()
+            .toLowerCase()
+            // Remove Hebrew text
+            .replace(/[א-ת]/g, '')
+            // Remove currency symbols
+            .replace(/[₪$€£¥]/g, '')
+            // Remove units (km, m, cm, etc)
+            .replace(/\b(ש"ח|שח|שקל|שקלים|מטר|ק"מ|ס"מ|יח'|יחידות|km|m|cm|units?)\b/gi, '')
+            // Remove extra spaces
+            .replace(/\s+/g, ' ')
+            .trim();
+    };
 
-    if (a1 === a2) return true;
+    const a1 = clean(answer1);
+    const a2 = clean(answer2);
 
-    const num1 = parseFloat(a1.replace(/[^\d.-]/g, ''));
-    const num2 = parseFloat(a2.replace(/[^\d.-]/g, ''));
+    console.log('   🔍 Comparing answers:');
+    console.log('      Original 1:', answer1);
+    console.log('      Cleaned 1:', a1);
+    console.log('      Original 2:', answer2);
+    console.log('      Cleaned 2:', a2);
 
-    if (!isNaN(num1) && !isNaN(num2)) {
-        const diff = Math.abs(num1 - num2);
-        const avg = (Math.abs(num1) + Math.abs(num2)) / 2;
-        return diff < 0.01 || (avg > 0 && diff / avg < 0.001);
+    // Direct match after cleaning
+    if (a1 === a2) {
+        console.log('   ✅ Direct match!');
+        return true;
     }
 
+    // Extract all numbers from both
+    const extractNumbers = (str) => {
+        const nums = str.match(/-?\d+\.?\d*/g);
+        return nums ? nums.map(n => parseFloat(n)).filter(n => !isNaN(n)) : [];
+    };
+
+    const nums1 = extractNumbers(a1);
+    const nums2 = extractNumbers(a2);
+
+    console.log('      Numbers 1:', nums1);
+    console.log('      Numbers 2:', nums2);
+
+    // If same number of values, compare each
+    if (nums1.length > 0 && nums1.length === nums2.length) {
+        const allMatch = nums1.every((n1, i) => {
+            const n2 = nums2[i];
+            const diff = Math.abs(n1 - n2);
+            const avg = (Math.abs(n1) + Math.abs(n2)) / 2;
+            const isClose = diff < 0.1 || (avg > 0 && diff / avg < 0.01);
+
+            console.log(`      Compare: ${n1} vs ${n2} → ${isClose ? '✅' : '❌'} (diff: ${diff})`);
+            return isClose;
+        });
+
+        if (allMatch) {
+            console.log('   ✅ All numbers match!');
+            return true;
+        }
+    }
+
+    // Handle π (pi) expressions
     if (a1.includes('π') || a2.includes('π')) {
         const piValue = 3.141592653589793;
 
         const extractPi = (str) => {
+            // Match patterns like: 8π, 8*π, 8×π, 8·π
             const match = str.match(/(\d+\.?\d*)\s*[*×·]?\s*π/i) || str.match(/(\d+\.?\d*)π/i);
             return match ? parseFloat(match[1]) * piValue : null;
         };
@@ -1731,11 +1781,45 @@ function compareMathAnswers(answer1, answer2) {
         const pi1 = extractPi(a1);
         const pi2 = extractPi(a2);
 
-        if (pi1 !== null && pi2 !== null) return Math.abs(pi1 - pi2) < 0.01;
-        if (pi1 !== null && !isNaN(num2)) return Math.abs(pi1 - num2) < 0.01;
-        if (pi2 !== null && !isNaN(num1)) return Math.abs(pi2 - num1) < 0.01;
+        // Extract regular numbers
+        const num1 = parseFloat(a1.replace(/[^\d.-]/g, ''));
+        const num2 = parseFloat(a2.replace(/[^\d.-]/g, ''));
+
+        console.log('      Pi values:', { pi1, pi2, num1, num2 });
+
+        // Compare pi expressions
+        if (pi1 !== null && pi2 !== null && Math.abs(pi1 - pi2) < 0.01) {
+            console.log('   ✅ Pi expressions match!');
+            return true;
+        }
+
+        // Compare pi to decimal
+        if (pi1 !== null && !isNaN(num2) && Math.abs(pi1 - num2) < 0.1) {
+            console.log('   ✅ Pi matches decimal!');
+            return true;
+        }
+        if (pi2 !== null && !isNaN(num1) && Math.abs(pi2 - num1) < 0.1) {
+            console.log('   ✅ Decimal matches pi!');
+            return true;
+        }
     }
 
+    // Handle fractions: 1/2 = 0.5
+    const fractionPattern = /(\d+)\s*\/\s*(\d+)/;
+    const frac1 = a1.match(fractionPattern);
+    const frac2 = a2.match(fractionPattern);
+
+    if (frac1 || frac2) {
+        const val1 = frac1 ? parseFloat(frac1[1]) / parseFloat(frac1[2]) : parseFloat(a1);
+        const val2 = frac2 ? parseFloat(frac2[1]) / parseFloat(frac2[2]) : parseFloat(a2);
+
+        if (!isNaN(val1) && !isNaN(val2) && Math.abs(val1 - val2) < 0.01) {
+            console.log('   ✅ Fraction match!');
+            return true;
+        }
+    }
+
+    console.log('   ❌ No match found');
     return false;
 }
 
