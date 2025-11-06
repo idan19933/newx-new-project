@@ -1482,6 +1482,7 @@ ${previousQuestionsText}
     }
 });
 // ==================== VERIFY ANSWER ====================
+// ==================== VERIFY ANSWER - ENHANCED WITH SMART AI VALIDATION ====================
 app.post('/api/ai/verify-answer', async (req, res) => {
     console.log('🔍 VERIFYING ANSWER - WITH AI RE-CALCULATION');
     const startTime = Date.now();
@@ -1498,6 +1499,14 @@ app.post('/api/ai/verify-answer', async (req, res) => {
             difficulty = 'medium'
         } = req.body;
 
+        console.log('📝 Verification Request:', {
+            question: question?.substring(0, 60) + '...',
+            userAnswer,
+            correctAnswer,
+            questionId,
+            userId
+        });
+
         if (!question || !userAnswer || !correctAnswer) {
             return res.status(400).json({
                 success: false,
@@ -1505,17 +1514,39 @@ app.post('/api/ai/verify-answer', async (req, res) => {
             });
         }
 
-        const calculationPrompt = `אתה מורה למתמטיקה מומחה. פתור את השאלה הזו בדיוק.
+        // ==================== STEP 1: AI CALCULATES THE CORRECT ANSWER ====================
+        const calculationPrompt = `אתה מורה למתמטיקה מומחה ומדויק. פתור את השאלה הזו בקפידה רבה.
 
 🎯 השאלה:
 ${question}
 
-פתור צעד אחר צעד והחזר JSON:
+📋 הוראות חשובות:
+1. קרא את השאלה בעיון - מה בדיוק מבוקש?
+2. זהה את כל הנתונים והמשתנים
+3. בנה את הפונקציה המתאימה (אם נדרש)
+4. אם יש עלות - ודא שאתה מפחית אותה מההכנסה!
+5. אם צריך למצוא מקסימום/מינימום - השתמש בנגזרת
+6. חשב בדיוק - אל תעגל אלא אם נדרש!
+7. אם יש שתי תשובות (מחיר + רווח) - כלול את שתיהן
+
+פתור צעד אחר צעד והחזר JSON בלבד (ללא טקסט נוסף):
 {
-  "calculatedAnswer": "התשובה המדויקת",
-  "workingSteps": ["שלב 1", "שלב 2", "שלב 3"],
-  "confidence": מספר 0-100
-}`;
+  "calculatedAnswer": "התשובה המדויקת (אם יש שתי תשובות: 'מחיר: X, רווח: Y')",
+  "workingSteps": [
+    "שלב 1: זיהוי משתנים ונתונים...",
+    "שלב 2: בניית פונקציה...",
+    "שלב 3: גזירה ופתרון...",
+    "שלב 4: חישוב סופי..."
+  ],
+  "confidence": מספר בין 0-100 (כמה אתה בטוח בתשובה)
+}
+
+דוגמאות לפורמט תשובה:
+- שאלה על מחיר ורווח: "12 ₪, 2880 ₪" או "מחיר: 12 ₪, רווח: 2880 ₪"
+- שאלה על שטח: "25 מ״ר" או "25"
+- שאלה על זווית: "60 מעלות" או "60°"`;
+
+        console.log('📤 Sending calculation request to Claude...');
 
         const calcResponse = await fetch('https://api.anthropic.com/v1/messages', {
             method: 'POST',
@@ -1526,9 +1557,9 @@ ${question}
             },
             body: JSON.stringify({
                 model: 'claude-sonnet-4-5-20250929',
-                max_tokens: 2048,
+                max_tokens: 3000,  // ✅ Increased for detailed solutions
                 temperature: 0.1,
-                system: 'אתה מחשבון מתמטי מדויק. החזר JSON תקין בלבד.',
+                system: 'אתה מחשבון מתמטי מדויק וקפדן. תמיד בדוק את החישובים פעמיים לפני מתן תשובה. החזר JSON תקין בלבד בעברית.',
                 messages: [{ role: 'user', content: calculationPrompt }]
             })
         });
@@ -1540,11 +1571,15 @@ ${question}
         const calcData = await calcResponse.json();
         const calcRawText = calcData.content[0].text;
 
+        console.log('📥 AI Calculation Response (first 200):', calcRawText.substring(0, 200));
+
         let calculationResult;
         try {
             const calcJsonText = cleanJsonText(calcRawText);
             calculationResult = JSON.parse(calcJsonText);
+            console.log('✅ Calculation JSON parsed successfully');
         } catch (parseError) {
+            console.error('❌ Failed to parse calculation JSON:', parseError.message);
             calculationResult = {
                 calculatedAnswer: correctAnswer,
                 workingSteps: [],
@@ -1552,66 +1587,108 @@ ${question}
             };
         }
 
+        // ✅ LOG CALCULATION RESULTS
+        console.log('📊 AI Calculation Result:');
+        console.log('   Calculated Answer:', calculationResult.calculatedAnswer);
+        console.log('   Confidence:', calculationResult.confidence);
+        console.log('   Steps Count:', calculationResult.workingSteps?.length || 0);
+
         const aiCalculatedAnswer = String(calculationResult.calculatedAnswer).trim();
         const storedAnswer = String(correctAnswer).trim();
 
+        console.log('🔍 Comparing Answers:');
+        console.log('   AI Calculated:', aiCalculatedAnswer);
+        console.log('   Stored (from DB):', storedAnswer);
+
         const answersMatch = compareMathAnswers(storedAnswer, aiCalculatedAnswer);
+
+        console.log('   Match Result:', answersMatch ? '✅ MATCH' : '❌ MISMATCH');
 
         let storedAnswerIsWrong = false;
         let actualCorrectAnswer = storedAnswer;
 
+        // ==================== STEP 2: VALIDATE STORED ANSWER ====================
         if (!answersMatch) {
-            console.log('🚨 STORED ANSWER WRONG!');
+            console.log('🚨 MISMATCH DETECTED!');
             console.log('   Stored:', storedAnswer);
             console.log('   AI calculated:', aiCalculatedAnswer);
+            console.log('   AI Confidence:', calculationResult.confidence);
 
-            storedAnswerIsWrong = true;
-            actualCorrectAnswer = aiCalculatedAnswer;
+            // ✅ ONLY OVERRIDE if AI has HIGH confidence (≥90)
+            if (calculationResult.confidence >= 90) {
+                console.log('   ✅ AI confidence HIGH (≥90) - Using AI answer');
+                storedAnswerIsWrong = true;
+                actualCorrectAnswer = aiCalculatedAnswer;
 
-            await logWrongStoredAnswer({
-                questionId,
-                question: question.substring(0, 100),
-                wrongStoredAnswer: storedAnswer,
-                correctCalculatedAnswer: aiCalculatedAnswer,
-                timestamp: new Date().toISOString()
-            });
+                await logWrongStoredAnswer({
+                    questionId,
+                    question: question.substring(0, 100),
+                    wrongStoredAnswer: storedAnswer,
+                    correctCalculatedAnswer: aiCalculatedAnswer,
+                    timestamp: new Date().toISOString()
+                });
 
-            if (questionId) {
-                try {
-                    await pool.query(
-                        'UPDATE questions SET correct_answer = $1, needs_review = TRUE WHERE id = $2',
-                        [aiCalculatedAnswer, questionId]
-                    );
-                    console.log('✅ Auto-fixed in database');
-                } catch (updateError) {
-                    console.error('⚠️ Failed to auto-fix:', updateError.message);
+                // Auto-fix in database if possible
+                if (questionId) {
+                    try {
+                        await pool.query(
+                            'UPDATE question_cache SET correct_answer = $1, needs_review = TRUE WHERE id = $2',
+                            [aiCalculatedAnswer, questionId]
+                        );
+                        console.log('   ✅ Auto-fixed in database');
+                    } catch (updateError) {
+                        console.error('   ⚠️ Failed to auto-fix:', updateError.message);
+                    }
                 }
+            } else {
+                console.log('   ⚠️ AI confidence LOW (<90) - Keeping stored answer');
+                console.log('   Reason: AI might be wrong, trusting original answer');
             }
+        } else {
+            console.log('✅ Stored answer validated by AI');
         }
 
+        // ==================== STEP 3: VERIFY USER'S ANSWER ====================
         const verificationPrompt = `בדוק האם תשובת התלמיד נכונה.
 
 השאלה: ${question}
 תשובת התלמיד: ${userAnswer}
 התשובה הנכונה: ${actualCorrectAnswer}
 
-${storedAnswerIsWrong ? `⚠️ התשובה השמורה (${storedAnswer}) היתה שגויה!` : ''}
+${storedAnswerIsWrong ? `⚠️ שים לב: התשובה השמורה במערכת (${storedAnswer}) היתה שגויה! התשובה הנכונה היא ${actualCorrectAnswer}` : ''}
 
-כללי בדיקה:
-- 8π = 25.13 = 25.132741 (שקילות)
-- הבדל עד 0.01 = נכון
-- התעלם מיחידות מידה
-- בדוק שיטה גם אם יש טעות חישוב
+כללי בדיקה חשובים:
+1. השווה בגמישות:
+   - 8π = 25.13 = 25.132741 (כולם נכונים)
+   - 1/2 = 0.5 (שקול)
+   - הבדל עד 0.1 = נכון
+   
+2. התעלם מיחידות מידה:
+   - "12 ₪" = "12 שקלים" = "12" (כולם נכונים)
+   - "25 מ״ר" = "25" (נכון)
+   
+3. תשובות מרובות:
+   - אם השאלה מבקשת מחיר ורווח, התלמיד צריך לתת את שניהם
+   - "12, 2880" = "מחיר: 12, רווח: 2880" (שקול)
+   
+4. בדוק שיטה:
+   - אם השיטה נכונה אבל יש טעות חישובית קטנה - עדיין תן נקודות
 
-החזר JSON:
+5. היה מעודד:
+   - גם אם טעה, ציין מה הוא עשה נכון
+   - תן טיפ איך לשפר
+
+החזר JSON בלבד (ללא טקסט נוסף):
 {
   "isCorrect": true/false,
   "confidence": 0-100,
-  "feedback": "משוב קצר בעברית",
-  "explanation": "הסבר מפורט",
-  "methodCorrect": true/false,
-  "calculationError": true/false
+  "feedback": "משוב קצר ומעודד בעברית (2-3 משפטים)",
+  "explanation": "הסבר מפורט איך פותרים את השאלה",
+  "methodCorrect": true/false (האם השיטה נכונה גם אם יש טעות חישוב),
+  "calculationError": true/false (האם יש טעות חישובית קטנה)
 }`;
+
+        console.log('📤 Sending verification request to Claude...');
 
         const verifyResponse = await fetch('https://api.anthropic.com/v1/messages', {
             method: 'POST',
@@ -1622,9 +1699,9 @@ ${storedAnswerIsWrong ? `⚠️ התשובה השמורה (${storedAnswer}) הי
             },
             body: JSON.stringify({
                 model: 'claude-sonnet-4-5-20250929',
-                max_tokens: 2048,
+                max_tokens: 2500,
                 temperature: 0.3,
-                system: 'אתה מורה מתמטיקה מומחה. החזר JSON תקין בעברית.',
+                system: 'אתה מורה מתמטיקה מומחה, מעודד וסבלני. החזר JSON תקין בלבד בעברית.',
                 messages: [{ role: 'user', content: verificationPrompt }]
             })
         });
@@ -1636,31 +1713,44 @@ ${storedAnswerIsWrong ? `⚠️ התשובה השמורה (${storedAnswer}) הי
         const verifyData = await verifyResponse.json();
         const verifyRawText = verifyData.content[0].text;
 
+        console.log('📥 AI Verification Response (first 200):', verifyRawText.substring(0, 200));
+
         let verificationResult;
         try {
             const verifyJsonText = cleanJsonText(verifyRawText);
             verificationResult = JSON.parse(verifyJsonText);
+            console.log('✅ Verification JSON parsed successfully');
         } catch (parseError) {
+            console.error('❌ Failed to parse verification JSON:', parseError.message);
+            // Fallback: manual comparison
             const manualMatch = compareMathAnswers(userAnswer, actualCorrectAnswer);
             verificationResult = {
                 isCorrect: manualMatch,
                 confidence: 70,
-                feedback: manualMatch ? 'תשובה נכונה!' : 'התשובה אינה נכונה',
+                feedback: manualMatch ? 'תשובה נכונה! 🎉' : 'התשובה אינה נכונה. נסה שוב!',
                 explanation: '',
                 methodCorrect: manualMatch,
                 calculationError: false
             };
         }
 
+        // ==================== STEP 4: FORMAT RESPONSE ====================
         const isCorrect = Boolean(verificationResult.isCorrect);
         const confidence = Math.min(100, Math.max(0, parseInt(verificationResult.confidence) || 85));
         let feedback = String(verificationResult.feedback || '').trim();
         const explanation = String(verificationResult.explanation || '').trim();
 
+        console.log('📊 Verification Result:');
+        console.log('   Is Correct:', isCorrect ? '✅' : '❌');
+        console.log('   Confidence:', confidence);
+        console.log('   Method Correct:', verificationResult.methodCorrect);
+
+        // Add system correction notice if applicable
         if (storedAnswerIsWrong) {
             feedback = `⚠️ המערכת תוקנה! התשובה הנכונה היא ${actualCorrectAnswer}, לא ${storedAnswer}.\n\n` + feedback;
         }
 
+        // Track usage if we have user and question IDs
         if (questionId && userId) {
             try {
                 await smartQuestionService.trackUsage(questionId, userId, {
@@ -1669,12 +1759,16 @@ ${storedAnswerIsWrong ? `⚠️ התשובה השמורה (${storedAnswer}) הי
                     hintsUsed: 0,
                     attempts: 1
                 });
+                console.log('✅ Usage tracked');
             } catch (trackError) {
                 console.error('⚠️ Track usage failed:', trackError.message);
             }
         }
 
         const duration = Date.now() - startTime;
+
+        console.log('✅ Verification completed in', duration, 'ms');
+        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
 
         return res.json({
             success: true,
@@ -1686,14 +1780,15 @@ ${storedAnswerIsWrong ? `⚠️ התשובה השמורה (${storedAnswer}) הי
             storedAnswerWasWrong: storedAnswerIsWrong,
             calculatedAnswer: aiCalculatedAnswer,
             workingSteps: calculationResult.workingSteps || [],
-            methodCorrect: verificationResult.methodCorrect,
-            calculationError: verificationResult.calculationError,
+            methodCorrect: verificationResult.methodCorrect || false,
+            calculationError: verificationResult.calculationError || false,
             model: 'claude-sonnet-4-5-20250929',
             duration
         });
 
     } catch (error) {
         console.error('❌ Verify answer error:', error);
+        console.error('   Stack:', error.stack);
         return res.status(500).json({
             success: false,
             error: 'שגיאה בבדיקת התשובה. נסה שוב.',
