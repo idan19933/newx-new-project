@@ -1,18 +1,25 @@
-// server/services/questionHistory.js - HYBRID VERSION 🔄
+// server/services/questionHistory.js - ENHANCED WITH ID TRACKING 🔄
 import pool from '../config/database.js';
 import crypto from 'crypto';
 
 class QuestionHistoryManager {
     constructor() {
-        // ✅ Keep in-memory for FAST session checks
+        // ✅ In-memory for FAST session checks
         this.history = new Map();
-        this.maxHistorySize = 15;
+        this.maxHistorySize = 30; // Increased to 30
+        console.log('✅ Question History Manager initialized');
     }
 
+    /**
+     * 🔑 Generate session key
+     */
     getKey(studentId, topicId) {
         return `${studentId}_${topicId}`;
     }
 
+    /**
+     * ➕ Add question to history with ID tracking
+     */
     addQuestion(studentId, topicId, questionData) {
         const key = this.getKey(studentId, topicId);
 
@@ -21,33 +28,82 @@ class QuestionHistoryManager {
         }
 
         const questions = this.history.get(key);
+
+        // ✅ Store with ID
         questions.push({
-            question: questionData.question,
+            questionId: questionData.questionId || questionData.id || null, // ✅ CRITICAL
+            question: questionData.question || questionData.questionText || '',
             timestamp: Date.now(),
-            keywords: this.extractKeywords(questionData.question),
-            numbers: this.extractNumbers(questionData.question)
+            difficulty: questionData.difficulty || 'unknown',
+            source: questionData.source || 'unknown',
+            keywords: this.extractKeywords(questionData.question || questionData.questionText || ''),
+            numbers: this.extractNumbers(questionData.question || questionData.questionText || '')
         });
 
+        // Keep last 30 questions
         if (questions.length > this.maxHistorySize) {
             questions.shift();
         }
+
+        console.log(`📝 Added question to history: ${key}`);
+        console.log(`   ID: ${questionData.questionId || questionData.id || 'no-id'}`);
+        console.log(`   Total in session: ${questions.length}`);
     }
 
+    /**
+     * 🆔 Get excluded question IDs
+     */
+    getExcludedQuestionIds(studentId, topicId, limit = 30) {
+        const key = this.getKey(studentId, topicId);
+        const questions = this.history.get(key) || [];
+
+        // Extract all IDs
+        const ids = questions
+            .slice(-limit)
+            .map(q => q.questionId)
+            .filter(id => id !== null && id !== undefined && id !== 'no-id');
+
+        console.log(`🚫 Excluded IDs for ${key}:`, ids.length);
+        if (ids.length > 0) {
+            console.log(`   IDs:`, ids.slice(0, 10)); // Show first 10
+        }
+
+        return ids;
+    }
+
+    /**
+     * 🔤 Extract keywords from question
+     */
     extractKeywords(question) {
+        if (!question) return [];
         const mathTerms = question.match(/[א-ת]{3,}/g) || [];
         return mathTerms.slice(0, 8);
     }
 
+    /**
+     * 🔢 Extract numbers from question
+     */
     extractNumbers(question) {
+        if (!question) return [];
         return question.match(/\d+(\.\d+)?/g) || [];
     }
 
-    getRecentQuestions(studentId, topicId, count = 5) {
+    /**
+     * 📋 Get recent questions
+     */
+    getRecentQuestions(studentId, topicId, count = 10) {
         const key = this.getKey(studentId, topicId);
         const questions = this.history.get(key) || [];
+
+        console.log(`🔍 Getting recent questions for: ${key}`);
+        console.log(`   Found ${questions.length} questions in history`);
+
         return questions.slice(-count);
     }
 
+    /**
+     * 🔍 Check if new question is similar to recent ones
+     */
     isSimilar(newQuestion, recentQuestions) {
         const newNumbers = new Set(this.extractNumbers(newQuestion));
         const newKeywords = new Set(this.extractKeywords(newQuestion));
@@ -70,8 +126,32 @@ class QuestionHistoryManager {
         return false;
     }
 
+    /**
+     * 🗑️ Clear history for user/topic
+     */
+    clearHistory(studentId, topicId = null) {
+        if (topicId) {
+            const key = this.getKey(studentId, topicId);
+            this.history.delete(key);
+            console.log(`🗑️ Cleared history for ${key}`);
+        } else {
+            // Clear all topics for this student
+            const keysToDelete = [];
+            for (const key of this.history.keys()) {
+                if (key.startsWith(`${studentId}_`)) {
+                    keysToDelete.push(key);
+                }
+            }
+            keysToDelete.forEach(key => this.history.delete(key));
+            console.log(`🗑️ Cleared all history for student ${studentId}`);
+        }
+    }
+
     // ==================== DATABASE METHODS ====================
 
+    /**
+     * 🔐 Generate question hash
+     */
     hashQuestion(questionText) {
         return crypto
             .createHash('md5')
@@ -79,64 +159,90 @@ class QuestionHistoryManager {
             .digest('hex');
     }
 
-    async recordToDatabase(firebaseUid, questionData) {
+    /**
+     * 💾 Record to database
+     */
+    async recordToDatabase(userId, questionData) {
         try {
-            const { topicId, subtopicId, questionText, difficulty } = questionData;
+            const { topicId, subtopicId, questionText, difficulty, isCorrect } = questionData;
 
-            const userResult = await pool.query(
-                'SELECT id FROM users WHERE firebase_uid = $1',
-                [firebaseUid]
-            );
+            // Get user ID if we have firebase_uid
+            let userIdInt = userId;
+            if (isNaN(userId)) {
+                const userResult = await pool.query(
+                    'SELECT id FROM users WHERE firebase_uid = $1',
+                    [userId]
+                );
 
-            if (userResult.rows.length === 0) {
-                console.log('⚠️ User not found for database recording');
-                return false;
+                if (userResult.rows.length === 0) {
+                    console.log('⚠️ User not found for database recording');
+                    return false;
+                }
+
+                userIdInt = userResult.rows[0].id;
             }
 
-            const userId = userResult.rows[0].id;
             const questionHash = this.hashQuestion(questionText);
 
             await pool.query(
                 `INSERT INTO question_history 
-                (user_id, firebase_uid, topic_id, subtopic_id, question_text, question_hash, difficulty, asked_at)
+                (user_id, topic_id, subtopic_id, question_text, question_hash, difficulty, is_correct, asked_at)
                 VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())`,
                 [
-                    userId,
-                    firebaseUid,
+                    userIdInt,
                     topicId || null,
                     subtopicId || null,
                     questionText,
                     questionHash,
-                    difficulty
+                    difficulty,
+                    isCorrect || null
                 ]
             );
 
+            console.log(`💾 Recorded to database for user ${userIdInt}`);
             return true;
 
         } catch (error) {
-            console.error('❌ Database recording error:', error);
+            console.error('❌ Database recording error:', error.message);
             return false;
         }
     }
 
-    async getDatabaseQuestions(firebaseUid, topicId = null, days = 14) {
+    /**
+     * 📊 Get database questions
+     */
+    async getDatabaseQuestions(userId, topicId = null, days = 14) {
         try {
+            // Get user ID if we have firebase_uid
+            let userIdInt = userId;
+            if (isNaN(userId)) {
+                const userResult = await pool.query(
+                    'SELECT id FROM users WHERE firebase_uid = $1',
+                    [userId]
+                );
+
+                if (userResult.rows.length === 0) {
+                    return [];
+                }
+
+                userIdInt = userResult.rows[0].id;
+            }
+
             let query = `
                 SELECT question_text, difficulty, asked_at
                 FROM question_history
-                WHERE firebase_uid = $1
+                WHERE user_id = $1
                   AND asked_at > NOW() - INTERVAL '${days} days'
             `;
 
-            const params = [firebaseUid];
+            const params = [userIdInt];
 
             if (topicId) {
                 query += ` AND topic_id = $2`;
                 params.push(topicId);
-                query += ` ORDER BY asked_at DESC LIMIT 20`;
-            } else {
-                query += ` ORDER BY asked_at DESC LIMIT 20`;
             }
+
+            query += ` ORDER BY asked_at DESC LIMIT 20`;
 
             const result = await pool.query(query, params);
 
@@ -147,23 +253,28 @@ class QuestionHistoryManager {
             }));
 
         } catch (error) {
-            console.error('❌ Database query error:', error);
+            console.error('❌ Database query error:', error.message);
             return [];
         }
     }
 
+    /**
+     * 📝 Build avoidance prompt
+     */
     async buildAvoidancePrompt(studentId, topicId) {
         let prompt = '';
 
         // ✅ Part 1: Session history
-        const sessionQuestions = this.getRecentQuestions(studentId, topicId, 3);
+        const sessionQuestions = this.getRecentQuestions(studentId, topicId, 5);
 
         if (sessionQuestions.length > 0) {
-            prompt += '\n🚫 AVOID - Questions from THIS SESSION:\n';
+            prompt += '\n🚫 CRITICAL: NEVER repeat these questions from THIS SESSION:\n';
+            prompt += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n';
             sessionQuestions.forEach((q, idx) => {
-                const preview = q.question.substring(0, 100);
+                const preview = q.question.substring(0, 80);
                 prompt += `${idx + 1}. "${preview}..."\n`;
             });
+            prompt += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n';
         }
 
         // ✅ Part 2: Database history
@@ -171,23 +282,45 @@ class QuestionHistoryManager {
             const dbQuestions = await this.getDatabaseQuestions(studentId, topicId, 7);
 
             if (dbQuestions.length > 0) {
-                prompt += '\n🚫 AVOID - Questions from PAST WEEK:\n';
+                prompt += '\n🚫 Also avoid questions from PAST WEEK:\n';
 
                 dbQuestions.slice(0, 5).forEach((q, idx) => {
-                    const preview = q.question.substring(0, 80);
+                    const preview = q.question.substring(0, 60);
                     const daysAgo = Math.floor((Date.now() - new Date(q.askedAt)) / (1000 * 60 * 60 * 24));
-                    prompt += `${idx + 1}. "${preview}..." (${daysAgo} days ago)\n`;
+                    prompt += `${idx + 1}. "${preview}..." (${daysAgo}d ago)\n`;
                 });
             }
         } catch (error) {
-            console.error('⚠️ Could not load database history:', error);
+            console.error('⚠️ Could not load database history:', error.message);
         }
 
         if (prompt) {
-            prompt += '\n✅ CREATE SOMETHING COMPLETELY DIFFERENT!\n';
+            prompt += '\n⚠️⚠️⚠️ CREATE SOMETHING COMPLETELY DIFFERENT!\n';
+            prompt += '- Different numbers\n';
+            prompt += '- Different context\n';
+            prompt += '- Different approach\n';
+            prompt += '- Unique scenario\n\n';
         }
 
         return prompt;
+    }
+
+    /**
+     * 📊 Get statistics
+     */
+    getStats() {
+        const totalSessions = this.history.size;
+        let totalQuestions = 0;
+
+        for (const questions of this.history.values()) {
+            totalQuestions += questions.length;
+        }
+
+        return {
+            totalSessions,
+            totalQuestions,
+            avgQuestionsPerSession: totalSessions > 0 ? (totalQuestions / totalSessions).toFixed(1) : 0
+        };
     }
 }
 
