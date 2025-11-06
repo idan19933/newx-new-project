@@ -9,6 +9,28 @@ const anthropic = new Anthropic({
 });
 
 /**
+ * Detect image media type from buffer
+ */
+function detectMediaType(buffer) {
+    // Check magic bytes
+    if (buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4E && buffer[3] === 0x47) {
+        return 'image/png';
+    }
+    if (buffer[0] === 0xFF && buffer[1] === 0xD8 && buffer[2] === 0xFF) {
+        return 'image/jpeg';
+    }
+    if (buffer[0] === 0x47 && buffer[1] === 0x49 && buffer[2] === 0x46) {
+        return 'image/gif';
+    }
+    if (buffer[0] === 0x52 && buffer[1] === 0x49 && buffer[2] === 0x46 && buffer[3] === 0x46) {
+        return 'image/webp';
+    }
+
+    // Default fallback
+    return 'image/jpeg';
+}
+
+/**
  * Enhanced extraction prompt for mathematical content
  */
 const createEnhancedPrompt = (examMetadata) => `
@@ -75,6 +97,10 @@ async function processExamImageEnhanced(imageBuffer, examMetadata) {
     try {
         console.log('🤖 Enhanced vision processing...');
 
+        // ✅ Auto-detect media type
+        const mediaType = detectMediaType(imageBuffer);
+        console.log('📷 Detected image type:', mediaType);
+
         const base64Image = imageBuffer.toString('base64');
 
         const message = await anthropic.messages.create({
@@ -87,7 +113,7 @@ async function processExamImageEnhanced(imageBuffer, examMetadata) {
                         type: 'image',
                         source: {
                             type: 'base64',
-                            media_type: 'image/jpeg',
+                            media_type: mediaType,  // ✅ Dynamic detection
                             data: base64Image
                         }
                     },
@@ -169,7 +195,7 @@ async function saveEnhancedQuestions(questions, uploadId, examMetadata) {
                     raw_math_content,
                     metadata
                 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
-                RETURNING id`,
+                     RETURNING id`,
                 [
                     q.questionText,
                     q.topic,
@@ -217,6 +243,10 @@ async function extractSolutions(imageBuffer, examGroupId) {
     try {
         console.log(`🔍 Extracting solutions for group: ${examGroupId}...`);
 
+        // ✅ Auto-detect media type
+        const mediaType = detectMediaType(imageBuffer);
+        console.log('📷 Solution page image type:', mediaType);
+
         const base64Image = imageBuffer.toString('base64');
 
         const prompt = `
@@ -248,7 +278,7 @@ async function extractSolutions(imageBuffer, examGroupId) {
                         type: 'image',
                         source: {
                             type: 'base64',
-                            media_type: 'image/jpeg',
+                            media_type: mediaType,  // ✅ Dynamic detection
                             data: base64Image
                         }
                     },
@@ -267,12 +297,12 @@ async function extractSolutions(imageBuffer, examGroupId) {
         let matchedCount = 0;
         for (const solution of solutions) {
             const result = await pool.query(`
-                SELECT q.id 
+                SELECT q.id
                 FROM question_bank q
-                JOIN exam_uploads e ON q.metadata->>'uploadId' = e.id::text
+                         JOIN exam_uploads e ON q.metadata->>'uploadId' = e.id::text
                 WHERE e.exam_group_id = $1
-                AND q.question_text LIKE $2
-                LIMIT 1
+                  AND q.question_text LIKE $2
+                    LIMIT 1
             `, [examGroupId, `%${solution.questionNumber}%`]);
 
             if (result.rows.length > 0) {
@@ -280,7 +310,7 @@ async function extractSolutions(imageBuffer, examGroupId) {
 
                 await pool.query(`
                     UPDATE question_bank
-                    SET 
+                    SET
                         full_solution = $1,
                         correct_answer = $2,
                         has_solution = true
