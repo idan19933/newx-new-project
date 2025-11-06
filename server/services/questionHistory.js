@@ -29,16 +29,31 @@ class QuestionHistoryManager {
 
         const questions = this.history.get(key);
 
+        // ✅ CRITICAL: Extract ID from multiple possible fields
+        const questionId = questionData.id ||
+            questionData.questionId ||
+            questionData.cached_id ||
+            null;
+
+        console.log('   🔍 Extracting ID from:', {
+            'questionData.id': questionData.id,
+            'questionData.questionId': questionData.questionId,
+            'questionData.cached_id': questionData.cached_id,
+            'final questionId': questionId
+        });
+
         // ✅ Store with ID
-        questions.push({
-            questionId: questionData.questionId || questionData.id || null, // ✅ CRITICAL
+        const entry = {
+            questionId: questionId,  // ✅ USE EXTRACTED ID
             question: questionData.question || questionData.questionText || '',
             timestamp: Date.now(),
             difficulty: questionData.difficulty || 'unknown',
             source: questionData.source || 'unknown',
             keywords: this.extractKeywords(questionData.question || questionData.questionText || ''),
             numbers: this.extractNumbers(questionData.question || questionData.questionText || '')
-        });
+        };
+
+        questions.push(entry);
 
         // Keep last 30 questions
         if (questions.length > this.maxHistorySize) {
@@ -46,8 +61,15 @@ class QuestionHistoryManager {
         }
 
         console.log(`📝 Added question to history: ${key}`);
-        console.log(`   ID: ${questionData.questionId || questionData.id || 'no-id'}`);
+        console.log(`   ID: ${questionId || 'NO-ID-FOUND'}`);
         console.log(`   Total in session: ${questions.length}`);
+
+        // ✅ WARNING if no ID
+        if (!questionId) {
+            console.warn('   ⚠️⚠️⚠️ WARNING: Question added without ID!');
+            console.warn('   This will cause duplicate questions!');
+            console.warn('   Question preview:', entry.question.substring(0, 50));
+        }
     }
 
     /**
@@ -185,9 +207,9 @@ class QuestionHistoryManager {
             const questionHash = this.hashQuestion(questionText);
 
             await pool.query(
-                `INSERT INTO question_history 
-                (user_id, topic_id, subtopic_id, question_text, question_hash, difficulty, is_correct, asked_at)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())`,
+                `INSERT INTO question_history
+                 (user_id, topic_id, subtopic_id, question_text, question_hash, difficulty, is_correct, asked_at)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())`,
                 [
                     userIdInt,
                     topicId || null,

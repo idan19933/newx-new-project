@@ -1070,6 +1070,7 @@ function buildDynamicQuestionPrompt(topic, subtopic, difficulty, studentProfile,
 
 // ==================== GENERATE QUESTION ENDPOINT ====================
 // ==================== GENERATE QUESTION ENDPOINT ====================
+// ==================== GENERATE QUESTION ENDPOINT - FULL WITH HISTORY TRACKING ====================
 app.post('/api/ai/generate-question', async (req, res) => {
     console.log('============================================================');
     console.log('📝 SMART QUESTION GENERATION (DB + AI) - DEBUG MODE');
@@ -1083,9 +1084,9 @@ app.post('/api/ai/generate-question', async (req, res) => {
             difficulty,
             previousQuestions = [],
             studentProfile = {},
-            userId,                 // ✅ ADD THIS
-            excludeQuestionIds,     // ✅ ADD THIS
-            gradeLevel              // ✅ ADD THIS
+            userId,
+            excludeQuestionIds = [],
+            gradeLevel
         } = req.body;
 
         const actualGrade = grade || studentProfile.grade || gradeLevel || '8';
@@ -1109,10 +1110,10 @@ app.post('/api/ai/generate-question', async (req, res) => {
             difficulty,
             grade: actualGrade,
             previousQuestionsCount: previousQuestions.length,
-            excludedIdsCount: excludeQuestionIds?.length || 0  // ✅ LOG THIS
+            excludedIdsCount: excludeQuestionIds?.length || 0
         });
 
-        // ✅ FIXED: Try multiple user ID sources
+        // ==================== USER ID EXTRACTION ====================
         const userIdFromParam = userId;
         const userIdFromProfile = studentProfile.studentId || studentProfile.id;
         const finalUserId = userIdFromParam || userIdFromProfile || null;
@@ -1138,25 +1139,45 @@ app.post('/api/ai/generate-question', async (req, res) => {
             isAnonymous: sessionKey === 'anonymous'
         });
 
-        // ✅ COMBINE excluded IDs from multiple sources
+        // ==================== GET EXCLUDED IDS FROM HISTORY ====================
+        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+        console.log('🔍 CHECKING QUESTION HISTORY');
+        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+
+        // Get IDs from history manager
+        const historyExcludedIds = questionHistoryManager.getExcludedQuestionIds(sessionKey, topicId, 30);
+
+        // Combine with IDs from request
         const excludedFromParam = Array.isArray(excludeQuestionIds) ? excludeQuestionIds : [];
         const excludedFromPrevious = previousQuestions.map(q => {
             if (typeof q === 'object' && q.id) return q.id;
+            if (typeof q === 'object' && q.questionId) return q.questionId;
             if (typeof q === 'string') return q;
             return null;
         }).filter(Boolean);
 
-        const allExcludedIds = [...new Set([...excludedFromParam, ...excludedFromPrevious])];
+        // ✅ Combine all excluded IDs
+        const allExcludedIds = [
+            ...new Set([
+                ...historyExcludedIds,
+                ...excludedFromParam,
+                ...excludedFromPrevious
+            ])
+        ];
 
-        console.log('🚫 Excluded Question IDs:', {
-            fromParam: excludedFromParam.length,
-            fromPreviousQuestions: excludedFromPrevious.length,
-            totalUnique: allExcludedIds.length,
-            ids: allExcludedIds
-        });
+        console.log('🚫 Excluded Question IDs Summary:');
+        console.log('   From History:', historyExcludedIds.length);
+        console.log('   From Param:', excludedFromParam.length);
+        console.log('   From Previous:', excludedFromPrevious.length);
+        console.log('   Total Unique:', allExcludedIds.length);
+        if (allExcludedIds.length > 0) {
+            console.log('   Sample IDs:', allExcludedIds.slice(0, 10));
+        }
+        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
 
+        // ==================== CHECK EXISTING HISTORY ====================
         console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-        console.log('📚 CHECKING EXISTING HISTORY BEFORE GENERATION');
+        console.log('📚 EXISTING HISTORY BEFORE GENERATION');
         console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
         const existingHistory = questionHistoryManager.getRecentQuestions(sessionKey, topicId, 20);
@@ -1169,7 +1190,7 @@ app.post('/api/ai/generate-question', async (req, res) => {
         if (existingHistory && existingHistory.length > 0) {
             console.log('   ✅ FOUND EXISTING HISTORY!');
             existingHistory.slice(0, 5).forEach((q, i) => {
-                console.log(`      ${i + 1}. ${q.question.substring(0, 60)}...`);
+                console.log(`      ${i + 1}. ID: ${q.questionId || 'NO-ID'} - ${q.question.substring(0, 60)}...`);
             });
         } else {
             console.log('   ⚠️ NO HISTORY FOUND!');
@@ -1177,7 +1198,7 @@ app.post('/api/ai/generate-question', async (req, res) => {
 
         console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
 
-        // ✅ CRITICAL: Pass excludeQuestionIds to smart service
+        // ==================== CALL SMART QUESTION SERVICE ====================
         console.log('🔍 Calling smartQuestionService.getQuestion with:', {
             topicId,
             subtopicId,
@@ -1195,25 +1216,55 @@ app.post('/api/ai/generate-question', async (req, res) => {
             difficulty,
             gradeLevel: parsedGradeLevel,
             userId: userIdInt,
-            excludeQuestionIds: allExcludedIds  // ✅ PASS EXCLUDED IDs
+            excludeQuestionIds: allExcludedIds
         });
 
+        // ==================== HANDLE CACHED QUESTION ====================
         if (smartResult.cached) {
-            console.log('✅ Serving cached question from database');
-            console.log('📝 Question ID:', smartResult.id);
-            console.log('📝 Question:', smartResult.question.substring(0, 100));
+            console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+            console.log('✅ SERVING CACHED QUESTION FROM DATABASE');
+            console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+            console.log('   Question ID:', smartResult.id);
+            console.log('   Question Preview:', smartResult.question.substring(0, 100) + '...');
+            console.log('   Source:', smartResult.source);
 
-            console.log('📝 Recording cached question to history...');
+            // ✅ CRITICAL: Record cached question with ID to history
+            console.log('\n📝 Recording cached question to history...');
             try {
-                questionHistoryManager.addQuestion(sessionKey, topicId, {
+                const recordData = {
+                    id: smartResult.id,                    // ✅ PRIMARY
+                    questionId: smartResult.id,             // ✅ BACKUP 1
+                    cached_id: smartResult.id,              // ✅ BACKUP 2
                     question: smartResult.question,
                     difficulty,
+                    source: smartResult.source || 'cached',
                     timestamp: Date.now()
+                };
+
+                console.log('   🔍 Recording with data:', {
+                    id: recordData.id,
+                    questionId: recordData.questionId,
+                    cached_id: recordData.cached_id,
+                    source: recordData.source,
+                    questionPreview: recordData.question.substring(0, 40) + '...'
                 });
-                console.log('✅ Cached question recorded to history');
+
+                questionHistoryManager.addQuestion(sessionKey, topicId, recordData);
+                console.log('   ✅ Cached question recorded to history');
+
+                // ✅ VERIFY it was added
+                const verifyExcluded = questionHistoryManager.getExcludedQuestionIds(sessionKey, topicId, 5);
+                console.log('   ✅ Verification - Excluded IDs now:', verifyExcluded);
+
+                const verifyRecent = questionHistoryManager.getRecentQuestions(sessionKey, topicId, 1);
+                console.log('   ✅ Verification - Last question ID:', verifyRecent?.[0]?.questionId);
+
             } catch (histError) {
-                console.error('⚠️ Failed to record cached question:', histError.message);
+                console.error('   ❌ Failed to record cached question:', histError.message);
+                console.error('   Stack:', histError.stack);
             }
+
+            console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
 
             return res.json({
                 success: true,
@@ -1223,7 +1274,7 @@ app.post('/api/ai/generate-question', async (req, res) => {
                 explanation: smartResult.explanation || '',
                 visualData: smartResult.visualData,
                 cached: true,
-                questionId: smartResult.id,  // ✅ RETURN QUESTION ID
+                questionId: smartResult.id,
                 source: smartResult.source || 'database',
                 matchType: smartResult.matchType,
                 model: 'cached',
@@ -1232,12 +1283,15 @@ app.post('/api/ai/generate-question', async (req, res) => {
             });
         }
 
-        console.log('🤖 No suitable cached question - generating with Claude AI...');
+        // ==================== GENERATE NEW QUESTION WITH AI ====================
+        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+        console.log('🤖 NO SUITABLE CACHED QUESTION - GENERATING WITH AI');
+        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
-        // ✅ Get recent questions for AI prompt (avoid duplication)
+        // Get recent questions for AI prompt (avoid duplication)
         const recentQuestionsFromMemory = questionHistoryManager.getRecentQuestions(sessionKey, topicId, 10);
 
-        console.log('   Questions to exclude from generation:', {
+        console.log('   Questions to exclude from AI generation:', {
             count: recentQuestionsFromMemory?.length || 0
         });
 
@@ -1260,7 +1314,8 @@ app.post('/api/ai/generate-question', async (req, res) => {
 - ${personalitySystem.data.languageStyle.formalityLevel}
 - ${personalitySystem.data.languageStyle.encouragementStyle}
 ` : 'אתה נקסון, מורה למתמטיקה ישראלי מנוסה וידידותי.';
-        // ✅ Combine all previous questions
+
+        // Combine all previous questions
         const allPreviousQuestions = [
             ...previousQuestions,
             ...(recentQuestionsFromMemory || [])
@@ -1272,7 +1327,7 @@ app.post('/api/ai/generate-question', async (req, res) => {
             total: allPreviousQuestions.length
         });
 
-        // ✅ Deduplicate
+        // Deduplicate
         const uniquePreviousQuestions = allPreviousQuestions.filter((q, index, self) => {
             const text = typeof q === 'string' ? q : (q.question || '');
             return index === self.findIndex(t => {
@@ -1380,9 +1435,9 @@ ${previousQuestionsText}
         console.log('✅ AI Question generated successfully');
         console.log('📝 Question length:', questionData.question.length);
 
-        // ✅ Cache the question
+        // ==================== CACHE THE QUESTION ====================
         let cachedId = null;
-        console.log('💾 Attempting to cache question...');
+        console.log('\n💾 Attempting to cache question...');
 
         try {
             cachedId = await smartQuestionService.cacheQuestion({
@@ -1406,29 +1461,43 @@ ${previousQuestionsText}
             console.error('❌ Cache error:', cacheError.message);
         }
 
-        // ✅ Record to history
+        // ==================== RECORD AI QUESTION TO HISTORY ====================
         console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-        console.log('📝 RECORDING QUESTION TO HISTORY');
+        console.log('📝 RECORDING AI-GENERATED QUESTION TO HISTORY');
         console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
         try {
             console.log('   Session Key:', sessionKey);
             console.log('   Topic ID:', topicId);
+            console.log('   Cached ID:', cachedId || 'NOT-CACHED-YET');
 
             const recordData = {
+                id: cachedId,                    // ✅ PRIMARY
+                questionId: cachedId,            // ✅ BACKUP 1
+                cached_id: cachedId,             // ✅ BACKUP 2
                 question: questionData.question,
                 difficulty,
+                source: cachedId ? 'cached_ai' : 'ai_generated',
                 timestamp: Date.now()
             };
+
+            console.log('   🔍 Recording with data:', {
+                id: recordData.id,
+                questionId: recordData.questionId,
+                cached_id: recordData.cached_id,
+                source: recordData.source,
+                questionPreview: recordData.question.substring(0, 40) + '...'
+            });
 
             questionHistoryManager.addQuestion(sessionKey, topicId, recordData);
             console.log('   ✅ Question recorded to memory');
 
-            // ✅ Verify
-            const verifyNow = questionHistoryManager.getRecentQuestions(sessionKey, topicId, 1);
-            console.log('   Verification:', {
-                found: !!verifyNow && verifyNow.length > 0,
-                lastQuestion: verifyNow?.[0]?.question?.substring(0, 40)
+            // ✅ VERIFY
+            const verifyRecent = questionHistoryManager.getRecentQuestions(sessionKey, topicId, 1);
+            console.log('   ✅ Verification:', {
+                found: !!verifyRecent && verifyRecent.length > 0,
+                lastQuestion: verifyRecent?.[0]?.question?.substring(0, 40),
+                lastQuestionId: verifyRecent?.[0]?.questionId
             });
 
             // ✅ Record to database if we have user ID
@@ -1449,6 +1518,7 @@ ${previousQuestionsText}
 
         } catch (recordError) {
             console.error('❌ CRITICAL ERROR recording question:', recordError);
+            console.error('   Stack:', recordError.stack);
         }
 
         console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
@@ -1464,7 +1534,7 @@ ${previousQuestionsText}
             explanation: questionData.explanation,
             visualData: questionData.visualData,
             cached: false,
-            questionId: cachedId,  // ✅ RETURN ID
+            questionId: cachedId,
             source: 'ai_generated',
             model: 'claude-sonnet-4-5-20250929',
             topic: topicName,
