@@ -1,4 +1,4 @@
-// src/pages/AdminExamView.jsx - ENHANCED VERSION WITH EQUATIONS AND DIAGRAMS
+// src/pages/AdminExamView.jsx - FIXED VERSION
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
@@ -7,12 +7,23 @@ import {
     ArrowLeft, FileText, Calendar, Award, Zap,
     BookOpen, Trash2, CheckCircle, XCircle,
     Loader, Brain, Target, Image as ImageIcon,
-    Function, TrendingUp
+    TrendingUp
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import EnhancedQuestionCard from '../components/questions/EnhancedQuestionCard';
 
 const API_URL = 'https://nexons-production-1915.up.railway.app';
+
+// Safe JSON parsing helper
+const safeJsonParse = (data, fallback = []) => {
+    try {
+        if (!data) return fallback;
+        if (typeof data === 'object') return data;
+        return JSON.parse(data);
+    } catch (error) {
+        console.error('JSON Parse Error:', error);
+        return fallback;
+    }
+};
 
 const AdminExamView = () => {
     const { id } = useParams();
@@ -35,15 +46,38 @@ const AdminExamView = () => {
         try {
             setLoading(true);
 
-            // Load exam with enhanced data
-            const response = await axios.get(`${API_URL}/api/admin/exam/${id}/enhanced`);
+            // Try enhanced endpoint first, fallback to standard
+            let response;
+            try {
+                response = await axios.get(`${API_URL}/api/admin/exam/${id}/enhanced`);
+            } catch (enhancedError) {
+                console.log('Enhanced endpoint not available, using standard');
+                response = await axios.get(`${API_URL}/api/admin/exam/${id}/questions`);
+            }
 
-            setExam(response.data.exam);
-            setQuestions(response.data.questions || []);
+            if (response.data.exam) {
+                setExam(response.data.exam);
+            } else {
+                // Fallback: get exam details separately
+                const examRes = await axios.get(`${API_URL}/api/admin/uploads/${id}`);
+                setExam(examRes.data.upload);
+            }
+
+            const questionsData = response.data.questions || [];
+            setQuestions(questionsData);
+
+            // Calculate stats
+            const totalEquations = questionsData.reduce((sum, q) => {
+                const equations = safeJsonParse(q.equations, []);
+                return sum + equations.length;
+            }, 0);
+
+            const totalDiagrams = questionsData.filter(q => q.has_diagrams).length;
+
             setStats({
-                totalQuestions: response.data.totalQuestions || 0,
-                totalDiagrams: response.data.totalDiagrams || 0,
-                totalEquations: response.data.totalEquations || 0
+                totalQuestions: questionsData.length,
+                totalDiagrams,
+                totalEquations
             });
 
         } catch (error) {
@@ -202,7 +236,7 @@ const AdminExamView = () => {
                     </div>
                 </motion.div>
 
-                {/* Questions List with Enhanced Display */}
+                {/* Questions List */}
                 <motion.div
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
@@ -224,26 +258,119 @@ const AdminExamView = () => {
                             </div>
                         ) : (
                             <div className="space-y-6">
-                                {questions.map((question, index) => (
-                                    <div key={question.id} className="relative">
-                                        <EnhancedQuestionCard
-                                            question={question}
-                                            questionNumber={index + 1}
-                                            showSolutionButton={question.has_solution}
-                                        />
+                                {questions.map((question, index) => {
+                                    const hints = safeJsonParse(question.hints, []);
+                                    const equations = safeJsonParse(question.equations, []);
 
-                                        {/* Delete Button */}
-                                        <motion.button
-                                            whileHover={{ scale: 1.1 }}
-                                            whileTap={{ scale: 0.9 }}
-                                            onClick={() => deleteQuestion(question.id)}
-                                            className="absolute top-4 left-4 p-3 bg-red-100 hover:bg-red-200 rounded-xl transition-colors shadow-lg"
-                                            title="מחק שאלה"
+                                    return (
+                                        <motion.div
+                                            key={question.id}
+                                            initial={{ opacity: 0, x: -20 }}
+                                            animate={{ opacity: 1, x: 0 }}
+                                            transition={{ delay: index * 0.1 }}
+                                            className="relative border-2 border-gray-200 rounded-2xl p-6 hover:border-purple-400 hover:shadow-lg transition-all"
                                         >
-                                            <Trash2 className="w-5 h-5 text-red-600" />
-                                        </motion.button>
-                                    </div>
-                                ))}
+                                            <div className="flex items-start justify-between mb-4">
+                                                <div className="flex items-start gap-4 flex-1">
+                                                    <div className="bg-purple-100 text-purple-800 w-12 h-12 rounded-xl flex items-center justify-center font-black text-xl">
+                                                        {index + 1}
+                                                    </div>
+                                                    <div className="flex-1">
+                                                        <h3 className="text-xl font-bold text-gray-800 mb-2">
+                                                            {question.question_text?.split('\n')[0] || 'שאלה ללא כותרת'}
+                                                        </h3>
+
+                                                        <div className="prose prose-sm max-w-none text-gray-600 whitespace-pre-wrap mb-4">
+                                                            {question.question_text}
+                                                        </div>
+
+                                                        {/* Equations */}
+                                                        {equations.length > 0 && (
+                                                            <div className="bg-blue-50 rounded-xl p-4 mb-4 border-2 border-blue-200">
+                                                                <h4 className="font-bold text-blue-800 mb-2">📐 משוואות:</h4>
+                                                                {equations.map((eq, i) => (
+                                                                    <div key={i} className="mb-2">
+                                                                        {eq.description && (
+                                                                            <p className="text-sm text-blue-600">{eq.description}</p>
+                                                                        )}
+                                                                        <code className="font-mono text-blue-900 bg-white px-2 py-1 rounded">
+                                                                            {eq.latex}
+                                                                        </code>
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        )}
+
+                                                        {/* Diagram Description */}
+                                                        {question.has_diagrams && question.diagram_description && (
+                                                            <div className="bg-purple-50 rounded-xl p-4 mb-4 border-2 border-purple-200">
+                                                                <h4 className="font-bold text-purple-800 mb-2">
+                                                                    🖼️ תיאור הגרף:
+                                                                </h4>
+                                                                <p className="text-purple-900">{question.diagram_description}</p>
+                                                            </div>
+                                                        )}
+
+                                                        {/* Tags */}
+                                                        <div className="flex flex-wrap gap-2 mb-4">
+                                                            {question.topic && (
+                                                                <span className="bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-sm font-bold">
+                                                                    📚 {question.topic}
+                                                                </span>
+                                                            )}
+                                                            {question.subtopic && (
+                                                                <span className="bg-green-100 text-green-800 px-3 py-1 rounded-full text-sm font-bold">
+                                                                    📖 {question.subtopic}
+                                                                </span>
+                                                            )}
+                                                            {question.difficulty && (
+                                                                <span className={`px-3 py-1 rounded-full text-sm font-bold ${
+                                                                    question.difficulty === 'easy' ? 'bg-green-100 text-green-800' :
+                                                                        question.difficulty === 'medium' ? 'bg-yellow-100 text-yellow-800' :
+                                                                            'bg-red-100 text-red-800'
+                                                                }`}>
+                                                                    {question.difficulty === 'easy' ? '⭐ קל' :
+                                                                        question.difficulty === 'medium' ? '⭐⭐ בינוני' :
+                                                                            '⭐⭐⭐ קשה'}
+                                                                </span>
+                                                            )}
+                                                            {question.has_diagrams && (
+                                                                <span className="bg-purple-100 text-purple-800 px-3 py-1 rounded-full text-sm font-bold">
+                                                                    🖼️ כולל גרף
+                                                                </span>
+                                                            )}
+                                                        </div>
+
+                                                        {/* Hints */}
+                                                        {hints.length > 0 && (
+                                                            <details className="bg-yellow-50 rounded-xl p-4">
+                                                                <summary className="font-bold text-yellow-800 cursor-pointer">
+                                                                    💡 רמזים ({hints.length})
+                                                                </summary>
+                                                                <ul className="mt-3 space-y-2 text-sm text-yellow-900">
+                                                                    {hints.map((hint, i) => (
+                                                                        <li key={i} className="pr-4">• {hint}</li>
+                                                                    ))}
+                                                                </ul>
+                                                            </details>
+                                                        )}
+                                                    </div>
+                                                </div>
+
+                                                {/* Delete Button */}
+                                                <motion.button
+                                                    whileHover={{ scale: 1.1 }}
+                                                    whileTap={{ scale: 0.9 }}
+                                                    onClick={() => deleteQuestion(question.id)}
+                                                    className="p-3 bg-red-100 hover:bg-red-200 rounded-xl transition-colors"
+                                                    title="מחק שאלה"
+                                                >
+                                                    <Trash2 className="w-5 h-5 text-red-600" />
+                                                </motion.button>
+                                            </div>
+                                        </motion.div>
+                                    );
+                                })}
                             </div>
                         )}
                     </div>

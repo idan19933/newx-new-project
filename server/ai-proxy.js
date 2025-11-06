@@ -1060,6 +1060,7 @@ function buildDynamicQuestionPrompt(topic, subtopic, difficulty, studentProfile,
 }
 
 // ==================== GENERATE QUESTION ENDPOINT ====================
+// ==================== GENERATE QUESTION ENDPOINT ====================
 app.post('/api/ai/generate-question', async (req, res) => {
     console.log('============================================================');
     console.log('📝 SMART QUESTION GENERATION (DB + AI) - DEBUG MODE');
@@ -1072,10 +1073,13 @@ app.post('/api/ai/generate-question', async (req, res) => {
             subtopic,
             difficulty,
             previousQuestions = [],
-            studentProfile = {}
+            studentProfile = {},
+            userId,                 // ✅ ADD THIS
+            excludeQuestionIds,     // ✅ ADD THIS
+            gradeLevel              // ✅ ADD THIS
         } = req.body;
 
-        const actualGrade = grade || studentProfile.grade || '8';
+        const actualGrade = grade || studentProfile.grade || gradeLevel || '8';
 
         console.log('📦 Full Request Body:', JSON.stringify(req.body, null, 2));
 
@@ -1094,80 +1098,100 @@ app.post('/api/ai/generate-question', async (req, res) => {
             subtopicName,
             subtopicId,
             difficulty,
-            grade,
-            previousQuestionsCount: previousQuestions.length
+            grade: actualGrade,
+            previousQuestionsCount: previousQuestions.length,
+            excludedIdsCount: excludeQuestionIds?.length || 0  // ✅ LOG THIS
         });
 
-        const userId = studentProfile.studentId || studentProfile.id || null;
-        const userIdInt = userId ? parseInt(userId) : null;
+        // ✅ FIXED: Try multiple user ID sources
+        const userIdFromParam = userId;
+        const userIdFromProfile = studentProfile.studentId || studentProfile.id;
+        const finalUserId = userIdFromParam || userIdFromProfile || null;
+        const userIdInt = finalUserId ? parseInt(finalUserId) : null;
 
-        const gradeLevel = typeof actualGrade === 'string'
+        const parsedGradeLevel = typeof actualGrade === 'string'
             ? (actualGrade.includes('grade_') ? parseInt(actualGrade.replace('grade_', '')) : parseInt(actualGrade))
             : (parseInt(actualGrade) || 8);
 
         console.log('👤 User Info:', {
-            rawUserId: userId,
+            fromParam: userIdFromParam,
+            fromProfile: userIdFromProfile,
+            finalUserId,
             userIdInt,
             type: typeof userIdInt,
-            hasValidUserId: !!userIdInt,
-            studentProfile: JSON.stringify(studentProfile)
+            hasValidUserId: !!userIdInt
         });
 
-        const sessionKey = userIdInt || userId || 'anonymous';
-        console.log('🔑 Session Key Details:', {
+        const sessionKey = userIdInt || finalUserId || 'anonymous';
+        console.log('🔑 Session Key:', {
             sessionKey,
             type: typeof sessionKey,
-            stringValue: String(sessionKey),
-            fromUserIdInt: !!userIdInt,
-            fromUserId: !userIdInt && !!userId,
             isAnonymous: sessionKey === 'anonymous'
+        });
+
+        // ✅ COMBINE excluded IDs from multiple sources
+        const excludedFromParam = Array.isArray(excludeQuestionIds) ? excludeQuestionIds : [];
+        const excludedFromPrevious = previousQuestions.map(q => {
+            if (typeof q === 'object' && q.id) return q.id;
+            if (typeof q === 'string') return q;
+            return null;
+        }).filter(Boolean);
+
+        const allExcludedIds = [...new Set([...excludedFromParam, ...excludedFromPrevious])];
+
+        console.log('🚫 Excluded Question IDs:', {
+            fromParam: excludedFromParam.length,
+            fromPreviousQuestions: excludedFromPrevious.length,
+            totalUnique: allExcludedIds.length,
+            ids: allExcludedIds
         });
 
         console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
         console.log('📚 CHECKING EXISTING HISTORY BEFORE GENERATION');
         console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-        console.log('   Looking for: sessionKey =', sessionKey, ', topicId =', topicId);
 
         const existingHistory = questionHistoryManager.getRecentQuestions(sessionKey, topicId, 20);
 
-        console.log('   ✓ History Retrieved:', {
+        console.log('   History Retrieved:', {
             count: existingHistory?.length || 0,
-            isArray: Array.isArray(existingHistory),
-            isNull: existingHistory === null,
-            isUndefined: existingHistory === undefined
+            isArray: Array.isArray(existingHistory)
         });
 
         if (existingHistory && existingHistory.length > 0) {
             console.log('   ✅ FOUND EXISTING HISTORY!');
-            console.log('   Sample questions:');
             existingHistory.slice(0, 5).forEach((q, i) => {
                 console.log(`      ${i + 1}. ${q.question.substring(0, 60)}...`);
-                console.log(`         Difficulty: ${q.difficulty}, Time: ${new Date(q.timestamp).toLocaleTimeString()}`);
             });
         } else {
-            console.log('   ⚠️⚠️⚠️ NO HISTORY FOUND!');
-            console.log('   Possible reasons:');
-            console.log('   1. This is the first question for this user/topic');
-            console.log('   2. Session key changed between requests');
-            console.log('   3. questionHistoryManager is not working');
-            console.log('   4. Topic ID mismatch');
+            console.log('   ⚠️ NO HISTORY FOUND!');
         }
+
         console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
 
-        console.log('🔍 Checking database cache...');
+        // ✅ CRITICAL: Pass excludeQuestionIds to smart service
+        console.log('🔍 Calling smartQuestionService.getQuestion with:', {
+            topicId,
+            subtopicId,
+            difficulty,
+            gradeLevel: parsedGradeLevel,
+            userId: userIdInt,
+            excludedCount: allExcludedIds.length
+        });
+
         const smartResult = await smartQuestionService.getQuestion({
             topicId,
             topicName,
             subtopicId,
             subtopicName,
             difficulty,
-            gradeLevel,
+            gradeLevel: parsedGradeLevel,
             userId: userIdInt,
-            excludeQuestionIds: previousQuestions.map(q => q.id).filter(Boolean)
+            excludeQuestionIds: allExcludedIds  // ✅ PASS EXCLUDED IDs
         });
 
         if (smartResult.cached) {
             console.log('✅ Serving cached question from database');
+            console.log('📝 Question ID:', smartResult.id);
             console.log('📝 Question:', smartResult.question.substring(0, 100));
 
             console.log('📝 Recording cached question to history...');
@@ -1190,8 +1214,9 @@ app.post('/api/ai/generate-question', async (req, res) => {
                 explanation: smartResult.explanation || '',
                 visualData: smartResult.visualData,
                 cached: true,
-                questionId: smartResult.id,
-                source: 'database',
+                questionId: smartResult.id,  // ✅ RETURN QUESTION ID
+                source: smartResult.source || 'database',
+                matchType: smartResult.matchType,
                 model: 'cached',
                 topic: topicName,
                 subtopic: subtopicName
@@ -1200,13 +1225,11 @@ app.post('/api/ai/generate-question', async (req, res) => {
 
         console.log('🤖 No suitable cached question - generating with Claude AI...');
 
-        console.log('📚 Retrieving recent questions for AI prompt...');
+        // ✅ Get recent questions for AI prompt (avoid duplication)
         const recentQuestionsFromMemory = questionHistoryManager.getRecentQuestions(sessionKey, topicId, 10);
 
         console.log('   Questions to exclude from generation:', {
-            count: recentQuestionsFromMemory?.length || 0,
-            sessionKey,
-            topicId
+            count: recentQuestionsFromMemory?.length || 0
         });
 
         if (recentQuestionsFromMemory && recentQuestionsFromMemory.length > 0) {
@@ -1214,8 +1237,6 @@ app.post('/api/ai/generate-question', async (req, res) => {
             recentQuestionsFromMemory.forEach((q, i) => {
                 console.log(`      ${i + 1}. ${q.question.substring(0, 50)}...`);
             });
-        } else {
-            console.log('   ⚠️ No questions to exclude - AI might repeat');
         }
 
         const personalityContext = personalitySystem?.loaded ? `
@@ -1231,6 +1252,7 @@ app.post('/api/ai/generate-question', async (req, res) => {
 - ${personalitySystem.data.languageStyle.encouragementStyle}
 ` : 'אתה נקסון, מורה למתמטיקה ישראלי מנוסה וידידותי.';
 
+        // ✅ Combine all previous questions
         const allPreviousQuestions = [
             ...previousQuestions,
             ...(recentQuestionsFromMemory || [])
@@ -1242,6 +1264,7 @@ app.post('/api/ai/generate-question', async (req, res) => {
             total: allPreviousQuestions.length
         });
 
+        // ✅ Deduplicate
         const uniquePreviousQuestions = allPreviousQuestions.filter((q, index, self) => {
             const text = typeof q === 'string' ? q : (q.question || '');
             return index === self.findIndex(t => {
@@ -1266,7 +1289,7 @@ app.post('/api/ai/generate-question', async (req, res) => {
 נושא: ${topicName}
 ${subtopicName ? `תת-נושא (המוקד העיקרי): ${subtopicName}` : ''}
 רמת קושי: ${difficulty}
-כיתה: ${grade}
+כיתה: ${actualGrade}
 ${previousQuestionsText}
 
 דרישות חובה:
@@ -1289,9 +1312,6 @@ ${previousQuestionsText}
 חשוב: השתמש ב\\n לשורה חדשה, לא Enter אמיתי. החזר רק JSON, ללא טקסט נוסף.`;
 
         console.log('🔄 Calling Claude API...');
-        console.log('   Model: claude-sonnet-4-5-20250929');
-        console.log('   Max tokens: 3000');
-        console.log('   Temperature: 0.7');
 
         const response = await fetch('https://api.anthropic.com/v1/messages', {
             method: 'POST',
@@ -1322,8 +1342,7 @@ ${previousQuestionsText}
 
         console.log('📄 AI Response received:', {
             length: rawText.length,
-            first200: rawText.substring(0, 200),
-            last100: rawText.substring(Math.max(0, rawText.length - 100))
+            first200: rawText.substring(0, 200)
         });
 
         let jsonText = rawText.trim();
@@ -1342,14 +1361,6 @@ ${previousQuestionsText}
         questionData.question = String(questionData.question).trim();
         questionData.correctAnswer = String(questionData.correctAnswer).trim();
 
-        if (questionData.question.length === 0) {
-            throw new Error('Question text is empty after parsing');
-        }
-
-        if (questionData.correctAnswer.length === 0) {
-            throw new Error('Correct answer is empty after parsing');
-        }
-
         if (!questionData.hints || !Array.isArray(questionData.hints)) {
             questionData.hints = ['נסה לחשוב על השלב הראשון', 'מה הכלי המתמטי שנלמד?', 'חשוב על דוגמאות דומות'];
         }
@@ -1359,13 +1370,9 @@ ${previousQuestionsText}
         }
 
         console.log('✅ AI Question generated successfully');
-        console.log('📝 Question:', {
-            length: questionData.question.length,
-            first100: questionData.question.substring(0, 100),
-            last50: questionData.question.substring(Math.max(0, questionData.question.length - 50))
-        });
-        console.log('✅ Answer:', questionData.correctAnswer.substring(0, 50));
+        console.log('📝 Question length:', questionData.question.length);
 
+        // ✅ Cache the question
         let cachedId = null;
         console.log('💾 Attempting to cache question...');
 
@@ -1381,26 +1388,24 @@ ${previousQuestionsText}
                 subtopicId,
                 subtopicName,
                 difficulty,
-                gradeLevel
+                gradeLevel: parsedGradeLevel
             });
 
             if (cachedId) {
                 console.log(`✅ Question cached with ID: ${cachedId}`);
-            } else {
-                console.log('⚠️ Question could not be cached (might be duplicate)');
             }
         } catch (cacheError) {
             console.error('❌ Cache error:', cacheError.message);
         }
 
+        // ✅ Record to history
         console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-        console.log('📝 RECORDING QUESTION TO HISTORY - BULLETPROOF');
+        console.log('📝 RECORDING QUESTION TO HISTORY');
         console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
         try {
-            console.log('   Session Key:', sessionKey, '(type:', typeof sessionKey + ')');
+            console.log('   Session Key:', sessionKey);
             console.log('   Topic ID:', topicId);
-            console.log('   Question (first 60):', questionData.question.substring(0, 60));
 
             const recordData = {
                 question: questionData.question,
@@ -1408,30 +1413,19 @@ ${previousQuestionsText}
                 timestamp: Date.now()
             };
 
-            console.log('   📥 Calling questionHistoryManager.addQuestion...');
             questionHistoryManager.addQuestion(sessionKey, topicId, recordData);
-            console.log('   ✅ addQuestion() completed without error');
+            console.log('   ✅ Question recorded to memory');
 
-            console.log('   🔍 Verifying recording...');
+            // ✅ Verify
             const verifyNow = questionHistoryManager.getRecentQuestions(sessionKey, topicId, 1);
-            console.log('   Verification result:', {
+            console.log('   Verification:', {
                 found: !!verifyNow && verifyNow.length > 0,
-                count: verifyNow?.length || 0,
-                lastQuestion: verifyNow?.[0]?.question?.substring(0, 40) || 'NONE'
+                lastQuestion: verifyNow?.[0]?.question?.substring(0, 40)
             });
 
-            if (!verifyNow || verifyNow.length === 0) {
-                console.error('   ❌❌❌ CRITICAL: Question NOT in memory after adding!');
-                console.error('   questionHistoryManager.addQuestion did not work!');
-                console.error('   Session key:', sessionKey);
-                console.error('   Topic ID:', topicId);
-            } else {
-                console.log('   ✅✅✅ SUCCESS: Question is in memory!');
-            }
-
+            // ✅ Record to database if we have user ID
             if (userIdInt && typeof userIdInt === 'number') {
                 try {
-                    console.log('   💾 Recording to database...');
                     await questionHistoryManager.recordToDatabase(userIdInt, {
                         topicId,
                         subtopicId,
@@ -1443,28 +1437,10 @@ ${previousQuestionsText}
                 } catch (dbError) {
                     console.error('   ⚠️ Database recording failed:', dbError.message);
                 }
-            } else {
-                console.log('   ⚠️ No valid userIdInt - skipping database');
-            }
-
-            const finalVerify = questionHistoryManager.getRecentQuestions(sessionKey, topicId, 20);
-            console.log('   📊 Final history summary:', {
-                totalCount: finalVerify?.length || 0,
-                sessionKey,
-                topicId
-            });
-
-            if (finalVerify && finalVerify.length > 0) {
-                console.log('   Latest 3 questions in history:');
-                finalVerify.slice(0, 3).forEach((q, i) => {
-                    console.log(`      ${i + 1}. ${q.question.substring(0, 50)}...`);
-                });
             }
 
         } catch (recordError) {
             console.error('❌ CRITICAL ERROR recording question:', recordError);
-            console.error('   Error message:', recordError.message);
-            console.error('   Stack trace:', recordError.stack);
         }
 
         console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
@@ -1480,7 +1456,7 @@ ${previousQuestionsText}
             explanation: questionData.explanation,
             visualData: questionData.visualData,
             cached: false,
-            questionId: cachedId,
+            questionId: cachedId,  // ✅ RETURN ID
             source: 'ai_generated',
             model: 'claude-sonnet-4-5-20250929',
             topic: topicName,
@@ -1497,7 +1473,6 @@ ${previousQuestionsText}
         });
     }
 });
-
 // ==================== VERIFY ANSWER ====================
 app.post('/api/ai/verify-answer', async (req, res) => {
     console.log('🔍 VERIFYING ANSWER - WITH AI RE-CALCULATION');
