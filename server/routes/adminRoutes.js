@@ -5,7 +5,7 @@ import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 import visionProcessorService from '../services/visionProcessorService.js';
-import enhancedVisionProcessor from '../services/enhancedVisionProcessor.js;
+import enhancedVisionProcessor from '../services/enhancedVisionProcessor.js';
 import pool from '../config/database.js';
 
 const router = express.Router();

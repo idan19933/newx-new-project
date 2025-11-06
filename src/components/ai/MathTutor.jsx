@@ -35,7 +35,7 @@ import {
 } from 'recharts';
 import '../../styles/mathFormatting.css';
 
-const API_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
+const API_URL = import.meta.env.VITE_BACKEND_URL;
 
 // ==================== 🎨 ANIMATION VARIANTS ====================
 const pageTransition = {
