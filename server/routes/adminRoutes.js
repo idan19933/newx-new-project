@@ -47,6 +47,8 @@ const upload = multer({
 router.post('/upload-exam-enhanced', upload.single('image'), async (req, res) => {
     try {
         console.log('📤 Enhanced exam upload');
+        console.log('📤 Enhanced exam upload');
+
 
         if (!req.file) {
             return res.status(400).json({ success: false, error: 'No image' });
