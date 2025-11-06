@@ -1,5 +1,5 @@
 -- Migration 024: Multi-file exams with solutions and ordering
--- SAFE VERSION - Checks if tables exist before modifying them
+-- SAFE VERSION - No manual schema_migrations insert (let runner handle it)
 
 DO $$
 DECLARE
@@ -17,7 +17,7 @@ SELECT EXISTS (
     WHERE table_schema = 'public' AND table_name = 'questions'
 ) INTO questions_exists;
 
-RAISE NOTICE '📊 Table Status:';
+RAISE NOTICE '📊 Migration 024 - Table Status:';
     RAISE NOTICE '   exam_uploads: %', CASE WHEN exam_uploads_exists THEN '✅ EXISTS' ELSE '❌ NOT FOUND' END;
     RAISE NOTICE '   questions: %', CASE WHEN questions_exists THEN '✅ EXISTS' ELSE '❌ NOT FOUND' END;
 
@@ -87,14 +87,14 @@ END IF;
 CREATE INDEX idx_exam_uploads_group_order ON exam_uploads(exam_group_id, file_order);
 RAISE NOTICE '   ✅ Created index idx_exam_uploads_group_order';
 ELSE
-            RAISE NOTICE '   ⏭️  Index idx_exam_uploads_group_order already exists';
+            RAISE NOTICE '   ⏭️  Index already exists';
 END IF;
 
         -- Add comments
-        COMMENT ON COLUMN exam_uploads.exam_group_id IS 'Groups multiple files belonging to the same exam';
-        COMMENT ON COLUMN exam_uploads.file_order IS 'Order of this file within the exam group (1-based)';
-        COMMENT ON COLUMN exam_uploads.is_solution_page IS 'TRUE if this file contains solutions/answers';
-        RAISE NOTICE '   ✅ Added column comments';
+EXECUTE 'COMMENT ON COLUMN exam_uploads.exam_group_id IS ''Groups multiple files belonging to the same exam''';
+EXECUTE 'COMMENT ON COLUMN exam_uploads.file_order IS ''Order of this file within the exam group (1-based)''';
+EXECUTE 'COMMENT ON COLUMN exam_uploads.is_solution_page IS ''TRUE if this file contains solutions/answers''';
+RAISE NOTICE '   ✅ Added column comments';
 
         -- Create or replace view
         CREATE OR REPLACE VIEW exam_groups AS
@@ -166,25 +166,22 @@ ELSE
 END IF;
 
         -- Add comments
-        COMMENT ON COLUMN questions.full_solution IS 'Complete step-by-step solution text';
-        COMMENT ON COLUMN questions.has_solution IS 'TRUE if a solution has been extracted for this question';
-        RAISE NOTICE '   ✅ Added column comments';
+EXECUTE 'COMMENT ON COLUMN questions.full_solution IS ''Complete step-by-step solution text''';
+EXECUTE 'COMMENT ON COLUMN questions.has_solution IS ''TRUE if a solution has been extracted for this question''';
+RAISE NOTICE '   ✅ Added column comments';
 
 ELSE
         RAISE NOTICE '⚠️  questions table not found - skipping questions modifications';
         RAISE NOTICE '💡 TIP: You may be using question_cache or question_bank instead';
 END IF;
 
-    RAISE NOTICE '🎉 Migration 024 completed!';
+    RAISE NOTICE '🎉 Migration 024 completed successfully!';
 
 EXCEPTION
     WHEN OTHERS THEN
         RAISE NOTICE '❌ Migration 024 failed: %', SQLERRM;
-        RAISE NOTICE '📋 Error details: %', SQLSTATE;
         -- Don't throw - allow other migrations to continue
 END $$;
 
--- Mark as complete (even if some parts were skipped)
-INSERT INTO schema_migrations (version, applied_at)
-VALUES ('024_multi_file_exams_with_solutions', NOW())
-    ON CONFLICT (version) DO NOTHING;
+-- ✅ NO INSERT HERE - The migration runner (run-sql-migrations.js) handles tracking automatically
+-- Migration complete - runner will mark this in the 'migrations' table
