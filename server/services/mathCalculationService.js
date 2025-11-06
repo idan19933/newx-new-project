@@ -16,42 +16,30 @@ class MathCalculationService {
      * @param {string} question - טקסט השאלה
      * @returns {Object} - תוצאת החישוב
      */
-    async solveQuestion(question) {
+    async solveQuestion(question, correctAnswer = null) {
         console.log('\n🔢 MATHEMATICAL CALCULATION SERVICE');
         console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
         console.log('📝 Question:', question.substring(0, 100) + '...');
+        if (correctAnswer) {
+            console.log('📋 Expected Answer:', correctAnswer);
+        }
 
         try {
-            // שלב 1: זהה את סוג הבעיה
             const problemType = this.detectProblemType(question);
             console.log('📊 Problem Type:', problemType);
 
             if (problemType === 'unknown') {
-                console.log('   ⚠️ Cannot identify problem type');
-                return {
-                    success: false,
-                    reason: 'unknown_problem_type',
-                    confidence: 0
-                };
+                return { success: false, reason: 'unknown_problem_type', confidence: 0 };
             }
 
-            // שלב 2: חלץ תוכן מתמטי
             const extracted = this.extractMathContent(question, problemType);
 
             if (!extracted.success) {
-                console.log('   ⚠️ Failed to extract math content');
-                return {
-                    success: false,
-                    reason: 'extraction_failed',
-                    confidence: 0
-                };
+                return { success: false, reason: 'extraction_failed', confidence: 0 };
             }
 
             console.log('✅ Extracted successfully');
-            console.log('   Expression:', extracted.expression);
-            console.log('   Variable:', extracted.variable);
 
-            // שלב 3: פתור לפי סוג
             let result;
             switch (problemType) {
                 case 'derivative_optimization':
@@ -67,26 +55,32 @@ class MathCalculationService {
                     result = { success: false, reason: 'unsupported_type' };
             }
 
-            console.log('📊 Final Result:', result.success ? '✅ SUCCESS' : '❌ FAILED');
-            if (result.success) {
-                console.log('   Answer:', result.answer);
-                console.log('   Confidence:', result.confidence);
+            // ✅ VALIDATE against correct answer if provided
+            if (result.success && correctAnswer) {
+                const validation = this.validateAgainstCorrectAnswer(result, correctAnswer);
+
+                if (!validation.valid) {
+                    console.log('   🚨 VALIDATION FAILED!');
+                    console.log('      Reason:', validation.reason);
+
+                    // ✅ LOWER CONFIDENCE dramatically
+                    result.confidence = Math.min(result.confidence, 50);
+                    result.validationFailed = true;
+                    result.validationReason = validation.reason;
+                    result.expectedAnswer = validation.expectedAnswer;
+                } else {
+                    console.log('   ✅ Validation passed!');
+                }
             }
+
+            console.log('📊 Final Result:', result.success ? '✅ SUCCESS' : '❌ FAILED');
             console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
 
             return result;
 
         } catch (error) {
             console.error('❌ Math calculation error:', error.message);
-            console.error('   Stack:', error.stack);
-            console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
-
-            return {
-                success: false,
-                reason: 'calculation_error',
-                error: error.message,
-                confidence: 0
-            };
+            return { success: false, reason: 'calculation_error', error: error.message, confidence: 0 };
         }
     }
 
@@ -559,8 +553,64 @@ class MathCalculationService {
             };
         }
     }
-
     /**
+     * 🔍 Validate result against known correct answer
+     */
+    validateAgainstCorrectAnswer(result, correctAnswer) {
+        if (!result.success || !correctAnswer) {
+            return { valid: true, reason: null };
+        }
+
+        // Clean both answers
+        const cleanAnswer = (str) => String(str)
+            .replace(/[א-ת\s]/g, '')
+            .replace(/[₪$€£¥]/g, '')
+            .replace(/[^\d.,\/-]/g, '')
+            .trim();
+
+        const ourAnswer = cleanAnswer(result.answer);
+        const expectedAnswer = cleanAnswer(correctAnswer);
+
+        console.log('   🔍 Validating:', {
+            ourAnswer,
+            expectedAnswer
+        });
+
+        // Extract primary numbers
+        const extractMainNumber = (str) => {
+            const matches = str.match(/\d+\.?\d*/g);
+            return matches ? parseFloat(matches[0]) : null;
+        };
+
+        const ourNum = extractMainNumber(ourAnswer);
+        const expectedNum = extractMainNumber(expectedAnswer);
+
+        if (ourNum && expectedNum) {
+            const diff = Math.abs(ourNum - expectedNum);
+            const threshold = Math.max(Math.abs(ourNum), Math.abs(expectedNum)) * 0.1; // 10% tolerance
+
+            if (diff > threshold) {
+                console.log('   ⚠️ MISMATCH DETECTED!');
+                console.log('      Our:', ourNum);
+                console.log('      Expected:', expectedNum);
+                console.log('      Diff:', diff);
+                console.log('      Threshold:', threshold);
+
+                return {
+                    valid: false,
+                    reason: 'significant_difference',
+                    ourAnswer: ourNum,
+                    expectedAnswer: expectedNum,
+                    difference: diff
+                };
+            }
+        }
+
+        return { valid: true, reason: null };
+    }
+    /**
+     *
+     *
      * 📊 העריכה מורכבות של שאלה
      */
     assessComplexity(question) {

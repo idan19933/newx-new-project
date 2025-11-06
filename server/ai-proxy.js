@@ -1589,7 +1589,7 @@ app.post('/api/ai/verify-answer', async (req, res) => {
         // ==================== STEP 1: TRY MATHEMATICAL CALCULATION ====================
         console.log('\n🔢 Step 1: Attempting mathematical calculation...');
 
-        const mathResult = await mathCalculationService.solveQuestion(question);
+        const mathResult = await mathCalculationService.solveQuestion(question, correctAnswer);
 
         let mathematicalAnswer = null;
         let mathConfidence = 0;
