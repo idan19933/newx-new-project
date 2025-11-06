@@ -1251,7 +1251,6 @@ app.post('/api/ai/generate-question', async (req, res) => {
 - ${personalitySystem.data.languageStyle.formalityLevel}
 - ${personalitySystem.data.languageStyle.encouragementStyle}
 ` : 'אתה נקסון, מורה למתמטיקה ישראלי מנוסה וידידותי.';
-
         // ✅ Combine all previous questions
         const allPreviousQuestions = [
             ...previousQuestions,
