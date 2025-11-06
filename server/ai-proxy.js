@@ -26,6 +26,7 @@ import aiAnalysisRoutes from './routes/aiAnalysisRoutes.js';
 import performanceRoutes from './routes/performanceRoutes.js';
 import adaptiveDifficultyRoutes from './routes/adaptiveDifficultyRoutes.js';
 import enhancedQuestionsRouter from './routes/enhancedQuestions.js';
+import calculusValidator from './services/calculus-validator.js';
 import bagrutExamRoutes from './routes/bagrExamRoutes.js';
 import adminRoutes from './routes/adminRoutes.js';
 
@@ -1555,8 +1556,9 @@ ${previousQuestionsText}
 // ==================== VERIFY ANSWER - ENHANCED WITH SMART AI VALIDATION ====================
 // ==================== VERIFY ANSWER - ENHANCED WITH SMART VALIDATION ====================
 // ==================== VERIFY ANSWER - WITH MATHEMATICAL CALCULATION ====================
+// ==================== VERIFY ANSWER - WITH CALCULUS VALIDATION ====================
 app.post('/api/ai/verify-answer', async (req, res) => {
-    console.log('🔍 VERIFYING ANSWER - WITH MATHEMATICAL CALCULATION');
+    console.log('🔍 VERIFYING ANSWER - WITH CALCULUS VALIDATION');
     const startTime = Date.now();
 
     try {
@@ -1584,6 +1586,72 @@ app.post('/api/ai/verify-answer', async (req, res) => {
                 success: false,
                 error: 'Missing required fields'
             });
+        }
+
+        // ==================== STEP 0: SPECIAL CALCULUS VALIDATION ====================
+        console.log('\n🎓 Step 0: Checking for calculus question...');
+
+        const calculusAnalysis = calculusValidator.analyzeCalculusQuestion(question);
+        console.log('   Analysis Type:', calculusAnalysis.type);
+        console.log('   Description:', calculusAnalysis.description);
+        console.log('   Needs Second Derivative:', calculusAnalysis.needsSecondDerivative);
+
+        if (calculusAnalysis.type !== 'unknown') {
+            console.log('   ✅ CALCULUS QUESTION DETECTED!');
+            console.log('   Running specialized calculus validation...');
+
+            const calculusValidation = calculusValidator.validateCalculusAnswer(
+                question,
+                userAnswer,
+                correctAnswer
+            );
+
+            console.log('   Calculus Validation Result:', {
+                isCorrect: calculusValidation.isCorrect,
+                commonMistake: calculusValidation.commonMistake,
+                mistakeType: calculusValidation.mistakeType || 'none'
+            });
+
+            if (calculusValidation.commonMistake) {
+                console.log('   🚨 COMMON CALCULUS MISTAKE DETECTED!');
+                console.log('   Mistake Type:', calculusValidation.mistakeType);
+                console.log('   Returning early with specialized feedback...');
+
+                return res.json({
+                    success: true,
+                    isCorrect: false,
+                    confidence: 95,
+                    feedback: calculusValidation.feedback,
+                    explanation: calculusValidation.hint || calculusAnalysis.explanation,
+                    actualCorrectAnswer: correctAnswer,
+                    commonMistake: true,
+                    mistakeType: calculusValidation.mistakeType,
+                    calculusType: calculusAnalysis.type,
+                    model: 'calculus-validator',
+                    duration: Date.now() - startTime
+                });
+            }
+
+            if (calculusValidation.isCorrect) {
+                console.log('   ✅ Calculus answer is CORRECT!');
+                console.log('   Returning early with success...');
+
+                return res.json({
+                    success: true,
+                    isCorrect: true,
+                    confidence: 100,
+                    feedback: calculusValidation.feedback || 'מצוין! הפתרון שלך נכון לגמרי! 🎉',
+                    explanation: calculusAnalysis.explanation,
+                    actualCorrectAnswer: correctAnswer,
+                    calculusType: calculusAnalysis.type,
+                    model: 'calculus-validator',
+                    duration: Date.now() - startTime
+                });
+            }
+
+            console.log('   ⚠️ Calculus validation inconclusive - continuing with normal flow...');
+        } else {
+            console.log('   ℹ️ Not a calculus question - continuing with normal flow...');
         }
 
         // ==================== STEP 1: TRY MATHEMATICAL CALCULATION ====================
@@ -1624,6 +1692,11 @@ ${mathematicalAnswer ? `\n🔢 חישוב מתמטי מדויק נעשה (אמת
 2. ${mathematicalAnswer ? 'בדוק אם החישוב המתמטי נכון' : 'חשב בקפידה'}
 3. הצג כל שלב ביניים
 
+⚠️ שים לב לשאלות על נגזרות:
+- אם שואלים "מתי [פונקציה] מקסימלית?" → פתור F'(x) = 0
+- אם שואלים "מתי [קצב/מהירות] מקסימלי?" → פתור F''(x) = 0!
+- דוגמה: "מתי קצב המילוי מקסימלי?" → זה מקסימום של V'(t), אז צריך V''(t) = 0
+
 פתור והחזר JSON בלבד:
 {
   "calculatedAnswer": "התשובה המדויקת",
@@ -1642,7 +1715,7 @@ ${mathematicalAnswer ? `\n🔢 חישוב מתמטי מדויק נעשה (אמת
                 model: 'claude-sonnet-4-5-20250929',
                 max_tokens: 3000,
                 temperature: 0.05,
-                system: 'אתה מחשבון מדויק. החזר JSON בעברית.',
+                system: 'אתה מחשבון מדויק במתמטיקה. שים לב מיוחד לשאלות על נגזרות - הבן את ההבדל בין מקסימום של פונקציה למקסימום של הנגזרת שלה! החזר JSON בעברית.',
                 messages: [{ role: 'user', content: calculationPrompt }]
             })
         });
@@ -1685,13 +1758,12 @@ ${mathematicalAnswer ? `\n🔢 חישוב מתמטי מדויק נעשה (אמת
         let shouldReview = false;
         let reviewReason = '';
 
-        // קדימות 1: חישוב מתמטי עם בטחון גבוה מאוד
+        // Priority 1: Mathematical calculation with very high confidence
         if (mathResult.success && mathConfidence >= 95) {
             console.log('   ✅ Using MATHEMATICAL answer (high confidence)');
             actualCorrectAnswer = mathematicalAnswer;
             answerSource = 'mathematical';
 
-            // בדוק אם התשובה השמורה שונה
             const storedMatchesMath = compareMathAnswers(storedAnswer, mathematicalAnswer);
             if (!storedMatchesMath) {
                 console.log('   🚨 STORED ANSWER DIFFERS FROM MATH!');
@@ -1701,17 +1773,16 @@ ${mathematicalAnswer ? `\n🔢 חישוב מתמטי מדויק נעשה (אמת
                 reviewReason = 'math_mismatch_high_confidence';
             }
         }
-        // קדימות 2: AI עם בטחון מאוד גבוה (רק אם אין חישוב מתמטי)
+        // Priority 2: AI with very high confidence (only if no mathematical calculation)
         else if (!mathResult.success && aiConfidence >= 98) {
             const storedMatchesAi = compareMathAnswers(storedAnswer, aiCalculatedAnswer);
             if (!storedMatchesAi) {
                 console.log('   ⚠️ AI answer differs from stored (very high confidence)');
                 shouldReview = true;
                 reviewReason = 'ai_mismatch_very_high_confidence';
-                // אבל לא משנים את התשובה - רק מסמנים לבדיקה
             }
         }
-        // קדימות 3: אי-התאמה בין חישובים
+        // Priority 3: Mismatch between calculations
         else if (mathResult.success && mathConfidence >= 80 && aiConfidence >= 80) {
             const mathMatchesAi = compareMathAnswers(mathematicalAnswer, aiCalculatedAnswer);
             const storedMatchesMath = compareMathAnswers(storedAnswer, mathematicalAnswer);
@@ -1744,14 +1815,14 @@ ${mathematicalAnswer ? `\n🔢 חישוב מתמטי מדויק נעשה (אמת
                         ai_confidence, math_confidence,
                         issue_type, complexity_level, priority
                     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
-                    ON CONFLICT (question_id, question_source) DO UPDATE SET
+                        ON CONFLICT (question_id, question_source) DO UPDATE SET
                         ai_calculated_answer = EXCLUDED.ai_calculated_answer,
-                        math_calculated_answer = EXCLUDED.math_calculated_answer,
-                        ai_confidence = EXCLUDED.ai_confidence,
-                        math_confidence = EXCLUDED.math_confidence,
-                        issue_type = EXCLUDED.issue_type,
-                        priority = EXCLUDED.priority,
-                        updated_at = CURRENT_TIMESTAMP
+                                                                          math_calculated_answer = EXCLUDED.math_calculated_answer,
+                                                                          ai_confidence = EXCLUDED.ai_confidence,
+                                                                          math_confidence = EXCLUDED.math_confidence,
+                                                                          issue_type = EXCLUDED.issue_type,
+                                                                          priority = EXCLUDED.priority,
+                                                                          updated_at = CURRENT_TIMESTAMP
                 `, [
                     questionId,
                     'cache',
@@ -1791,18 +1862,29 @@ ${mathematicalAnswer ? `\n🔢 חישוב מתמטי מדויק נעשה (אמת
 ${answerSource === 'mathematical' ? '✅ התשובה הנכונה חושבה מתמטית בדיוק מלא' : ''}
 ${shouldReview ? '⚠️ התשובה נשלחה לבדיקת אדמין מכיוון שיש אי-התאמות' : ''}
 
+⚠️⚠️⚠️ חשוב מאוד - הבנה מושגית בחשבון דיפרנציאלי:
+- אם השאלה שואלת "מתי F(x) מקסימלי?" → צריך לפתור F'(x) = 0
+- אם השאלה שואלת "מתי קצב השינוי מקסימלי?" → זה אומר "מתי F'(x) מקסימלי?" → צריך לפתור F''(x) = 0!
+
+דוגמה קונקרטית:
+אם V(t) = נפח, ושואלים "מתי קצב המילוי מקסימלי?":
+- קצב המילוי = V'(t)
+- מקסימום של V'(t) → צריך V''(t) = 0 (לא V'(t) = 0!)
+- V'(t) = 0 מוצא איפה קצב המילוי הוא אפס, לא איפה הוא מקסימלי!
+
 כללי בדיקה:
-- השווה בגמישות: 21000 = 21,000 = 21 אלפי שקלים
-- התעלם מיחידות: "400 ש״ח" = "400 שקלים" = "400"
-- תשובות מרובות: אם השאלה שואלת מחיר ורווח, צריך שניהם
-- בדוק שיטה: גם אם יש טעות חישוב קטנה, ציין אם השיטה נכונה
+- השווה בגמישות: 8/3 = 2.67 = 2 שעות ו-40 דקות
+- 16/3 = 5.33 = 5 שעות ו-20 דקות
+- אלה ערכים שונים לגמרי!
+- התעלם מיחידות: "21 מ״ק לשעה" = "21"
+- בדוק שיטה: גם אם יש טעות חישובית, ציין אם השיטה נכונה
 
 החזר JSON בלבד:
 {
   "isCorrect": true/false,
   "confidence": 0-100,
   "feedback": "משוב מעודד בעברית (2-3 משפטים)",
-  "explanation": "הסבר מפורט",
+  "explanation": "הסבר מפורט של הפתרון הנכון",
   "methodCorrect": true/false,
   "calculationError": true/false
 }`;
@@ -1818,7 +1900,7 @@ ${shouldReview ? '⚠️ התשובה נשלחה לבדיקת אדמין מכי�
                 model: 'claude-sonnet-4-5-20250929',
                 max_tokens: 2000,
                 temperature: 0.3,
-                system: 'מורה מתמטיקה מעודד. JSON בעברית.',
+                system: 'מורה מתמטיקה מעודד. שים לב מיוחד לשאלות על נגזרות והבן את ההבדל בין מקסימום של פונקציה למקסימום של הנגזרת שלה. JSON בעברית.',
                 messages: [{ role: 'user', content: verificationPrompt }]
             })
         });
@@ -1859,12 +1941,12 @@ ${shouldReview ? '⚠️ התשובה נשלחה לבדיקת אדמין מכי�
         console.log('   Confidence:', confidence);
         console.log('   Method Correct:', verificationResult.methodCorrect);
 
-        // הוסף הודעה אם יש בדיקה ידנית
+        // Add system correction notice if applicable
         if (shouldReview) {
             feedback = `📝 שים לב: התשובה נשלחה לבדיקת מורה מכיוון שיש אי-התאמה בין החישובים השונים. אנחנו רוצים לוודא שהתשובה הנכונה מדויקת.\n\n` + feedback;
         }
 
-        // עקוב אחרי שימוש
+        // Track usage if we have user and question IDs
         if (questionId && userId) {
             try {
                 await smartQuestionService.trackUsage(questionId, userId, {
@@ -1893,23 +1975,23 @@ ${shouldReview ? '⚠️ התשובה נשלחה לבדיקת אדמין מכי�
             explanation,
             actualCorrectAnswer,
 
-            // פרטי חישובים
+            // Calculation details
             calculatedAnswer: aiCalculatedAnswer,
             mathematicalAnswer: mathematicalAnswer,
             answerSource: answerSource,
 
-            // רמות בטחון
+            // Confidence levels
             aiConfidence: aiConfidence,
             mathConfidence: mathConfidence,
 
-            // בדיקה ידנית
+            // Manual review
             flaggedForReview: shouldReview,
             reviewReason: reviewReason,
 
-            // שלבי עבודה
+            // Working steps
             workingSteps: mathWorkingSteps.length > 0 ? mathWorkingSteps : (calculationResult.workingSteps || []),
 
-            // מטא-דאטה
+            // Metadata
             methodCorrect: verificationResult.methodCorrect || false,
             calculationError: verificationResult.calculationError || false,
             model: 'claude-sonnet-4-5-20250929',
@@ -1927,7 +2009,6 @@ ${shouldReview ? '⚠️ התשובה נשלחה לבדיקת אדמין מכי�
         });
     }
 });
-
 
 
 // ==================== HELPER: COMPARE MATH ANSWERS ====================
