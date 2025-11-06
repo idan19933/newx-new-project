@@ -15,7 +15,7 @@ import personalitySystem from './services/personalityLoader.js';
 import questionHistoryManager from './services/questionHistory.js';
 import SVGGenerator from './services/svgGenerator.js';
 import { bucket } from './config/firebase-admin.js';
-
+import mathCalculationService from './services/mathCalculationService.js';
 import curriculumRoutes from './routes/curriculumRoutes.js';
 import progressRoutes from './routes/progressRoutes.js';
 import learningRoutes from './routes/learningRoutes.js';
@@ -1484,8 +1484,9 @@ ${previousQuestionsText}
 // ==================== VERIFY ANSWER ====================
 // ==================== VERIFY ANSWER - ENHANCED WITH SMART AI VALIDATION ====================
 // ==================== VERIFY ANSWER - ENHANCED WITH SMART VALIDATION ====================
+// ==================== VERIFY ANSWER - WITH MATHEMATICAL CALCULATION ====================
 app.post('/api/ai/verify-answer', async (req, res) => {
-    console.log('🔍 VERIFYING ANSWER - WITH AI RE-CALCULATION');
+    console.log('🔍 VERIFYING ANSWER - WITH MATHEMATICAL CALCULATION');
     const startTime = Date.now();
 
     try {
@@ -1501,7 +1502,7 @@ app.post('/api/ai/verify-answer', async (req, res) => {
         } = req.body;
 
         console.log('📝 Verification Request:', {
-            question: question?.substring(0, 60) + '...',
+            question: question?.substring(0, 80) + '...',
             userAnswer,
             correctAnswer,
             questionId,
@@ -1515,52 +1516,50 @@ app.post('/api/ai/verify-answer', async (req, res) => {
             });
         }
 
-        // ==================== STEP 1: AI CALCULATES THE CORRECT ANSWER ====================
-        const calculationPrompt = `אתה מורה למתמטיקה מומחה ומדויק. פתור את השאלה הזו בקפידה רבה.
+        // ==================== STEP 1: TRY MATHEMATICAL CALCULATION ====================
+        console.log('\n🔢 Step 1: Attempting mathematical calculation...');
+
+        const mathResult = await mathCalculationService.solveQuestion(question);
+
+        let mathematicalAnswer = null;
+        let mathConfidence = 0;
+        let mathWorkingSteps = [];
+
+        if (mathResult.success) {
+            console.log('✅ Mathematical calculation succeeded!');
+            console.log('   Answer:', mathResult.answer);
+            console.log('   Confidence:', mathResult.confidence);
+            console.log('   Method:', mathResult.method);
+
+            mathematicalAnswer = mathResult.answer;
+            mathConfidence = mathResult.confidence;
+            mathWorkingSteps = mathResult.workingSteps || [];
+        } else {
+            console.log('⚠️ Mathematical calculation failed or not applicable');
+            console.log('   Reason:', mathResult.reason);
+        }
+
+        // ==================== STEP 2: AI CALCULATION (AS BACKUP) ====================
+        console.log('\n🤖 Step 2: AI calculation as backup...');
+
+        const calculationPrompt = `אתה מורה למתמטיקה מומחה. פתור בדיוק.
 
 🎯 השאלה:
 ${question}
 
-📋 הוראות קריטיות - קרא בעיון!
-1. קרא את השאלה בעיון - מה בדיוק מבוקש?
-2. זהה את כל הנתונים והמשתנים
-3. בנה את הפונקציה המתאימה (אם נדרש)
-4. אם יש עלות - ודא שאתה מפחית אותה מההכנסה!
-5. אם צריך למצוא מקסימום/מינימום - השתמש בנגזרת
-6. פתור צעד אחר צעד - **כתוב כל חישוב בפירוט מלא!**
-7. **חשוב: לאחר מציאת התשובה - בדוק אותה שוב!**
-8. **הצב את התשובה בחזרה בפונקציה/משוואה ווודא שהיא נכונה**
-9. אם יש שתי תשובות (מחיר + רווח) - כלול את שתיהן
-10. רק אחרי שאימתת את התשובה - החזר אותה
+${mathematicalAnswer ? `\n🔢 חישוב מתמטי מדויק נעשה (אמת אותו!): ${mathematicalAnswer}\n` : ''}
 
-⚠️ כללי חישוב קריטיים:
-- בדוק כל חישוב פעמיים!
-- 64 + 240 - 96 + 5: חשב שלב אחר שלב!
-- אל תדלג על שלבים!
-- הצג את כל החישובים הביניים!
+📋 הוראות:
+1. פתור צעד אחר צעד
+2. ${mathematicalAnswer ? 'בדוק אם החישוב המתמטי נכון' : 'חשב בקפידה'}
+3. הצג כל שלב ביניים
 
-פתור צעד אחר צעד והחזר JSON בלבד (ללא טקסט נוסף):
+פתור והחזר JSON בלבד:
 {
-  "calculatedAnswer": "התשובה המדויקת (אם יש שתי תשובות: 'מחיר: X, רווח: Y')",
-  "workingSteps": [
-    "שלב 1: זיהוי משתנים ונתונים - ...",
-    "שלב 2: בניית פונקציה - ...",
-    "שלב 3: גזירה - ...",
-    "שלב 4: פתרון משוואה - ...",
-    "שלב 5: חישוב סופי - הראה כל חישוב ביניים!",
-    "שלב 6: בדיקה - הצבה בחזרה ואימות"
-  ],
-  "confidence": מספר בין 0-100 (דרוש 95+ רק אם בדקת את התשובה בהצבה חוזרת ואימתת!)
-}
-
-דוגמאות לפורמט תשובה:
-- שאלה על מחיר ורווח: "400 שקלים, 21000 שקלים" או "מחיר: 400 ש״ח, רווח: 21,000 ש״ח"
-- שאלה על שטח: "25 מ״ר" או "25"
-- שאלה על זווית: "60 מעלות" או "60°"
-
-זכור: confidence גבוה (95+) רק אם אימתת את התשובה בהצבה חוזרת!`;
-
-        console.log('📤 Sending calculation request to Claude...');
+  "calculatedAnswer": "התשובה המדויקת",
+  "workingSteps": ["שלב 1", "שלב 2", "..."],
+  "confidence": 0-100
+}`;
 
         const calcResponse = await fetch('https://api.anthropic.com/v1/messages', {
             method: 'POST',
@@ -1571,29 +1570,27 @@ ${question}
             },
             body: JSON.stringify({
                 model: 'claude-sonnet-4-5-20250929',
-                max_tokens: 4000,  // ✅ Even more tokens for detailed verification
-                temperature: 0.05,  // ✅ Lower temperature for accuracy
-                system: 'אתה מחשבון מתמטי מדויק וקפדן. **חובה לבדוק כל תשובה פעמיים לפני מתן תשובה!** הצב את התשובה בחזרה בפונקציה לאימות. החזר JSON תקין בלבד בעברית.',
+                max_tokens: 3000,
+                temperature: 0.05,
+                system: 'אתה מחשבון מדויק. החזר JSON בעברית.',
                 messages: [{ role: 'user', content: calculationPrompt }]
             })
         });
 
         if (!calcResponse.ok) {
-            throw new Error(`Calculation API error: ${calcResponse.status}`);
+            throw new Error(`AI Calculation API error: ${calcResponse.status}`);
         }
 
         const calcData = await calcResponse.json();
         const calcRawText = calcData.content[0].text;
 
-        console.log('📥 AI Calculation Response (first 300):', calcRawText.substring(0, 300));
-
         let calculationResult;
         try {
             const calcJsonText = cleanJsonText(calcRawText);
             calculationResult = JSON.parse(calcJsonText);
-            console.log('✅ Calculation JSON parsed successfully');
+            console.log('✅ AI calculation parsed');
         } catch (parseError) {
-            console.error('❌ Failed to parse calculation JSON:', parseError.message);
+            console.error('⚠️ AI JSON parse failed:', parseError.message);
             calculationResult = {
                 calculatedAnswer: correctAnswer,
                 workingSteps: [],
@@ -1601,198 +1598,144 @@ ${question}
             };
         }
 
-        // ✅ VALIDATE CALCULATION STEPS
-        if (calculationResult.workingSteps && calculationResult.workingSteps.length > 0) {
-            console.log('📝 AI Working Steps:');
-            calculationResult.workingSteps.forEach((step, i) => {
-                console.log(`   ${i + 1}. ${step.substring(0, 80)}...`);
-            });
-
-            // Check if steps contain verification/checking
-            const stepsText = calculationResult.workingSteps.join(' ').toLowerCase();
-            const hasVerification = stepsText.includes('בדיקה') ||
-                stepsText.includes('אימות') ||
-                stepsText.includes('הצבה') ||
-                stepsText.includes('verification') ||
-                stepsText.includes('check');
-
-            if (!hasVerification) {
-                console.log('   ⚠️ WARNING: No verification step found!');
-                console.log('   Lowering confidence due to missing verification');
-                calculationResult.confidence = Math.min(calculationResult.confidence || 0, 80);
-            } else {
-                console.log('   ✅ Verification step found in working steps');
-            }
-        } else {
-            console.log('   ⚠️ No working steps provided - lowering confidence');
-            calculationResult.confidence = Math.min(calculationResult.confidence || 0, 70);
-        }
-
-        // ✅ VALIDATE ANSWER REASONABLENESS
-        const validateAnswerReasonableness = (answer, question) => {
-            try {
-                // Extract all numbers from question
-                const questionNumbers = question.match(/-?\d+\.?\d*/g);
-                const answerNumbers = String(answer).match(/-?\d+\.?\d*/g);
-
-                if (!questionNumbers || !answerNumbers) return true;
-
-                const questionNums = questionNumbers.map(n => Math.abs(parseFloat(n))).filter(n => !isNaN(n) && n > 0);
-                const answerNums = answerNumbers.map(n => Math.abs(parseFloat(n))).filter(n => !isNaN(n));
-
-                if (questionNums.length === 0 || answerNums.length === 0) return true;
-
-                const maxInput = Math.max(...questionNums);
-                const maxAnswer = Math.max(...answerNums);
-
-                console.log('   📊 Validation:', {
-                    maxInput,
-                    maxAnswer,
-                    ratio: maxAnswer / maxInput
-                });
-
-                // If answer is more than 10000x larger than max input, very suspicious
-                if (maxAnswer > maxInput * 10000) {
-                    console.log('   🚨 Answer seems unrealistically HUGE (>10000x input)');
-                    return false;
-                }
-
-                // Check for common calculation errors (like 37 instead of 21)
-                // If question has numbers like 64, 240, 96, 5 and answer is 37, might be wrong
-                if (questionNums.includes(64) && questionNums.includes(240) &&
-                    questionNums.includes(96) && questionNums.includes(5)) {
-                    // Expected: -128 + 240 - 96 + 5 = 21
-                    // Wrong: 37
-                    if (answerNums.includes(37)) {
-                        console.log('   🚨 Detected potential calculation error (37 instead of 21)');
-                        return false;
-                    }
-                }
-
-                return true;
-            } catch (err) {
-                console.error('   ⚠️ Validation error:', err.message);
-                return true; // Don't fail on validation errors
-            }
-        };
-
-        const isAnswerReasonable = validateAnswerReasonableness(
-            calculationResult.calculatedAnswer,
-            question
-        );
-
-        if (!isAnswerReasonable) {
-            console.log('   ⚠️ Answer validation failed - lowering confidence significantly');
-            calculationResult.confidence = Math.min(calculationResult.confidence || 0, 50);
-        }
-
-        // ✅ LOG CALCULATION RESULTS
-        console.log('📊 AI Calculation Result:');
-        console.log('   Calculated Answer:', calculationResult.calculatedAnswer);
-        console.log('   Confidence:', calculationResult.confidence);
-        console.log('   Steps Count:', calculationResult.workingSteps?.length || 0);
-
-        const aiCalculatedAnswer = String(calculationResult.calculatedAnswer).trim();
+        const aiCalculatedAnswer = String(calculationResult.calculatedAnswer || '').trim();
         const storedAnswer = String(correctAnswer).trim();
+        const aiConfidence = calculationResult.confidence || 50;
 
-        console.log('🔍 Comparing Answers:');
-        console.log('   AI Calculated:', aiCalculatedAnswer);
-        console.log('   Stored (from DB):', storedAnswer);
+        console.log('📊 Calculation Results:');
+        console.log('   Stored:', storedAnswer);
+        console.log('   Math:', mathematicalAnswer || 'N/A', `(conf: ${mathConfidence})`);
+        console.log('   AI:', aiCalculatedAnswer, `(conf: ${aiConfidence})`);
 
-        const answersMatch = compareMathAnswers(storedAnswer, aiCalculatedAnswer);
+        // ==================== STEP 3: DECIDE WHICH ANSWER TO TRUST ====================
+        console.log('\n🎯 Step 3: Deciding which answer to trust...');
 
-        console.log('   Match Result:', answersMatch ? '✅ MATCH' : '❌ MISMATCH');
-
-        let storedAnswerIsWrong = false;
         let actualCorrectAnswer = storedAnswer;
+        let answerSource = 'stored';
+        let shouldReview = false;
+        let reviewReason = '';
 
-        // ==================== STEP 2: VALIDATE STORED ANSWER ====================
-        if (!answersMatch) {
-            console.log('🚨 MISMATCH DETECTED!');
-            console.log('   Stored:', storedAnswer);
-            console.log('   AI calculated:', aiCalculatedAnswer);
-            console.log('   AI Confidence:', calculationResult.confidence);
+        // קדימות 1: חישוב מתמטי עם בטחון גבוה מאוד
+        if (mathResult.success && mathConfidence >= 95) {
+            console.log('   ✅ Using MATHEMATICAL answer (high confidence)');
+            actualCorrectAnswer = mathematicalAnswer;
+            answerSource = 'mathematical';
 
-            // ✅ ONLY OVERRIDE if AI has VERY HIGH confidence (≥95)
-            if (calculationResult.confidence >= 95) {
-                console.log('   ✅ AI confidence VERY HIGH (≥95) - Using AI answer');
-                storedAnswerIsWrong = true;
-                actualCorrectAnswer = aiCalculatedAnswer;
-
-                await logWrongStoredAnswer({
-                    questionId,
-                    question: question.substring(0, 100),
-                    wrongStoredAnswer: storedAnswer,
-                    correctCalculatedAnswer: aiCalculatedAnswer,
-                    timestamp: new Date().toISOString()
-                });
-
-                // Auto-fix in database if possible
-                if (questionId) {
-                    try {
-                        await pool.query(
-                            'UPDATE question_cache SET correct_answer = $1, needs_review = TRUE WHERE id = $2',
-                            [aiCalculatedAnswer, questionId]
-                        );
-                        console.log('   ✅ Auto-fixed in database');
-                    } catch (updateError) {
-                        console.error('   ⚠️ Failed to auto-fix:', updateError.message);
-                    }
-                }
-            } else {
-                console.log('   ⚠️ AI confidence NOT high enough (<95) - Keeping stored answer');
-                console.log('   Reason: AI might be wrong, trusting original answer');
-                console.log('   Recommendation: Manual review needed');
+            // בדוק אם התשובה השמורה שונה
+            const storedMatchesMath = compareMathAnswers(storedAnswer, mathematicalAnswer);
+            if (!storedMatchesMath) {
+                console.log('   🚨 STORED ANSWER DIFFERS FROM MATH!');
+                console.log('      Stored:', storedAnswer);
+                console.log('      Math:', mathematicalAnswer);
+                shouldReview = true;
+                reviewReason = 'math_mismatch_high_confidence';
             }
-        } else {
-            console.log('✅ Stored answer validated by AI');
+        }
+        // קדימות 2: AI עם בטחון מאוד גבוה (רק אם אין חישוב מתמטי)
+        else if (!mathResult.success && aiConfidence >= 98) {
+            const storedMatchesAi = compareMathAnswers(storedAnswer, aiCalculatedAnswer);
+            if (!storedMatchesAi) {
+                console.log('   ⚠️ AI answer differs from stored (very high confidence)');
+                shouldReview = true;
+                reviewReason = 'ai_mismatch_very_high_confidence';
+                // אבל לא משנים את התשובה - רק מסמנים לבדיקה
+            }
+        }
+        // קדימות 3: אי-התאמה בין חישובים
+        else if (mathResult.success && mathConfidence >= 80 && aiConfidence >= 80) {
+            const mathMatchesAi = compareMathAnswers(mathematicalAnswer, aiCalculatedAnswer);
+            const storedMatchesMath = compareMathAnswers(storedAnswer, mathematicalAnswer);
+
+            if (!mathMatchesAi || !storedMatchesMath) {
+                console.log('   ⚠️ Mismatch between calculations');
+                shouldReview = true;
+                reviewReason = 'calculation_mismatch_moderate_confidence';
+            }
         }
 
-        // ==================== STEP 3: VERIFY USER'S ANSWER ====================
-        const verificationPrompt = `בדוק האם תשובת התלמיד נכונה.
+        console.log('   Decision:', answerSource);
+        console.log('   Needs Review:', shouldReview);
+
+        // ==================== STEP 4: ADD TO REVIEW QUEUE IF NEEDED ====================
+        if (shouldReview && questionId) {
+            console.log('\n📝 Step 4: Adding to review queue...');
+
+            try {
+                const complexity = mathCalculationService.assessComplexity(question);
+
+                const priority = mathConfidence >= 95 ? 'high' :
+                    aiConfidence >= 95 ? 'medium' : 'low';
+
+                await pool.query(`
+                    INSERT INTO answer_review_queue (
+                        question_id, question_source, question_text,
+                        topic_name, subtopic_name, difficulty, grade_level,
+                        stored_answer, ai_calculated_answer, math_calculated_answer,
+                        ai_confidence, math_confidence,
+                        issue_type, complexity_level, priority
+                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+                    ON CONFLICT (question_id, question_source) DO UPDATE SET
+                        ai_calculated_answer = EXCLUDED.ai_calculated_answer,
+                        math_calculated_answer = EXCLUDED.math_calculated_answer,
+                        ai_confidence = EXCLUDED.ai_confidence,
+                        math_confidence = EXCLUDED.math_confidence,
+                        issue_type = EXCLUDED.issue_type,
+                        priority = EXCLUDED.priority,
+                        updated_at = CURRENT_TIMESTAMP
+                `, [
+                    questionId,
+                    'cache',
+                    question.substring(0, 1000),
+                    topic || null,
+                    subtopic || null,
+                    difficulty,
+                    null,
+                    storedAnswer,
+                    aiCalculatedAnswer,
+                    mathematicalAnswer,
+                    aiConfidence,
+                    mathConfidence,
+                    reviewReason,
+                    complexity.level,
+                    priority
+                ]);
+
+                console.log('   ✅ Added to review queue');
+                console.log('      Priority:', priority);
+                console.log('      Complexity:', complexity.level);
+
+            } catch (reviewError) {
+                console.error('   ⚠️ Failed to add to review queue:', reviewError.message);
+            }
+        }
+
+        // ==================== STEP 5: VERIFY USER ANSWER ====================
+        console.log('\n✅ Step 5: Verifying user answer...');
+
+        const verificationPrompt = `בדוק תשובת התלמיד בקפידה.
 
 השאלה: ${question}
 תשובת התלמיד: ${userAnswer}
 התשובה הנכונה: ${actualCorrectAnswer}
 
-${storedAnswerIsWrong ? `⚠️ שים לב: התשובה השמורה במערכת (${storedAnswer}) היתה שגויה! התשובה הנכונה היא ${actualCorrectAnswer}` : ''}
+${answerSource === 'mathematical' ? '✅ התשובה הנכונה חושבה מתמטית בדיוק מלא' : ''}
+${shouldReview ? '⚠️ התשובה נשלחה לבדיקת אדמין מכיוון שיש אי-התאמות' : ''}
 
-כללי בדיקה חשובים:
-1. השווה בגמישות:
-   - 8π = 25.13 = 25.132741 (כולם נכונים)
-   - 1/2 = 0.5 (שקול)
-   - הבדל עד 0.1 = נכון
-   - 21000 = 21,000 = 21 אלפי שקלים (שקול)
-   
-2. התעלם מיחידות מידה:
-   - "12 ₪" = "12 שקלים" = "12" (כולם נכונים)
-   - "25 מ״ר" = "25" (נכון)
-   - "400 שקלים" = "400 ש״ח" = "400" (נכון)
-   
-3. תשובות מרובות:
-   - אם השאלה מבקשת מחיר ורווח, התלמיד צריך לתת את שניהם
-   - "400, 21000" = "מחיר: 400, רווח: 21000" (שקול)
-   - אם נתן רק אחד מהם - לא נכון לגמרי
-   
-4. בדוק שיטה:
-   - אם השיטה נכונה אבל יש טעות חישובית קטנה - ציין זאת
-   - אם השגיאה קטנה (<5%) - methodCorrect = true, calculationError = true
-   
-5. היה מעודד:
-   - גם אם טעה, ציין מה הוא עשה נכון
-   - תן טיפ קצר איך לשפר
+כללי בדיקה:
+- השווה בגמישות: 21000 = 21,000 = 21 אלפי שקלים
+- התעלם מיחידות: "400 ש״ח" = "400 שקלים" = "400"
+- תשובות מרובות: אם השאלה שואלת מחיר ורווח, צריך שניהם
+- בדוק שיטה: גם אם יש טעות חישוב קטנה, ציין אם השיטה נכונה
 
-החזר JSON בלבד (ללא טקסט נוסף):
+החזר JSON בלבד:
 {
   "isCorrect": true/false,
   "confidence": 0-100,
-  "feedback": "משוב קצר ומעודד בעברית (2-3 משפטים)",
-  "explanation": "הסבר מפורט איך פותרים את השאלה",
-  "methodCorrect": true/false (האם השיטה נכונה גם אם יש טעות חישוב),
-  "calculationError": true/false (האם יש רק טעות חישובית קטנה)
+  "feedback": "משוב מעודד בעברית (2-3 משפטים)",
+  "explanation": "הסבר מפורט",
+  "methodCorrect": true/false,
+  "calculationError": true/false
 }`;
-
-        console.log('📤 Sending verification request to Claude...');
 
         const verifyResponse = await fetch('https://api.anthropic.com/v1/messages', {
             method: 'POST',
@@ -1803,9 +1746,9 @@ ${storedAnswerIsWrong ? `⚠️ שים לב: התשובה השמורה במער�
             },
             body: JSON.stringify({
                 model: 'claude-sonnet-4-5-20250929',
-                max_tokens: 2500,
+                max_tokens: 2000,
                 temperature: 0.3,
-                system: 'אתה מורה מתמטיקה מומחה, מעודד וסבלני. בדוק תשובות בקפידה אבל היה מעודד. החזר JSON תקין בלבד בעברית.',
+                system: 'מורה מתמטיקה מעודד. JSON בעברית.',
                 messages: [{ role: 'user', content: verificationPrompt }]
             })
         });
@@ -1817,48 +1760,41 @@ ${storedAnswerIsWrong ? `⚠️ שים לב: התשובה השמורה במער�
         const verifyData = await verifyResponse.json();
         const verifyRawText = verifyData.content[0].text;
 
-        console.log('📥 AI Verification Response (first 200):', verifyRawText.substring(0, 200));
-
         let verificationResult;
         try {
             const verifyJsonText = cleanJsonText(verifyRawText);
             verificationResult = JSON.parse(verifyJsonText);
-            console.log('✅ Verification JSON parsed successfully');
+            console.log('✅ Verification parsed');
         } catch (parseError) {
-            console.error('❌ Failed to parse verification JSON:', parseError.message);
-            // Fallback: manual comparison
+            console.error('⚠️ Verification JSON parse failed');
             const manualMatch = compareMathAnswers(userAnswer, actualCorrectAnswer);
             verificationResult = {
                 isCorrect: manualMatch,
                 confidence: 70,
-                feedback: manualMatch ? 'תשובה נכונה! 🎉' : 'התשובה אינה נכונה. נסה שוב! 💪',
+                feedback: manualMatch ? 'תשובה נכונה! 🎉' : 'התשובה לא נכונה. נסה שוב! 💪',
                 explanation: '',
                 methodCorrect: manualMatch,
                 calculationError: false
             };
         }
 
-        // ==================== STEP 4: FORMAT RESPONSE ====================
+        // ==================== STEP 6: FORMAT RESPONSE ====================
         const isCorrect = Boolean(verificationResult.isCorrect);
         const confidence = Math.min(100, Math.max(0, parseInt(verificationResult.confidence) || 85));
         let feedback = String(verificationResult.feedback || '').trim();
         const explanation = String(verificationResult.explanation || '').trim();
 
-        console.log('📊 Verification Result:');
+        console.log('📊 Final Verification:');
         console.log('   Is Correct:', isCorrect ? '✅' : '❌');
         console.log('   Confidence:', confidence);
         console.log('   Method Correct:', verificationResult.methodCorrect);
-        console.log('   Calculation Error:', verificationResult.calculationError);
 
-        // Add system correction notice if applicable
-        if (storedAnswerIsWrong) {
-            feedback = `⚠️ המערכת זיהתה טעות בתשובה השמורה!\n` +
-                `התשובה הנכונה היא: ${actualCorrectAnswer}\n` +
-                `(לא ${storedAnswer} כפי שהיה רשום)\n\n` +
-                feedback;
+        // הוסף הודעה אם יש בדיקה ידנית
+        if (shouldReview) {
+            feedback = `📝 שים לב: התשובה נשלחה לבדיקת מורה מכיוון שיש אי-התאמה בין החישובים השונים. אנחנו רוצים לוודא שהתשובה הנכונה מדויקת.\n\n` + feedback;
         }
 
-        // Track usage if we have user and question IDs
+        // עקוב אחרי שימוש
         if (questionId && userId) {
             try {
                 await smartQuestionService.trackUsage(questionId, userId, {
@@ -1878,6 +1814,7 @@ ${storedAnswerIsWrong ? `⚠️ שים לב: התשובה השמורה במער�
         console.log('✅ Verification completed in', duration, 'ms');
         console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
 
+        // ==================== RETURN RESPONSE ====================
         return res.json({
             success: true,
             isCorrect,
@@ -1885,13 +1822,29 @@ ${storedAnswerIsWrong ? `⚠️ שים לב: התשובה השמורה במער�
             feedback,
             explanation,
             actualCorrectAnswer,
-            storedAnswerWasWrong: storedAnswerIsWrong,
+
+            // פרטי חישובים
             calculatedAnswer: aiCalculatedAnswer,
-            workingSteps: calculationResult.workingSteps || [],
+            mathematicalAnswer: mathematicalAnswer,
+            answerSource: answerSource,
+
+            // רמות בטחון
+            aiConfidence: aiConfidence,
+            mathConfidence: mathConfidence,
+
+            // בדיקה ידנית
+            flaggedForReview: shouldReview,
+            reviewReason: reviewReason,
+
+            // שלבי עבודה
+            workingSteps: mathWorkingSteps.length > 0 ? mathWorkingSteps : (calculationResult.workingSteps || []),
+
+            // מטא-דאטה
             methodCorrect: verificationResult.methodCorrect || false,
             calculationError: verificationResult.calculationError || false,
             model: 'claude-sonnet-4-5-20250929',
-            duration
+            mathMethod: mathResult.method || null,
+            duration: duration
         });
 
     } catch (error) {
@@ -1904,6 +1857,8 @@ ${storedAnswerIsWrong ? `⚠️ שים לב: התשובה השמורה במער�
         });
     }
 });
+
+
 
 // ==================== HELPER: COMPARE MATH ANSWERS ====================
 // ==================== HELPER: IMPROVED MATH COMPARISON ====================
