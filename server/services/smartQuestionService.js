@@ -1,10 +1,28 @@
-// server/services/smartQuestionService.js - SIMPLIFIED: Always generate new questions
+// server/services/smartQuestionService.js - FIXED: Smart session tracking
 import pool from '../config/database.js';
 import crypto from 'crypto';
 
+// ✅ TOPIC MAPPING: English → Hebrew
+const TOPIC_MAPPING = {
+    'linear-equations': ['אלגברה', 'משוואות לינאריות', 'משוואות'],
+    'multi-step-equations': ['אלגברה', 'משוואות'],
+    'inequalities': ['אי-שוויונות', 'משוואות ואי-שוויונות'],
+    'systems-of-equations': ['אלגברה', 'מערכות משוואות'],
+    'proportions-ratios': ['יחסים ופרופורציות', 'פרופורציה', 'אחוזים'],
+    'exponents': ['חזקות', 'חזקות ושורשים'],
+    'polynomials': ['אלגברה', 'פולינומים'],
+    'functions': ['פונקציות', 'כללי'],
+    'linear-functions': ['פונקציות לינאריות', 'פונקציות'],
+    'similarity-congruence': ['גיאומטריה', 'דמיון'],
+    'pythagorean-theorem': ['גיאומטריה', 'משפט פיתגורס', 'גאומטריה'],
+    'volume-surface-area': ['נפח', 'מדידה', 'גיאומטריה'],
+    'data-analysis': ['סטטיסטיקה', 'ניתוח נתונים'],
+    'probability': ['הסתברות']
+};
+
 class SmartQuestionService {
     /**
-     * 🚀 SIMPLIFIED: Always return "need AI generation"
+     * 🎯 Get a question - tries cache first, then Israeli bank, then AI
      */
     async getQuestion(params) {
         const {
@@ -14,25 +32,67 @@ class SmartQuestionService {
             subtopicName,
             difficulty = 'medium',
             gradeLevel,
-            userId
+            userId,
+            excludeQuestionIds = []
         } = params;
 
-        console.log('🎯 Smart question request (AI generation mode):', {
+        console.log('🎯 Smart question request:', {
             topicName,
             subtopicName,
             difficulty,
             gradeLevel,
-            userId: userId || 'anonymous'
+            excludedCount: excludeQuestionIds.length
         });
 
-        // ✅ ALWAYS generate new question - no cache, no reuse
-        console.log('🤖 Will generate NEW question with AI');
+        // ✅ Clean and validate excluded IDs
+        const cleanExcludedIds = this.cleanExcludedIds(excludeQuestionIds);
+        console.log('🚫 Excluding questions:', cleanExcludedIds);
+
+        // ==================== STEP 1: Try Cache ====================
+        const cacheQuestion = await this.getFromCache({
+            topicId,
+            subtopicId,
+            difficulty,
+            gradeLevel,
+            excludeQuestionIds: cleanExcludedIds
+        });
+
+        if (cacheQuestion) {
+            console.log('✅ Found in cache:', cacheQuestion.id);
+            if (userId) await this.trackUsage(cacheQuestion.id, userId);
+            return {
+                ...cacheQuestion,
+                source: 'cache',
+                cached: true
+            };
+        }
+
+        // ==================== STEP 2: Try Israeli Questions ====================
+        const israeliQuestion = await this.getIsraeliQuestion({
+            topicName,
+            subtopicName,
+            difficulty,
+            gradeLevel,
+            excludeQuestionIds: cleanExcludedIds
+        });
+
+        if (israeliQuestion) {
+            console.log('✅ Found in Israeli bank:', israeliQuestion.id);
+            return {
+                ...israeliQuestion,
+                source: 'israeli_source',
+                cached: true
+            };
+        }
+
+        // ==================== STEP 3: Generate with AI ====================
+        console.log('🤖 No cached question - will generate with AI');
 
         return {
             source: 'ai_required',
             cached: false,
             shouldGenerate: true,
-            reason: 'always_generate_new',
+            reason: 'no_matching_cached_questions',
             params: {
                 topicId,
                 topicName,
@@ -45,7 +105,230 @@ class SmartQuestionService {
     }
 
     /**
-     * ✅ Cache an AI-generated question (still save for future)
+     * ✅ Clean and validate excluded question IDs
+     */
+    cleanExcludedIds(excludeQuestionIds) {
+        if (!Array.isArray(excludeQuestionIds)) {
+            console.warn('⚠️ excludeQuestionIds is not an array:', excludeQuestionIds);
+            return [];
+        }
+
+        const cleaned = excludeQuestionIds
+            .filter(id => id !== null && id !== undefined && id !== '')
+            .map(id => {
+                // Handle israeli_ prefix
+                if (String(id).startsWith('israeli_')) {
+                    return `israeli_${parseInt(String(id).replace('israeli_', ''))}`;
+                }
+                // Handle numeric IDs
+                const numId = parseInt(id);
+                return isNaN(numId) ? null : numId;
+            })
+            .filter(id => id !== null);
+
+        return [...new Set(cleaned)]; // Remove duplicates
+    }
+
+    /**
+     * ✅ Get from cache with proper exclusion
+     */
+    async getFromCache(params) {
+        const {
+            topicId,
+            subtopicId,
+            difficulty,
+            gradeLevel,
+            excludeQuestionIds = []
+        } = params;
+
+        try {
+            // Separate israeli_ IDs from numeric IDs
+            const numericExcluded = excludeQuestionIds.filter(id => typeof id === 'number');
+
+            let query = `
+                SELECT
+                    id,
+                    question,
+                    correct_answer,
+                    hints,
+                    explanation,
+                    visual_data,
+                    topic_id,
+                    topic_name,
+                    subtopic_id,
+                    subtopic_name,
+                    difficulty,
+                    quality_score,
+                    usage_count
+                FROM question_cache
+                WHERE is_active = true
+                  AND difficulty = $1
+            `;
+
+            const queryParams = [difficulty];
+            let paramIndex = 2;
+
+            // Exclude already shown questions
+            if (numericExcluded.length > 0) {
+                const placeholders = numericExcluded.map((_, i) => `$${paramIndex + i}`).join(',');
+                query += ` AND id NOT IN (${placeholders})`;
+                queryParams.push(...numericExcluded);
+                paramIndex += numericExcluded.length;
+            }
+
+            // Match topic if provided
+            if (topicId) {
+                query += ` AND (topic_id = $${paramIndex} OR topic_id IS NULL)`;
+                queryParams.push(topicId);
+                paramIndex++;
+            }
+
+            // Match subtopic if provided
+            if (subtopicId) {
+                query += ` AND (subtopic_id = $${paramIndex} OR subtopic_id IS NULL)`;
+                queryParams.push(subtopicId);
+                paramIndex++;
+            }
+
+            // Match grade if provided
+            if (gradeLevel) {
+                query += ` AND (grade_level = $${paramIndex} OR grade_level IS NULL)`;
+                queryParams.push(gradeLevel);
+                paramIndex++;
+            }
+
+            query += ` ORDER BY quality_score DESC, usage_count ASC, RANDOM() LIMIT 10`;
+
+            const result = await pool.query(query, queryParams);
+
+            if (result.rows.length > 0) {
+                // Pick random from top results
+                const randomIndex = Math.floor(Math.random() * result.rows.length);
+                return this.formatCacheQuestion(result.rows[randomIndex]);
+            }
+
+            return null;
+
+        } catch (error) {
+            console.error('❌ Cache query error:', error);
+            return null;
+        }
+    }
+
+    /**
+     * ✅ Get Israeli question with proper exclusion
+     */
+    async getIsraeliQuestion(params) {
+        const {
+            topicName,
+            subtopicName,
+            difficulty,
+            gradeLevel,
+            excludeQuestionIds = []
+        } = params;
+
+        try {
+            // Extract israeli_ IDs
+            const israeliExcluded = excludeQuestionIds
+                .filter(id => String(id).startsWith('israeli_'))
+                .map(id => parseInt(String(id).replace('israeli_', '')))
+                .filter(id => !isNaN(id));
+
+            const hebrewTopics = this.getHebrewTopics(topicName, subtopicName);
+
+            if (hebrewTopics.length === 0) {
+                return null;
+            }
+
+            let query = `
+                SELECT
+                    id,
+                    question_text,
+                    correct_answer,
+                    hints,
+                    explanation,
+                    solution_steps,
+                    topic,
+                    subtopic,
+                    difficulty,
+                    grade_level
+                FROM question_bank
+                WHERE source = 'israeli_source'
+                  AND is_active = true
+                  AND topic = ANY($1)
+            `;
+
+            const queryParams = [hebrewTopics];
+            let paramIndex = 2;
+
+            // Exclude already shown Israeli questions
+            if (israeliExcluded.length > 0) {
+                const placeholders = israeliExcluded.map((_, i) => `$${paramIndex + i}`).join(',');
+                query += ` AND id NOT IN (${placeholders})`;
+                queryParams.push(...israeliExcluded);
+                paramIndex += israeliExcluded.length;
+            }
+
+            // Match difficulty
+            if (difficulty) {
+                query += ` AND difficulty = $${paramIndex}`;
+                queryParams.push(difficulty);
+                paramIndex++;
+            }
+
+            // Match grade (within 1 grade)
+            if (gradeLevel) {
+                const minGrade = Math.max(7, gradeLevel - 1);
+                const maxGrade = gradeLevel + 1;
+                query += ` AND grade_level >= $${paramIndex} AND grade_level <= $${paramIndex + 1}`;
+                queryParams.push(minGrade, maxGrade);
+                paramIndex += 2;
+            }
+
+            query += ` ORDER BY RANDOM() LIMIT 10`;
+
+            const result = await pool.query(query, queryParams);
+
+            if (result.rows.length > 0) {
+                const randomIndex = Math.floor(Math.random() * result.rows.length);
+                return this.formatIsraeliQuestion(result.rows[randomIndex]);
+            }
+
+            return null;
+
+        } catch (error) {
+            console.error('❌ Israeli question query error:', error);
+            return null;
+        }
+    }
+
+    /**
+     * ✅ Get Hebrew topics from English mapping
+     */
+    getHebrewTopics(topicName, subtopicName) {
+        const topics = new Set();
+
+        // If already Hebrew
+        const isHebrew = /[\u0590-\u05FF]/.test(topicName);
+        if (isHebrew) {
+            if (topicName) topics.add(topicName);
+            if (subtopicName) topics.add(subtopicName);
+            return Array.from(topics);
+        }
+
+        // Map from English
+        if (topicName && TOPIC_MAPPING[topicName]) {
+            TOPIC_MAPPING[topicName].forEach(t => topics.add(t));
+        }
+        if (subtopicName && TOPIC_MAPPING[subtopicName]) {
+            TOPIC_MAPPING[subtopicName].forEach(t => topics.add(t));
+        }
+
+        return Array.from(topics);
+    }
+
+    /**
+     * ✅ Cache an AI-generated question
      */
     async cacheQuestion(questionData) {
         try {
@@ -63,32 +346,25 @@ class SmartQuestionService {
                 gradeLevel
             } = questionData;
 
-            // Validation
-            if (!question || typeof question !== 'string' || question.trim().length === 0) {
-                console.error('❌ Cannot cache - question is empty or invalid');
+            if (!question || !correctAnswer) {
+                console.error('❌ Cannot cache - missing question or answer');
                 return null;
             }
 
-            if (!correctAnswer || typeof correctAnswer !== 'string' || correctAnswer.trim().length === 0) {
-                console.error('❌ Cannot cache - correct answer is empty or invalid');
-                return null;
-            }
-
-            // Generate hash to prevent duplicates
             const questionHash = this.generateQuestionHash(question);
 
-            // Check if question already exists
+            // Check for duplicates
             const existing = await pool.query(
                 'SELECT id FROM question_cache WHERE question_hash = $1',
                 [questionHash]
             );
 
             if (existing.rows.length > 0) {
-                console.log('⚠️ Question already cached (duplicate detected)');
+                console.log('⚠️ Question already cached');
                 return existing.rows[0].id;
             }
 
-            // Insert new question
+            // Insert new
             const result = await pool.query(
                 `INSERT INTO question_cache (
                     question, correct_answer, hints, explanation, visual_data,
@@ -112,17 +388,17 @@ class SmartQuestionService {
                 ]
             );
 
-            console.log(`✅ Question cached successfully (ID: ${result.rows[0].id})`);
+            console.log(`✅ Cached question ID: ${result.rows[0].id}`);
             return result.rows[0].id;
 
         } catch (error) {
-            console.error('❌ Cache question error:', error);
+            console.error('❌ Cache error:', error);
             return null;
         }
     }
 
     /**
-     * Track question usage (still useful for analytics)
+     * Track usage
      */
     async trackUsage(questionId, userId, usageData = {}) {
         try {
@@ -144,11 +420,7 @@ class SmartQuestionService {
                     ) VALUES ($1, $2, $3, $4, $5, $6)`,
                     [questionId, userId, isCorrect, timeSpent || 0, hintsUsed || 0, attempts || 1]
                 );
-
-                await this.updateQuestionStats(questionId);
             }
-
-            console.log(`✅ Usage tracked for question ${questionId}`);
 
         } catch (error) {
             console.error('❌ Track usage error:', error);
@@ -156,43 +428,7 @@ class SmartQuestionService {
     }
 
     /**
-     * Update question quality statistics
-     */
-    async updateQuestionStats(questionId) {
-        try {
-            await pool.query(
-                `UPDATE question_cache qc
-                 SET
-                     success_rate = (
-                         SELECT COALESCE(AVG(CASE WHEN is_correct THEN 100.0 ELSE 0.0 END), 0)
-                         FROM question_usage_history
-                         WHERE question_id = qc.id
-                     ),
-                     avg_time_seconds = (
-                         SELECT COALESCE(AVG(time_spent_seconds), 0)::INTEGER
-                         FROM question_usage_history
-                         WHERE question_id = qc.id
-                     ),
-                     quality_score = LEAST(100, GREATEST(30,
-                         50 +
-                         CASE WHEN usage_count >= 5 THEN (success_rate - 50) / 2 ELSE 0 END +
-                         CASE
-                             WHEN usage_count >= 20 THEN 20
-                             WHEN usage_count >= 10 THEN 10
-                             WHEN usage_count >= 5 THEN 5
-                             ELSE 0
-                         END
-                     ))
-                 WHERE id = $1`,
-                [questionId]
-            );
-        } catch (error) {
-            console.error('❌ Update stats error:', error);
-        }
-    }
-
-    /**
-     * Generate question hash for duplicate detection
+     * Generate hash
      */
     generateQuestionHash(questionText) {
         const normalized = questionText
@@ -208,55 +444,58 @@ class SmartQuestionService {
     }
 
     /**
-     * Get comprehensive statistics
+     * Format cache question
      */
-    async getStats(filters = {}) {
-        try {
-            const { topicId, difficulty, gradeLevel } = filters;
-
-            let whereClause = 'WHERE is_active = true';
-            const params = [];
-            let paramIndex = 1;
-
-            if (topicId) {
-                whereClause += ` AND topic_id = $${paramIndex}`;
-                params.push(topicId);
-                paramIndex++;
+    formatCacheQuestion(row) {
+        return {
+            id: row.id,
+            question: row.question,
+            correctAnswer: row.correct_answer,
+            hints: Array.isArray(row.hints) ? row.hints : JSON.parse(row.hints || '[]'),
+            explanation: row.explanation || '',
+            visualData: row.visual_data,
+            topic: {
+                id: row.topic_id,
+                name: row.topic_name
+            },
+            subtopic: row.subtopic_id ? {
+                id: row.subtopic_id,
+                name: row.subtopic_name
+            } : null,
+            difficulty: row.difficulty,
+            metadata: {
+                qualityScore: row.quality_score,
+                usageCount: row.usage_count
             }
+        };
+    }
 
-            if (difficulty) {
-                whereClause += ` AND difficulty = $${paramIndex}`;
-                params.push(difficulty);
-                paramIndex++;
+    /**
+     * Format Israeli question
+     */
+    formatIsraeliQuestion(row) {
+        return {
+            id: `israeli_${row.id}`,
+            question: row.question_text,
+            correctAnswer: row.correct_answer,
+            hints: Array.isArray(row.hints) ? row.hints : JSON.parse(row.hints || '[]'),
+            explanation: row.explanation || '',
+            solutionSteps: Array.isArray(row.solution_steps) ? row.solution_steps : JSON.parse(row.solution_steps || '[]'),
+            visualData: null,
+            topic: {
+                id: null,
+                name: row.topic
+            },
+            subtopic: row.subtopic ? {
+                id: null,
+                name: row.subtopic
+            } : null,
+            difficulty: row.difficulty,
+            metadata: {
+                source: 'israeli_question_bank',
+                gradeLevel: row.grade_level
             }
-
-            if (gradeLevel) {
-                whereClause += ` AND grade_level = $${paramIndex}`;
-                params.push(gradeLevel);
-                paramIndex++;
-            }
-
-            // Get cache stats
-            const cacheStats = await pool.query(`
-                SELECT
-                    COUNT(*) as total_questions,
-                    COUNT(CASE WHEN source = 'ai_generated' THEN 1 END) as ai_generated,
-                    ROUND(AVG(quality_score), 1) as avg_quality,
-                    SUM(usage_count) as total_usage,
-                    COUNT(DISTINCT topic_id) as unique_topics,
-                    COUNT(CASE WHEN difficulty = 'easy' THEN 1 END) as easy_questions,
-                    COUNT(CASE WHEN difficulty = 'medium' THEN 1 END) as medium_questions,
-                    COUNT(CASE WHEN difficulty = 'hard' THEN 1 END) as hard_questions,
-                    ROUND(AVG(success_rate), 1) as avg_success_rate
-                FROM question_cache
-                ${whereClause}
-            `, params);
-
-            return cacheStats.rows[0];
-        } catch (error) {
-            console.error('❌ Get stats error:', error);
-            return null;
-        }
+        };
     }
 }
 
