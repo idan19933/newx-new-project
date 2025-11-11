@@ -30,7 +30,7 @@ const LearningSpace = ({ topic, subtopic, onStartPractice, onBack, userId }) => 
                 topicId: topic?.id,
                 subtopicId: subtopic?.id,
                 topicName: topic?.name,
-                subtopicName: subtopic?.name,
+                subtopicName: subtopic?.name
                 userId: userId
             });
 

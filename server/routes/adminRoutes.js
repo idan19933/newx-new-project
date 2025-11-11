@@ -1,5 +1,4 @@
-// server/routes/adminRoutes.js - COMPLETE MERGED VERSION
-// Includes: Standard uploads, Enhanced extraction, Multi-file groups, Solutions
+// server/routes/adminRoutes.js - COMPLETE VERSION WITH STUDENT MANAGEMENT
 import express from 'express';
 import multer from 'multer';
 import path from 'path';
@@ -40,15 +39,14 @@ const upload = multer({
     }
 });
 
+// ==================== EXAM UPLOAD ENDPOINTS ====================
+
 /**
  * 📤 POST /api/admin/upload-exam-enhanced
- * העלאת מבחן עם חילוץ משוואות וגרפים
  */
 router.post('/upload-exam-enhanced', upload.single('image'), async (req, res) => {
     try {
         console.log('📤 Enhanced exam upload');
-        console.log('📤 Enhanced exam upload');
-
 
         if (!req.file) {
             return res.status(400).json({ success: false, error: 'No image' });
@@ -126,7 +124,6 @@ router.post('/upload-exam-enhanced', upload.single('image'), async (req, res) =>
 
 /**
  * 📤 POST /api/admin/upload-exam
- * העלאת מבחן רגילה (backward compatibility)
  */
 router.post('/upload-exam', upload.single('image'), async (req, res) => {
     try {
@@ -189,7 +186,6 @@ router.post('/upload-exam', upload.single('image'), async (req, res) => {
 
 /**
  * 📤 POST /api/admin/upload-exam-grouped-enhanced
- * העלאת קובץ כחלק מקבוצה
  */
 router.post('/upload-exam-grouped-enhanced', upload.single('image'), async (req, res) => {
     try {
@@ -271,7 +267,6 @@ router.post('/upload-exam-grouped-enhanced', upload.single('image'), async (req,
 
 /**
  * 🎯 POST /api/admin/create-exam
- * צור מבחן מתמונה
  */
 router.post('/create-exam', async (req, res) => {
     try {
@@ -532,5 +527,213 @@ router.delete('/upload/:id', async (req, res) => {
         res.status(500).json({ success: false, error: error.message });
     }
 });
+
+// ==================== STUDENT MANAGEMENT ENDPOINTS ====================
+
+/**
+ * 📊 GET /api/admin/dashboard-stats
+ */
+router.get('/dashboard-stats', async (req, res) => {
+    try {
+        const usersResult = await pool.query('SELECT COUNT(*) FROM users');
+        const totalUsers = parseInt(usersResult.rows[0].count);
+
+        const activeUsersResult = await pool.query(`SELECT COUNT(DISTINCT user_id) FROM question_history WHERE created_at > NOW() - INTERVAL '7 days'`);
+        const activeUsers = parseInt(activeUsersResult.rows[0].count);
+
+        const questionsResult = await pool.query('SELECT COUNT(*) FROM question_history');
+        const totalQuestions = parseInt(questionsResult.rows[0].count);
+
+        const examsResult = await pool.query('SELECT COUNT(*) FROM bagrut_exams');
+        const totalExams = parseInt(examsResult.rows[0].count);
+
+        const missionsResult = await pool.query(`SELECT COUNT(*) as total, COUNT(CASE WHEN completed = true THEN 1 END) as completed FROM missions`);
+        const totalMissions = parseInt(missionsResult.rows[0]?.total || 0);
+        const completedMissions = parseInt(missionsResult.rows[0]?.completed || 0);
+
+        const avgAccuracyResult = await pool.query(`SELECT AVG(CASE WHEN questions_answered > 0 THEN (correct_answers::float / questions_answered * 100) ELSE 0 END) as avg_accuracy FROM user_stats`);
+        const averageAccuracy = Math.round(parseFloat(avgAccuracyResult.rows[0]?.avg_accuracy || 0));
+
+        const avgStreakResult = await pool.query('SELECT AVG(streak) as avg_streak FROM user_stats');
+        const averageStreak = Math.round(parseFloat(avgStreakResult.rows[0]?.avg_streak || 0));
+
+        const totalTimeResult = await pool.query('SELECT SUM(practice_time) as total_time FROM user_stats');
+        const totalLearningTime = parseInt(totalTimeResult.rows[0]?.total_time || 0);
+
+        res.json({
+            success: true,
+            stats: { totalUsers, activeUsers, totalQuestions, totalExams, totalMissions, completedMissions, averageAccuracy, averageStreak, totalLearningTime }
+        });
+    } catch (error) {
+        console.error('❌ Dashboard stats error:', error);
+        res.status(500).json({ success: false, error: 'Failed to load stats' });
+    }
+});
+
+/**
+ * 👥 GET /api/admin/users
+ */
+router.get('/users', async (req, res) => {
+    try {
+        const { limit = 100 } = req.query;
+        const query = `
+            SELECT u.id, u.name, u.display_name as "displayName", u.email, u.grade, u.track, u.created_at as "createdAt",
+                COALESCE(json_build_object('questionsAnswered', COALESCE(us.questions_answered, 0), 'correctAnswers', COALESCE(us.correct_answers, 0), 
+                'streak', COALESCE(us.streak, 0), 'practiceTime', COALESCE(us.practice_time, 0),
+                'completedMissions', (SELECT COUNT(*) FROM missions WHERE user_id = u.id AND completed = true),
+                'totalMissions', (SELECT COUNT(*) FROM missions WHERE user_id = u.id)),
+                json_build_object('questionsAnswered', 0, 'correctAnswers', 0, 'streak', 0, 'practiceTime', 0, 'completedMissions', 0, 'totalMissions', 0)) as stats
+            FROM users u LEFT JOIN user_stats us ON u.id = us.user_id ORDER BY u.created_at DESC LIMIT $1
+        `;
+        const result = await pool.query(query, [limit]);
+        res.json({ success: true, users: result.rows });
+    } catch (error) {
+        console.error('❌ Get users error:', error);
+        res.status(500).json({ success: false, error: 'Failed to load users' });
+    }
+});
+
+/**
+ * 👤 GET /api/admin/users/:userId
+ */
+router.get('/users/:userId', async (req, res) => {
+    try {
+        const { userId } = req.params;
+        const result = await pool.query(`SELECT id, name, display_name as "displayName", email, grade, track, created_at as "createdAt" FROM users WHERE id = $1`, [userId]);
+        if (result.rows.length === 0) return res.status(404).json({ success: false, error: 'User not found' });
+        res.json({ success: true, user: result.rows[0] });
+    } catch (error) {
+        console.error('❌ Get user error:', error);
+        res.status(500).json({ success: false, error: 'Failed to load user' });
+    }
+});
+
+/**
+ * 💬 GET /api/admin/user-message/:userId
+ */
+router.get('/user-message/:userId', async (req, res) => {
+    try {
+        const { userId } = req.params;
+        const result = await pool.query(`SELECT message, created_at as "createdAt", updated_at as "updatedAt" FROM admin_messages WHERE user_id = $1`, [userId]);
+        if (result.rows.length === 0) return res.json({ success: true, message: null });
+        res.json({ success: true, ...result.rows[0] });
+    } catch (error) {
+        console.error('❌ Get message error:', error);
+        res.status(500).json({ success: false, error: 'Failed to load message' });
+    }
+});
+
+/**
+ * 💬 POST /api/admin/user-message/:userId
+ */
+router.post('/user-message/:userId', async (req, res) => {
+    try {
+        const { userId } = req.params;
+        const { message } = req.body;
+        if (!message || !message.trim()) return res.status(400).json({ success: false, error: 'Message cannot be empty' });
+        const result = await pool.query(`INSERT INTO admin_messages (user_id, message) VALUES ($1, $2) ON CONFLICT (user_id) DO UPDATE SET message = EXCLUDED.message, updated_at = CURRENT_TIMESTAMP RETURNING *`, [userId, message.trim()]);
+        res.json({ success: true, message: result.rows[0] });
+    } catch (error) {
+        console.error('❌ Save message error:', error);
+        res.status(500).json({ success: false, error: 'Failed to save message' });
+    }
+});
+
+/**
+ * 🎯 GET /api/admin/missions/user/:userId
+ */
+router.get('/missions/user/:userId', async (req, res) => {
+    try {
+        const { userId } = req.params;
+        const { type } = req.query;
+        let query = `SELECT id, title, description, topic_id as "topicId", type, completed, created_at as "createdAt", completed_at as "completedAt" FROM missions WHERE user_id = $1`;
+        const params = [userId];
+        if (type) { query += ` AND type = $2`; params.push(type); }
+        query += ` ORDER BY completed ASC, created_at DESC`;
+        const result = await pool.query(query, params);
+        res.json({ success: true, missions: result.rows });
+    } catch (error) {
+        console.error('❌ Get missions error:', error);
+        res.status(500).json({ success: false, error: 'Failed to load missions' });
+    }
+});
+
+/**
+ * 🎯 POST /api/admin/missions/create
+ */
+router.post('/missions/create', async (req, res) => {
+    try {
+        const { userId, title, description, type, topicId } = req.body;
+        if (!userId || !title) return res.status(400).json({ success: false, error: 'userId and title required' });
+        const result = await pool.query(`INSERT INTO missions (user_id, title, description, type, topic_id) VALUES ($1, $2, $3, $4, $5) RETURNING *`, [userId, title, description || null, type || 'practice', topicId || null]);
+        res.json({ success: true, mission: result.rows[0] });
+    } catch (error) {
+        console.error('❌ Create mission error:', error);
+        res.status(500).json({ success: false, error: 'Failed to create mission' });
+    }
+});
+
+/**
+ * 🎯 POST /api/admin/missions/:missionId/toggle
+ */
+router.post('/missions/:missionId/toggle', async (req, res) => {
+    try {
+        const { missionId } = req.params;
+        const { completed } = req.body;
+        const result = await pool.query(`UPDATE missions SET completed = $1, completed_at = CASE WHEN $1 = true THEN CURRENT_TIMESTAMP ELSE NULL END WHERE id = $2 RETURNING *`, [completed, missionId]);
+        if (result.rows.length === 0) return res.status(404).json({ success: false, error: 'Mission not found' });
+        res.json({ success: true, mission: result.rows[0] });
+    } catch (error) {
+        console.error('❌ Toggle mission error:', error);
+        res.status(500).json({ success: false, error: 'Failed to update mission' });
+    }
+});
+
+/**
+ * 🎯 POST /api/admin/missions/complete/:missionId
+ */
+router.post('/missions/complete/:missionId', async (req, res) => {
+    try {
+        const { missionId } = req.params;
+        const result = await pool.query(`UPDATE missions SET completed = true, completed_at = CURRENT_TIMESTAMP WHERE id = $1 RETURNING *`, [missionId]);
+        if (result.rows.length === 0) return res.status(404).json({ success: false, error: 'Mission not found' });
+        res.json({ success: true, mission: result.rows[0] });
+    } catch (error) {
+        console.error('❌ Complete mission error:', error);
+        res.status(500).json({ success: false, error: 'Failed to complete mission' });
+    }
+});
+
+/**
+ * 🗑️ DELETE /api/admin/missions/:missionId
+ */
+router.delete('/missions/:missionId', async (req, res) => {
+    try {
+        const { missionId } = req.params;
+        const result = await pool.query('DELETE FROM missions WHERE id = $1 RETURNING *', [missionId]);
+        if (result.rows.length === 0) return res.status(404).json({ success: false, error: 'Mission not found' });
+        res.json({ success: true, deleted: result.rows[0] });
+    } catch (error) {
+        console.error('❌ Delete mission error:', error);
+        res.status(500).json({ success: false, error: 'Failed to delete mission' });
+    }
+});
+
+/**
+ * 📚 GET /api/admin/topics
+ */
+router.get('/topics', async (req, res) => {
+    const topics = [
+        { id: 'algebra', name: 'אלגברה' },
+        { id: 'geometry', name: 'גאומטריה' },
+        { id: 'functions', name: 'פונקציות' },
+        { id: 'calculus', name: 'חשבון אינפיניטסימלי' },
+        { id: 'statistics', name: 'סטטיסטיקה והסתברות' },
+        { id: 'trigonometry', name: 'טריגונומטריה' }
+    ];
+    res.json({ success: true, topics });
+});
+
+console.log('✅ Admin routes (exams + student management) loaded');
 
 export default router;

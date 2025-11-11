@@ -1,480 +1,397 @@
-
+// src/pages/AdminDashboard.jsx - ENHANCED ADMIN DASHBOARD WITH STUDENT MANAGEMENT
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-// src/pages/AdminDashboard.jsx - FIXED FOR RAILWAY
-import React, { useState, useCallback } from 'react';
-import axios from 'axios';
 import { motion } from 'framer-motion';
+import axios from 'axios';
 import {
-    Upload, Image, FileText, CheckCircle, XCircle,
-    Loader, Eye, RefreshCw, Camera, Sparkles,
-    Brain, Zap, Award, BookOpen
+    Users, BookOpen, Bell, Code, MessageSquare, Upload,
+    Brain, TrendingUp, Award, Target, Clock, Flame,
+    ChevronRight, User, Eye, Settings, BarChart3,
+    GraduationCap, FileText, Zap, Star, Activity
 } from 'lucide-react';
-import { useDropzone } from 'react-dropzone';
 import useAuthStore from '../store/authStore';
 import toast from 'react-hot-toast';
 
-// ✅ API URL from environment variable
-const API_URL =
-    'https://nexons-production-1915.up.railway.app';
-
-console.log('🔧 API_URL configured:', API_URL);
+const API_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
 
 const AdminDashboard = () => {
-    const { user } = useAuthStore();
-    const [uploads, setUploads] = useState([]);
-    const [loading, setLoading] = useState(false);
-    const [processing, setProcessing] = useState(false);
-
-    const [formData, setFormData] = useState({
-        examTitle: '',
-        gradeLevel: '12',
-        subject: 'mathematics',
-        units: '5',
-        examType: 'bagrut'
-    });
     const navigate = useNavigate();
+    const { user } = useAuthStore();
 
-
-    // 📤 Handle file drop
-    const onDrop = useCallback((acceptedFiles) => {
-        acceptedFiles.forEach(file => {
-            handleImageUpload(file);
-        });
-    }, [formData]);
-
-    const { getRootProps, getInputProps, isDragActive } = useDropzone({
-        onDrop,
-        accept: {
-            'image/*': ['.png', '.jpg', '.jpeg', '.gif', '.webp']
-        },
-        multiple: true
+    const [stats, setStats] = useState({
+        totalUsers: 0,
+        activeUsers: 0,
+        totalQuestions: 0,
+        totalExams: 0,
+        totalMissions: 0,
+        completedMissions: 0
     });
+    const [loading, setLoading] = useState(true);
+    const [recentUsers, setRecentUsers] = useState([]);
 
-    /**
-     * 📸 העלאת תמונה - FIXED VERSION
-     */
-    /**
-     * 📸 העלאת תמונה ויצירת מבחן
-     */
-    const handleImageUpload = async (file) => {
-        const uploadToast = toast.loading('מעלה תמונה...');
+    useEffect(() => {
+        loadDashboardStats();
+    }, []);
 
-        try {
-            console.log('📤 Uploading to:', `${API_URL}/api/admin/upload-image`);
-            console.log('📤 File:', file.name, file.size, 'bytes');
-
-            setProcessing(true);
-
-            const uploadFormData = new FormData();
-            uploadFormData.append('image', file);
-
-            // Step 1: Upload image
-            const uploadResponse = await axios.post(
-                `${API_URL}/api/admin/upload-image`,
-                uploadFormData,
-                {
-                    headers: {
-                        'Content-Type': 'multipart/form-data'
-                    },
-                    timeout: 30000
-                }
-            );
-
-            console.log('✅ Upload response:', uploadResponse.data);
-
-            if (!uploadResponse.data.success) {
-                throw new Error(uploadResponse.data.error || 'Upload failed');
-            }
-
-            toast.success('✅ התמונה הועלתה!', { id: uploadToast });
-
-            // Step 2: Create exam from image
-            const createToast = toast.loading('מעבד עם AI...');
-
-            const examData = {
-                imageUrl: uploadResponse.data.imageUrl,
-                examTitle: formData.examTitle,
-                gradeLevel: formData.gradeLevel,
-                subject: formData.subject,
-                units: formData.units,
-                examType: formData.examType
-            };
-
-            const createResponse = await axios.post(
-                `${API_URL}/api/admin/create-exam`,
-                examData,
-                { timeout: 60000 } // 60 seconds for AI processing
-            );
-
-            console.log('✅ Exam created:', createResponse.data);
-
-            toast.success(`✅ נוצר מבחן עם ${createResponse.data.questionsExtracted} שאלות!`, {
-                id: createToast,
-                duration: 5000
-            });
-
-            // Refresh uploads list
-            await loadUploads();
-
-            return createResponse.data;
-
-        } catch (error) {
-            console.error('❌ Upload error:', error);
-
-            let errorMessage = 'שגיאה בהעלאת התמונה';
-
-            if (error.code === 'ERR_NETWORK') {
-                errorMessage = 'אין חיבור לשרת';
-            } else if (error.response) {
-                errorMessage = error.response.data?.error || `שגיאה: ${error.response.status}`;
-            } else if (error.request) {
-                errorMessage = 'השרת לא מגיב';
-            } else {
-                errorMessage = error.message;
-            }
-
-            toast.error(errorMessage, { id: uploadToast });
-            throw error;
-
-        } finally {
-            setProcessing(false);
-        }
-    };
-    /**
-     * 📊 טעינת העלאות קיימות
-     */
-    const loadUploads = async () => {
+    const loadDashboardStats = async () => {
         try {
             setLoading(true);
-            console.log('📥 Loading uploads from:', `${API_URL}/api/admin/uploads`);
 
-            const response = await axios.get(`${API_URL}/api/admin/uploads`, {
-                timeout: 10000
-            });
-
-            console.log('✅ Uploads loaded:', response.data);
-
-            if (response.data.success) {
-                setUploads(response.data.uploads || []);
+            // Load overall stats
+            const statsResponse = await axios.get(`${API_URL}/api/admin/dashboard-stats`);
+            if (statsResponse.data.success) {
+                setStats(statsResponse.data.stats);
             }
 
+            // Load recent users
+            const usersResponse = await axios.get(`${API_URL}/api/admin/users?limit=5`);
+            if (usersResponse.data.success) {
+                setRecentUsers(usersResponse.data.users || []);
+            }
         } catch (error) {
-            console.error('❌ Load uploads error:', error);
-
-            if (error.code === 'ERR_NETWORK') {
-                toast.error('אין חיבור לשרת');
-            } else {
-                toast.error('שגיאה בטעינת המבחנים');
-            }
-
+            console.error('❌ Error loading dashboard stats:', error);
         } finally {
             setLoading(false);
         }
     };
 
-    React.useEffect(() => {
-        loadUploads();
-    }, []);
-
-    /**
-     * 🧪 בדיקת חיבור לשרת
-     */
-    const testConnection = async () => {
-        const testToast = toast.loading('בודק חיבור לשרת...');
-
-        try {
-            console.log('🧪 Testing connection to:', `${API_URL}/health`);
-
-            const response = await axios.get(`${API_URL}/health`, {
-                timeout: 5000
-            });
-
-            console.log('✅ Server health:', response.data);
-
-            toast.success('✅ השרת פעיל!', { id: testToast });
-
-        } catch (error) {
-            console.error('❌ Connection test failed:', error);
-            toast.error('❌ השרת לא זמין', { id: testToast });
+    const adminSections = [
+        {
+            title: 'ניהול תלמידים',
+            description: 'צפה בכל התלמידים, הקצה משימות ושלח הודעות אישיות',
+            icon: Users,
+            color: 'from-purple-600 to-pink-600',
+            path: '/admin/users',
+            badge: stats.totalUsers
+        },
+        {
+            title: 'העלאת מבחנים',
+            description: 'העלה מבחני בגרות והפוך אותם למבחנים אינטראקטיביים',
+            icon: Upload,
+            color: 'from-blue-600 to-cyan-600',
+            path: '/admin',
+            badge: stats.totalExams,
+            isCurrentPage: true
+        },
+        {
+            title: 'ניהול תכנית לימודים',
+            description: 'ערוך שיעורים, נושאים וחומרי לימוד',
+            icon: BookOpen,
+            color: 'from-green-600 to-emerald-600',
+            path: '/admin/course/mathematics/curriculum'
+        },
+        {
+            title: 'ניהול יעדים',
+            description: 'הגדר יעדי למידה ומעקב אחר התקדמות',
+            icon: Target,
+            color: 'from-orange-600 to-red-600',
+            path: '/admin/goals'
+        },
+        {
+            title: 'קודי הרשמה',
+            description: 'צור וניהל קודי הרשמה ייחודיים',
+            icon: Code,
+            color: 'from-indigo-600 to-purple-600',
+            path: '/admin/codes'
+        },
+        {
+            title: 'התראות מערכת',
+            description: 'שלח הודעות והתראות לכל המשתמשים',
+            icon: Bell,
+            color: 'from-yellow-600 to-orange-600',
+            path: '/admin/notifications'
+        },
+        {
+            title: 'העלאת בעיות',
+            description: 'הוסף בעיות תרגול למאגר השאלות',
+            icon: Brain,
+            color: 'from-pink-600 to-rose-600',
+            path: '/admin/problems'
+        },
+        {
+            title: 'אישיויות AI',
+            description: 'נהל את האישיויות והטונים של נקסון',
+            icon: MessageSquare,
+            color: 'from-teal-600 to-cyan-600',
+            path: '/admin/ai-upload'
         }
-    };
+    ];
+
+    if (loading) {
+        return (
+            <div className="min-h-screen bg-gradient-to-br from-gray-900 to-gray-800 flex items-center justify-center">
+                <div className="animate-spin w-16 h-16 border-4 border-purple-500 border-t-transparent rounded-full"></div>
+            </div>
+        );
+    }
 
     return (
-        <div className="min-h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-900 py-8 px-4" dir="rtl">
+        <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 py-8 px-4" dir="rtl">
             <div className="max-w-7xl mx-auto">
                 {/* Header */}
                 <motion.div
                     initial={{ opacity: 0, y: -20 }}
                     animate={{ opacity: 1, y: 0 }}
-                    className="text-center mb-10"
-                >
-                    <motion.div
-                        animate={{ rotate: [0, 10, -10, 0] }}
-                        transition={{ duration: 2, repeat: Infinity }}
-                        className="inline-block text-6xl mb-4"
-                    >
-                        👨‍💼
-                    </motion.div>
-                    <h1 className="text-5xl font-black text-white mb-4">
-                        פאנל ניהול - Admin Dashboard
-                    </h1>
-                    <p className="text-xl text-gray-200 mb-4">
-                        העלה תמונות של מבחנים וה-AI יחלץ את השאלות אוטומטית 🚀
-                    </p>
-
-                    {/* Server Status */}
-                    <div className="flex items-center justify-center gap-4 mt-4">
-                        <div className="bg-white/10 backdrop-blur-sm px-4 py-2 rounded-full text-white text-sm">
-                            🌐 Server: {API_URL}
-                        </div>
-                        <button
-                            onClick={testConnection}
-                            className="bg-green-500 hover:bg-green-600 px-4 py-2 rounded-full text-white text-sm font-bold transition-colors"
-                        >
-                            🧪 בדוק חיבור
-                        </button>
-                    </div>
-                </motion.div>
-
-                {/* Upload Form */}
-                <motion.div
-                    initial={{ opacity: 0, scale: 0.95 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    className="bg-white rounded-3xl p-8 shadow-2xl mb-8"
-                >
-                    <div className="flex items-center gap-3 mb-6">
-                        <Camera className="w-8 h-8 text-purple-600" />
-                        <h2 className="text-3xl font-black text-gray-800">העלאת מבחן חדש</h2>
-                    </div>
-
-                    {/* Form Fields */}
-                    <div className="grid md:grid-cols-2 gap-6 mb-6">
-                        <div>
-                            <label className="block text-sm font-bold text-gray-700 mb-2">
-                                כותרת המבחן
-                            </label>
-                            <input
-                                type="text"
-                                value={formData.examTitle}
-                                onChange={(e) => setFormData({ ...formData, examTitle: e.target.value })}
-                                placeholder="לדוגמה: מבחן בגרות מתמטיקה 5 יחידות - מועד 806"
-                                className="w-full px-4 py-3 rounded-xl border-2 border-gray-300 focus:border-purple-500 focus:ring-4 focus:ring-purple-500/20 font-medium"
-                            />
-                        </div>
-
-                        <div>
-                            <label className="block text-sm font-bold text-gray-700 mb-2">
-                                כיתה
-                            </label>
-                            <select
-                                value={formData.gradeLevel}
-                                onChange={(e) => setFormData({ ...formData, gradeLevel: e.target.value })}
-                                className="w-full px-4 py-3 rounded-xl border-2 border-gray-300 focus:border-purple-500 focus:ring-4 focus:ring-purple-500/20 font-medium"
-                            >
-                                <option value="7">כיתה ז'</option>
-                                <option value="8">כיתה ח'</option>
-                                <option value="9">כיתה ט'</option>
-                                <option value="10">כיתה י'</option>
-                                <option value="11">כיתה יא'</option>
-                                <option value="12">כיתה יב'</option>
-                            </select>
-                        </div>
-
-                        <div>
-                            <label className="block text-sm font-bold text-gray-700 mb-2">
-                                מספר יחידות
-                            </label>
-                            <select
-                                value={formData.units}
-                                onChange={(e) => setFormData({ ...formData, units: e.target.value })}
-                                className="w-full px-4 py-3 rounded-xl border-2 border-gray-300 focus:border-purple-500 focus:ring-4 focus:ring-purple-500/20 font-medium"
-                            >
-                                <option value="3">3 יחידות</option>
-                                <option value="4">4 יחידות</option>
-                                <option value="5">5 יחידות</option>
-                            </select>
-                        </div>
-
-                        <div>
-                            <label className="block text-sm font-bold text-gray-700 mb-2">
-                                סוג מבחן
-                            </label>
-                            <select
-                                value={formData.examType}
-                                onChange={(e) => setFormData({ ...formData, examType: e.target.value })}
-                                className="w-full px-4 py-3 rounded-xl border-2 border-gray-300 focus:border-purple-500 focus:ring-4 focus:ring-purple-500/20 font-medium"
-                            >
-                                <option value="bagrut">בגרות</option>
-                                <option value="monthly">מבחן חודשי</option>
-                                <option value="practice">תרגול</option>
-                                <option value="mock">מבחן מבחן</option>
-                            </select>
-                        </div>
-                    </div>
-
-                    {/* Dropzone */}
-                    <div
-                        {...getRootProps()}
-                        className={`border-4 border-dashed rounded-3xl p-12 text-center transition-all cursor-pointer ${
-                            isDragActive
-                                ? 'border-purple-500 bg-purple-50'
-                                : 'border-gray-300 hover:border-purple-400 hover:bg-gray-50'
-                        } ${processing ? 'opacity-50 cursor-not-allowed' : ''}`}
-                    >
-                        <input {...getInputProps()} disabled={processing} />
-                        <motion.div
-                            animate={{ scale: isDragActive ? 1.1 : 1 }}
-                            className="flex flex-col items-center"
-                        >
-                            {processing ? (
-                                <>
-                                    <Loader className="w-20 h-20 text-purple-600 animate-spin mb-4" />
-                                    <p className="text-2xl font-black text-purple-600 mb-2">
-                                        מעלה תמונה... ⚡
-                                    </p>
-                                    <p className="text-gray-600">
-                                        אנא המתן...
-                                    </p>
-                                </>
-                            ) : isDragActive ? (
-                                <>
-                                    <Upload className="w-20 h-20 text-purple-600 mb-4" />
-                                    <p className="text-2xl font-black text-purple-600">
-                                        שחרר כאן! 📸
-                                    </p>
-                                </>
-                            ) : (
-                                <>
-                                    <Image className="w-20 h-20 text-gray-400 mb-4" />
-                                    <p className="text-2xl font-black text-gray-800 mb-2">
-                                        גרור תמונות לכאן או לחץ לבחירה
-                                    </p>
-                                    <p className="text-gray-600 mb-4">
-                                        תומך ב-PNG, JPG, JPEG, GIF, WEBP
-                                    </p>
-                                    <div className="flex items-center gap-2 text-sm text-purple-600 font-bold">
-                                        <Sparkles className="w-5 h-5" />
-                                        <span>AI מתקדם יחלץ את כל השאלות אוטומטית</span>
-                                    </div>
-                                </>
-                            )}
-                        </motion.div>
-                    </div>
-                </motion.div>
-
-                {/* Uploads List */}
-                <motion.div
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.2 }}
-                    className="bg-white rounded-3xl p-8 shadow-2xl"
+                    className="mb-8"
                 >
                     <div className="flex items-center justify-between mb-6">
+                        <div>
+                            <h1 className="text-5xl font-black text-white mb-2">
+                                👨‍💼 לוח הבקרה - Admin
+                            </h1>
+                            <p className="text-xl text-gray-400">
+                                ברוך הבא, {user?.name || user?.displayName}! 🚀
+                            </p>
+                        </div>
                         <div className="flex items-center gap-3">
-                            <FileText className="w-8 h-8 text-blue-600" />
-                            <h2 className="text-3xl font-black text-gray-800">מבחנים שהועלו</h2>
+                            <div className="px-4 py-2 bg-green-500/20 rounded-full text-green-400 font-bold text-sm">
+                                🟢 המערכת פעילה
+                            </div>
                         </div>
-                        <motion.button
-                            whileHover={{ scale: 1.05 }}
-                            whileTap={{ scale: 0.95 }}
-                            onClick={loadUploads}
-                            disabled={loading}
-                            className="px-6 py-3 bg-blue-600 text-white rounded-xl font-bold shadow-lg hover:shadow-xl disabled:opacity-50"
-                        >
-                            <RefreshCw className={`w-5 h-5 inline-block ml-2 ${loading ? 'animate-spin' : ''}`} />
-                            רענן
-                        </motion.button>
                     </div>
+                </motion.div>
 
-                    {loading ? (
-                        <div className="text-center py-12">
-                            <Loader className="w-12 h-12 text-purple-600 animate-spin mx-auto mb-4" />
-                            <p className="text-gray-600">טוען...</p>
+                {/* Stats Overview */}
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+                    <motion.div
+                        initial={{ opacity: 0, scale: 0.9 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        className="bg-gradient-to-br from-purple-600 to-pink-600 rounded-2xl p-6 shadow-xl"
+                    >
+                        <div className="flex items-center justify-between mb-4">
+                            <Users className="w-12 h-12 text-white" />
+                            <div className="text-right">
+                                <p className="text-5xl font-black text-white">{stats.totalUsers}</p>
+                                <p className="text-white/90 font-bold">תלמידים</p>
+                            </div>
                         </div>
-                    ) : uploads.length === 0 ? (
-                        <div className="text-center py-12">
-                            <BookOpen className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-                            <p className="text-xl text-gray-600">אין מבחנים עדיין</p>
-                            <p className="text-gray-500">העלה את המבחן הראשון שלך! 🚀</p>
+                        <div className="text-white/80 text-sm">
+                            {stats.activeUsers} פעילים השבוע
                         </div>
-                    ) : (
-                        <div className="space-y-4">
-                            {uploads.map((upload, index) => (
+                    </motion.div>
+
+                    <motion.div
+                        initial={{ opacity: 0, scale: 0.9 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        transition={{ delay: 0.1 }}
+                        className="bg-gradient-to-br from-blue-600 to-cyan-600 rounded-2xl p-6 shadow-xl"
+                    >
+                        <div className="flex items-center justify-between mb-4">
+                            <Brain className="w-12 h-12 text-white" />
+                            <div className="text-right">
+                                <p className="text-5xl font-black text-white">{stats.totalQuestions}</p>
+                                <p className="text-white/90 font-bold">שאלות</p>
+                            </div>
+                        </div>
+                        <div className="text-white/80 text-sm">
+                            סה"כ שאלות במערכת
+                        </div>
+                    </motion.div>
+
+                    <motion.div
+                        initial={{ opacity: 0, scale: 0.9 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        transition={{ delay: 0.2 }}
+                        className="bg-gradient-to-br from-green-600 to-emerald-600 rounded-2xl p-6 shadow-xl"
+                    >
+                        <div className="flex items-center justify-between mb-4">
+                            <FileText className="w-12 h-12 text-white" />
+                            <div className="text-right">
+                                <p className="text-5xl font-black text-white">{stats.totalExams}</p>
+                                <p className="text-white/90 font-bold">מבחנים</p>
+                            </div>
+                        </div>
+                        <div className="text-white/80 text-sm">
+                            מבחנים שהועלו למערכת
+                        </div>
+                    </motion.div>
+
+                    <motion.div
+                        initial={{ opacity: 0, scale: 0.9 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        transition={{ delay: 0.3 }}
+                        className="bg-gradient-to-br from-orange-600 to-red-600 rounded-2xl p-6 shadow-xl"
+                    >
+                        <div className="flex items-center justify-between mb-4">
+                            <Target className="w-12 h-12 text-white" />
+                            <div className="text-right">
+                                <p className="text-5xl font-black text-white">
+                                    {stats.completedMissions}/{stats.totalMissions}
+                                </p>
+                                <p className="text-white/90 font-bold">משימות</p>
+                            </div>
+                        </div>
+                        <div className="text-white/80 text-sm">
+                            {stats.totalMissions > 0
+                                ? Math.round((stats.completedMissions / stats.totalMissions) * 100)
+                                : 0}% הושלמו
+                        </div>
+                    </motion.div>
+                </div>
+
+                {/* Quick Actions / Recent Activity Grid */}
+                <div className="grid lg:grid-cols-3 gap-8 mb-8">
+                    {/* Admin Sections - 2 columns */}
+                    <div className="lg:col-span-2">
+                        <h2 className="text-3xl font-black text-white mb-6 flex items-center gap-3">
+                            <Settings className="w-8 h-8 text-purple-400" />
+                            כלי ניהול
+                        </h2>
+                        <div className="grid md:grid-cols-2 gap-4">
+                            {adminSections.map((section, index) => (
                                 <motion.div
-                                    key={upload.id}
-                                    initial={{ opacity: 0, x: -20 }}
-                                    animate={{ opacity: 1, x: 0 }}
-                                    transition={{ delay: index * 0.1 }}
-                                    className="border-2 border-gray-200 rounded-2xl p-6 hover:border-purple-400 hover:shadow-lg transition-all"
+                                    key={section.title}
+                                    initial={{ opacity: 0, y: 20 }}
+                                    animate={{ opacity: 1, y: 0 }}
+                                    transition={{ delay: index * 0.05 }}
+                                    whileHover={{ scale: 1.03, y: -5 }}
+                                    onClick={() => navigate(section.path)}
+                                    className={`relative bg-gray-800 rounded-2xl p-6 cursor-pointer border-2 transition-all ${
+                                        section.isCurrentPage
+                                            ? 'border-purple-500 shadow-xl shadow-purple-500/20'
+                                            : 'border-gray-700 hover:border-gray-600'
+                                    }`}
                                 >
-                                    <div className="flex items-start justify-between">
-                                        <div className="flex-1">
-                                            <div className="flex items-center gap-3 mb-2">
-                                                {upload.status === 'completed' ? (
-                                                    <CheckCircle className="w-6 h-6 text-green-500" />
-                                                ) : upload.status === 'failed' ? (
-                                                    <XCircle className="w-6 h-6 text-red-500" />
-                                                ) : (
-                                                    <Loader className="w-6 h-6 text-blue-500 animate-spin" />
-                                                )}
-                                                <h3 className="text-xl font-black text-gray-800">
-                                                    {upload.exam_title || upload.original_name}
-                                                </h3>
-                                            </div>
-
-                                            <div className="grid md:grid-cols-4 gap-4 mt-4">
-                                                <div className="flex items-center gap-2 text-sm">
-                                                    <Award className="w-4 h-4 text-purple-600" />
-                                                    <span className="font-bold">כיתה {upload.grade_level}</span>
-                                                </div>
-                                                <div className="flex items-center gap-2 text-sm">
-                                                    <Zap className="w-4 h-4 text-orange-600" />
-                                                    <span className="font-bold">{upload.units} יחידות</span>
-                                                </div>
-                                                <div className="flex items-center gap-2 text-sm">
-                                                    <Brain className="w-4 h-4 text-blue-600" />
-                                                    <span className="font-bold">{upload.total_questions || 0} שאלות</span>
-                                                </div>
-                                                <div className="text-sm text-gray-600">
-                                                    {new Date(upload.uploaded_at).toLocaleDateString('he-IL')}
-                                                </div>
-                                            </div>
-
-                                            {upload.status === 'completed' && (
-                                                <div className="mt-4 p-4 bg-green-50 rounded-xl">
-                                                    <p className="text-sm font-bold text-green-800">
-                                                        ✅ חולצו {upload.questions_extracted} שאלות מהמבחן
-                                                    </p>
-                                                </div>
-                                            )}
-
-                                            {upload.status === 'failed' && (
-                                                <div className="mt-4 p-4 bg-red-50 rounded-xl">
-                                                    <p className="text-sm font-bold text-red-800">
-                                                        ❌ שגיאה: {upload.error_message}
-                                                    </p>
-                                                </div>
-                                            )}
+                                    {section.badge !== undefined && (
+                                        <div className="absolute top-4 left-4 w-10 h-10 bg-white/10 backdrop-blur-sm rounded-full flex items-center justify-center">
+                                            <span className="text-white font-black text-sm">{section.badge}</span>
                                         </div>
+                                    )}
 
-                                        <div className="flex gap-2">
-                                            {upload.image_url && (
-                                                <motion.button
-                                                    whileHover={{ scale: 1.1 }}
-                                                    whileTap={{ scale: 0.9 }}
-                                                    onClick={() => navigate(`/admin/exam/${upload.id}`)}
-                                                    className="p-2 bg-blue-100 hover:bg-blue-200 rounded-lg transition-colors"
-                                                    title="צפה במבחן"
-                                                >
-                                                    <Eye className="w-5 h-5 text-blue-600" />
-                                                </motion.button>
-                                            )}
-                                        </div>
+                                    <div className={`w-14 h-14 bg-gradient-to-br ${section.color} rounded-xl flex items-center justify-center mb-4`}>
+                                        <section.icon className="w-7 h-7 text-white" />
+                                    </div>
+
+                                    <h3 className="text-xl font-black text-white mb-2">
+                                        {section.title}
+                                    </h3>
+                                    <p className="text-gray-400 text-sm mb-4">
+                                        {section.description}
+                                    </p>
+
+                                    <div className="flex items-center text-purple-400 font-bold text-sm">
+                                        <span>כנס לניהול</span>
+                                        <ChevronRight className="w-5 h-5 mr-1" />
                                     </div>
                                 </motion.div>
                             ))}
                         </div>
-                    )}
+                    </div>
+
+                    {/* Recent Users - 1 column */}
+                    <div className="lg:col-span-1">
+                        <h2 className="text-3xl font-black text-white mb-6 flex items-center gap-3">
+                            <Activity className="w-8 h-8 text-green-400" />
+                            תלמידים אחרונים
+                        </h2>
+                        <div className="bg-gray-800 rounded-2xl p-6 border-2 border-gray-700">
+                            {recentUsers.length === 0 ? (
+                                <div className="text-center py-8">
+                                    <Users className="w-12 h-12 text-gray-600 mx-auto mb-3" />
+                                    <p className="text-gray-400">אין תלמידים עדיין</p>
+                                </div>
+                            ) : (
+                                <div className="space-y-4">
+                                    {recentUsers.map((student, index) => (
+                                        <motion.div
+                                            key={student.id}
+                                            initial={{ opacity: 0, x: -20 }}
+                                            animate={{ opacity: 1, x: 0 }}
+                                            transition={{ delay: index * 0.1 }}
+                                            onClick={() => navigate(`/admin/user/${student.id}`)}
+                                            className="flex items-center gap-4 p-3 bg-gray-700/50 rounded-xl hover:bg-gray-700 cursor-pointer transition-colors"
+                                        >
+                                            <div className="w-12 h-12 bg-gradient-to-br from-purple-600 to-pink-600 rounded-full flex items-center justify-center flex-shrink-0">
+                                                <User className="w-6 h-6 text-white" />
+                                            </div>
+                                            <div className="flex-1 min-w-0">
+                                                <h4 className="text-white font-bold truncate">
+                                                    {student.name || student.displayName}
+                                                </h4>
+                                                <p className="text-xs text-gray-400 truncate">
+                                                    {student.email}
+                                                </p>
+                                            </div>
+                                            <Eye className="w-5 h-5 text-gray-400 flex-shrink-0" />
+                                        </motion.div>
+                                    ))}
+
+                                    <motion.button
+                                        whileHover={{ scale: 1.02 }}
+                                        whileTap={{ scale: 0.98 }}
+                                        onClick={() => navigate('/admin/users')}
+                                        className="w-full py-3 bg-purple-600 hover:bg-purple-700 text-white rounded-xl font-bold transition-colors flex items-center justify-center gap-2"
+                                    >
+                                        <Users className="w-5 h-5" />
+                                        <span>צפה בכל התלמידים</span>
+                                        <ChevronRight className="w-5 h-5" />
+                                    </motion.button>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Quick Stats */}
+                        <div className="mt-6 bg-gray-800 rounded-2xl p-6 border-2 border-gray-700">
+                            <h3 className="text-xl font-black text-white mb-4">סטטיסטיקות מהירות</h3>
+                            <div className="space-y-3">
+                                <div className="flex items-center justify-between">
+                                    <span className="text-gray-400 flex items-center gap-2">
+                                        <TrendingUp className="w-4 h-4" />
+                                        דיוק ממוצע
+                                    </span>
+                                    <span className="text-green-400 font-black">
+                                        {stats.averageAccuracy || 0}%
+                                    </span>
+                                </div>
+                                <div className="flex items-center justify-between">
+                                    <span className="text-gray-400 flex items-center gap-2">
+                                        <Flame className="w-4 h-4" />
+                                        רצף ממוצע
+                                    </span>
+                                    <span className="text-orange-400 font-black">
+                                        {stats.averageStreak || 0} ימים
+                                    </span>
+                                </div>
+                                <div className="flex items-center justify-between">
+                                    <span className="text-gray-400 flex items-center gap-2">
+                                        <Clock className="w-4 h-4" />
+                                        זמן לימוד כולל
+                                    </span>
+                                    <span className="text-blue-400 font-black">
+                                        {Math.round((stats.totalLearningTime || 0) / 60)} שעות
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                {/* System Info */}
+                <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="bg-gray-800 rounded-2xl p-6 border-2 border-gray-700"
+                >
+                    <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-4">
+                            <div className="w-12 h-12 bg-gradient-to-br from-green-500 to-emerald-600 rounded-xl flex items-center justify-center">
+                                <Zap className="w-6 h-6 text-white" />
+                            </div>
+                            <div>
+                                <h3 className="text-white font-black">נקסון AI - מערכת לימוד חכמה</h3>
+                                <p className="text-gray-400 text-sm">גרסה 2.0 • עדכון אחרון: {new Date().toLocaleDateString('he-IL')}</p>
+                            </div>
+                        </div>
+                        <div className="flex items-center gap-3">
+                            <div className="px-4 py-2 bg-blue-500/20 rounded-full text-blue-400 font-bold text-sm">
+                                API: {API_URL}
+                            </div>
+                            <div className="px-4 py-2 bg-green-500/20 rounded-full text-green-400 font-bold text-sm flex items-center gap-2">
+                                <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
+                                מחובר
+                            </div>
+                        </div>
+                    </div>
                 </motion.div>
             </div>
         </div>

@@ -1,1210 +1,957 @@
-// src/components/learning/AILearningArea.jsx - ULTIMATE ENHANCED MODERN UI 🎨✨
-import React, { useState, useEffect, useCallback, useRef, memo } from 'react';
+// src/components/learning/AILearningArea.jsx - ENHANCED LECTURE COMPONENT
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-    Book, ChevronLeft, ChevronRight, XCircle, Brain,
-    Lightbulb, Play, ArrowLeft, Sparkles, Trophy,
-    Target, CheckCircle2, Zap, Star, Flame, Award,
-    TrendingUp, BookOpen, Rocket, Coffee, Smile,
-    Activity, Bookmark, Heart, MessageCircle
+    BookOpen, Lightbulb, Target, ChevronLeft, ChevronRight,
+    Sparkles, CheckCircle, Brain, MessageCircle, AlertCircle,
+    FileText, Save, X, Send, ThumbsUp, HelpCircle, Repeat,
+    Volume2, VolumeX, User
 } from 'lucide-react';
-import useAuthStore from '../../store/authStore';
+import axios from 'axios';
 import toast from 'react-hot-toast';
 
-// ✅ MODULE-LEVEL CACHE - Persists across ALL component mounts/unmounts
-const CONTENT_CACHE = new Map();
-const LOADING_TRACKER = new Map();
+const API_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
 
-// ==================== 🎨 ANIMATION VARIANTS ====================
-const pageTransition = {
-    initial: { opacity: 0, y: 20, scale: 0.98 },
-    animate: {
-        opacity: 1,
-        y: 0,
-        scale: 1,
-        transition: { duration: 0.5, ease: [0.22, 1, 0.36, 1] }
-    },
-    exit: {
-        opacity: 0,
-        y: -20,
-        scale: 0.98,
-        transition: { duration: 0.3 }
-    }
+// Helper function to fix Hebrew-English-Number mixed text
+const fixHebrewText = (text) => {
+    if (!text) return '';
+
+    // Replace common patterns that mix Hebrew, numbers, and English
+    // This helps with RTL display issues
+    return text
+        .replace(/(\d+)\s*\+\s*(\d+)/g, '$1 + $2') // Fix spacing around operators
+        .replace(/(\d+)\s*-\s*(\d+)/g, '$1 - $2')
+        .replace(/(\d+)\s*×\s*(\d+)/g, '$1 × $2')
+        .replace(/(\d+)\s*÷\s*(\d+)/g, '$1 ÷ $2')
+        .replace(/(\d+)\s*=\s*(\d+)/g, '$1 = $2')
+        // Add zero-width space after numbers to help with RTL
+        .replace(/(\d+)([א-ת])/g, '$1\u200B$2')
+        // Fix common mathematical expressions
+        .replace(/x\^(\d+)/g, 'x^{$1}');
 };
 
-const cardHover = {
-    rest: { scale: 1, y: 0 },
-    hover: {
-        scale: 1.02,
-        y: -4,
-        transition: { duration: 0.3, ease: [0.22, 1, 0.36, 1] }
-    },
-    tap: { scale: 0.98 }
-};
+const AILearningArea = ({ topic, subtopic, gradeLevel, userId, onComplete, mode = 'lecture' }) => {
+    const [currentSection, setCurrentSection] = useState(0);
+    const [learningContent, setLearningContent] = useState(null);
+    const [loading, setLoading] = useState(true);
+    const [completedSections, setCompletedSections] = useState(new Set());
 
-const fadeInUp = {
-    hidden: { opacity: 0, y: 30 },
-    visible: (custom = 0) => ({
-        opacity: 1,
-        y: 0,
-        transition: {
-            delay: custom * 0.1,
-            duration: 0.6,
-            ease: [0.22, 1, 0.36, 1]
-        }
-    })
-};
+    // Quiz state
+    const [showQuiz, setShowQuiz] = useState(false);
+    const [quizAnswer, setQuizAnswer] = useState('');
+    const [quizFeedback, setQuizFeedback] = useState(null);
+    const [quizAttempts, setQuizAttempts] = useState(0);
 
-const scaleIn = {
-    hidden: { opacity: 0, scale: 0.8 },
-    visible: {
-        opacity: 1,
-        scale: 1,
-        transition: {
-            type: "spring",
-            stiffness: 200,
-            damping: 20
-        }
-    }
-};
+    // Communication with Nexon
+    const [showChatBox, setShowChatBox] = useState(false);
+    const [chatMessage, setChatMessage] = useState('');
+    const [chatHistory, setChatHistory] = useState([]);
+    const [chatLoading, setChatLoading] = useState(false);
 
-const slideInRight = {
-    hidden: { opacity: 0, x: 50 },
-    visible: {
-        opacity: 1,
-        x: 0,
-        transition: { duration: 0.4, ease: "easeOut" }
-    }
-};
+    // Notebook
+    const [showNotebook, setShowNotebook] = useState(false);
+    const [notebookNotes, setNotebookNotes] = useState('');
+    const [savedNotes, setSavedNotes] = useState([]);
 
-const pulseGlow = {
-    animate: {
-        boxShadow: [
-            '0 0 20px rgba(147, 51, 234, 0.3)',
-            '0 0 40px rgba(147, 51, 234, 0.5)',
-            '0 0 20px rgba(147, 51, 234, 0.3)'
-        ],
-        transition: {
-            duration: 2,
-            repeat: Infinity,
-            ease: "easeInOut"
-        }
-    }
-};
+    // Voice settings
+    const [voiceEnabled, setVoiceEnabled] = useState(false);
+    const [voiceGender, setVoiceGender] = useState('female'); // 'female' or 'male'
 
-// ==================== 🎭 ENHANCED LOADING ANIMATION ====================
-const ThinkingAnimation = ({ message = "יוצר חומר לימוד מותאם אישית..." }) => {
-    return (
-        <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="flex flex-col items-center justify-center py-16"
-        >
-            <motion.div
-                animate={{
-                    rotate: 360,
-                    scale: [1, 1.1, 1]
-                }}
-                transition={{
-                    rotate: { duration: 2, repeat: Infinity, ease: "linear" },
-                    scale: { duration: 1.5, repeat: Infinity, ease: "easeInOut" }
-                }}
-                className="relative mb-8"
-            >
-                {/* Outer Ring */}
-                <motion.div
-                    animate={{
-                        rotate: -360,
-                        scale: [1, 1.2, 1]
-                    }}
-                    transition={{
-                        rotate: { duration: 3, repeat: Infinity, ease: "linear" },
-                        scale: { duration: 2, repeat: Infinity, ease: "easeInOut" }
-                    }}
-                    className="absolute inset-0 w-32 h-32 border-4 border-purple-200 rounded-full"
-                    style={{
-                        borderTopColor: 'transparent',
-                        borderRightColor: 'transparent'
-                    }}
-                />
-                {/* Middle Ring */}
-                <motion.div
-                    animate={{
-                        rotate: 360,
-                        scale: [1, 1.15, 1]
-                    }}
-                    transition={{
-                        rotate: { duration: 2.5, repeat: Infinity, ease: "linear" },
-                        scale: { duration: 1.8, repeat: Infinity, ease: "easeInOut", delay: 0.2 }
-                    }}
-                    className="absolute inset-2 w-28 h-28 border-4 border-pink-200 rounded-full"
-                    style={{
-                        borderBottomColor: 'transparent',
-                        borderLeftColor: 'transparent'
-                    }}
-                />
-                {/* Center Icon */}
-                <div className="w-32 h-32 bg-gradient-to-br from-purple-500 via-pink-500 to-red-500 rounded-full flex items-center justify-center shadow-2xl">
-                    <Brain className="w-16 h-16 text-white" />
-                </div>
-            </motion.div>
+    const chatEndRef = useRef(null);
 
-            <motion.div
-                animate={{ opacity: [0.5, 1, 0.5] }}
-                transition={{ duration: 1.5, repeat: Infinity }}
-                className="text-2xl font-black text-white mb-4 text-center"
-            >
-                {message}
-            </motion.div>
-
-            {/* Animated Dots */}
-            <div className="flex gap-2 mb-8">
-                {[0, 1, 2].map((i) => (
-                    <motion.div
-                        key={i}
-                        animate={{
-                            y: [0, -15, 0],
-                            scale: [1, 1.3, 1]
-                        }}
-                        transition={{
-                            duration: 0.6,
-                            repeat: Infinity,
-                            delay: i * 0.2
-                        }}
-                        className="w-4 h-4 bg-white rounded-full shadow-lg"
-                    />
-                ))}
-            </div>
-
-            {/* Progress Bar */}
-            <div className="w-64 bg-white/20 rounded-full h-3 overflow-hidden backdrop-blur-sm">
-                <motion.div
-                    className="h-full bg-gradient-to-r from-white via-yellow-200 to-white rounded-full"
-                    animate={{
-                        x: ['-100%', '200%']
-                    }}
-                    transition={{
-                        duration: 1.5,
-                        repeat: Infinity,
-                        ease: "easeInOut"
-                    }}
-                />
-            </div>
-
-            {/* Floating Icons */}
-            <div className="absolute inset-0 pointer-events-none overflow-hidden">
-                {[Sparkles, Star, Zap, Trophy, Target].map((Icon, i) => (
-                    <motion.div
-                        key={i}
-                        className="absolute"
-                        style={{
-                            left: `${15 + i * 18}%`,
-                            top: `${30 + (i % 3) * 20}%`
-                        }}
-                        animate={{
-                            y: [0, -20, 0],
-                            rotate: [0, 360],
-                            opacity: [0.3, 0.8, 0.3]
-                        }}
-                        transition={{
-                            duration: 3 + i,
-                            repeat: Infinity,
-                            delay: i * 0.5
-                        }}
-                    >
-                        <Icon className="w-8 h-8 text-white/40" />
-                    </motion.div>
-                ))}
-            </div>
-        </motion.div>
-    );
-};
-
-// ==================== 📝 ENHANCED TEXT DISPLAY ====================
-const EnhancedText = ({ children, className = '' }) => {
-    return (
-        <motion.p
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            className={`text-lg leading-relaxed text-gray-800 ${className}`}
-            style={{
-                fontFamily: "'Assistant', 'Segoe UI', 'Arial', sans-serif",
-                letterSpacing: '0.02em'
-            }}
-        >
-            {children}
-        </motion.p>
-    );
-};
-
-// ==================== 💡 EXAMPLE CARD ====================
-const ExampleCard = ({ example, index }) => {
-    const [isExpanded, setIsExpanded] = useState(false);
-
-    return (
-        <motion.div
-            custom={index}
-            variants={fadeInUp}
-            initial="hidden"
-            animate="visible"
-            className="relative"
-        >
-            <motion.div
-                variants={cardHover}
-                initial="rest"
-                whileHover="hover"
-                whileTap="tap"
-                className="bg-gradient-to-br from-blue-50 via-cyan-50 to-sky-50 border-l-4 border-blue-500 rounded-2xl p-6 shadow-lg hover:shadow-2xl transition-all overflow-hidden"
-            >
-                {/* Decorative Background Pattern */}
-                <div className="absolute top-0 right-0 w-32 h-32 opacity-5">
-                    <Lightbulb className="w-full h-full text-blue-600" />
-                </div>
-
-                <div className="relative z-10">
-                    <div className="flex items-center gap-3 mb-4">
-                        <motion.div
-                            animate={{
-                                rotate: [0, 10, -10, 0],
-                                scale: [1, 1.1, 1]
-                            }}
-                            transition={{
-                                duration: 2,
-                                repeat: Infinity,
-                                repeatDelay: 3
-                            }}
-                            className="w-10 h-10 bg-gradient-to-br from-blue-500 to-cyan-600 rounded-xl flex items-center justify-center shadow-lg"
-                        >
-                            <Lightbulb className="w-6 h-6 text-white" />
-                        </motion.div>
-                        <div>
-                            <div className="font-black text-blue-900 text-xl">דוגמה {index + 1}</div>
-                            <div className="text-blue-600 text-sm font-medium">לחץ להרחבה</div>
-                        </div>
-                    </div>
-
-                    <div className="bg-white/80 backdrop-blur-sm rounded-xl p-5 mb-4 border-2 border-blue-200">
-                        <EnhancedText className="text-gray-900 font-semibold text-xl">
-                            {example.value}
-                        </EnhancedText>
-                    </div>
-
-                    {example.solution && (
-                        <motion.button
-                            onClick={() => setIsExpanded(!isExpanded)}
-                            className="w-full flex items-center justify-between px-4 py-3 bg-blue-500 hover:bg-blue-600 text-white rounded-xl font-bold transition-all"
-                        >
-                            <span>{isExpanded ? 'הסתר פתרון' : 'הצג פתרון'}</span>
-                            <motion.div
-                                animate={{ rotate: isExpanded ? 180 : 0 }}
-                                transition={{ duration: 0.3 }}
-                            >
-                                <ChevronLeft className="w-5 h-5" />
-                            </motion.div>
-                        </motion.button>
-                    )}
-
-                    <AnimatePresence>
-                        {isExpanded && example.solution && (
-                            <motion.div
-                                initial={{ height: 0, opacity: 0 }}
-                                animate={{ height: 'auto', opacity: 1 }}
-                                exit={{ height: 0, opacity: 0 }}
-                                transition={{ duration: 0.3 }}
-                                className="overflow-hidden"
-                            >
-                                <div className="mt-4 p-5 bg-gradient-to-br from-green-50 to-emerald-50 rounded-xl border-2 border-green-300">
-                                    <div className="flex items-center gap-2 mb-3">
-                                        <CheckCircle2 className="w-6 h-6 text-green-600" />
-                                        <span className="font-black text-green-900 text-lg">פתרון:</span>
-                                    </div>
-                                    <EnhancedText className="text-gray-800">
-                                        {example.solution}
-                                    </EnhancedText>
-                                </div>
-                            </motion.div>
-                        )}
-                    </AnimatePresence>
-                </div>
-            </motion.div>
-        </motion.div>
-    );
-};
-
-// ==================== ✨ TIP CARD ====================
-const TipCard = ({ tip, index }) => {
-    return (
-        <motion.div
-            custom={index}
-            variants={fadeInUp}
-            initial="hidden"
-            animate="visible"
-        >
-            <motion.div
-                variants={cardHover}
-                initial="rest"
-                whileHover="hover"
-                whileTap="tap"
-                className="relative bg-gradient-to-br from-amber-50 via-yellow-50 to-orange-50 border-l-4 border-yellow-500 rounded-2xl p-6 shadow-lg hover:shadow-2xl transition-all overflow-hidden"
-            >
-                {/* Decorative Stars */}
-                <div className="absolute top-2 right-2 flex gap-1">
-                    {[...Array(3)].map((_, i) => (
-                        <motion.div
-                            key={i}
-                            animate={{
-                                scale: [1, 1.2, 1],
-                                rotate: [0, 180, 360]
-                            }}
-                            transition={{
-                                duration: 2,
-                                repeat: Infinity,
-                                delay: i * 0.3
-                            }}
-                        >
-                            <Star className="w-4 h-4 text-yellow-400 fill-yellow-400" />
-                        </motion.div>
-                    ))}
-                </div>
-
-                <div className="flex items-start gap-4">
-                    <motion.div
-                        animate={{
-                            rotate: [0, 360],
-                            scale: [1, 1.1, 1]
-                        }}
-                        transition={{
-                            rotate: { duration: 20, repeat: Infinity, ease: "linear" },
-                            scale: { duration: 2, repeat: Infinity }
-                        }}
-                        className="w-12 h-12 bg-gradient-to-br from-yellow-400 to-orange-500 rounded-xl flex items-center justify-center shadow-lg flex-shrink-0"
-                    >
-                        <Sparkles className="w-7 h-7 text-white" />
-                    </motion.div>
-
-                    <div className="flex-1">
-                        <div className="font-black text-yellow-900 text-lg mb-3">💡 טיפ חשוב</div>
-                        <div className="bg-white/80 backdrop-blur-sm rounded-xl p-4 border-2 border-yellow-300">
-                            <EnhancedText className="text-gray-800 font-medium">
-                                {tip.value}
-                            </EnhancedText>
-                        </div>
-                    </div>
-                </div>
-            </motion.div>
-        </motion.div>
-    );
-};
-
-// ==================== 🎯 QUIZ QUESTION CARD ====================
-const QuizQuestion = ({ question, qIndex, quizAnswers, showSolution, onAnswerSelect, onCheckAnswer }) => {
-    const isAnswered = quizAnswers[qIndex] !== undefined;
-    const isCorrect = showSolution[qIndex] && quizAnswers[qIndex] === question.correctAnswer;
-
-    return (
-        <motion.div
-            custom={qIndex}
-            variants={fadeInUp}
-            initial="hidden"
-            animate="visible"
-            className="relative"
-        >
-            <motion.div
-                variants={cardHover}
-                initial="rest"
-                whileHover={!showSolution[qIndex] ? "hover" : "rest"}
-                className="bg-white rounded-2xl p-6 shadow-xl border-2 border-purple-200 overflow-hidden"
-            >
-                {/* Question Number Badge */}
-                <div className="absolute top-4 left-4 w-10 h-10 bg-gradient-to-br from-purple-500 to-pink-500 rounded-full flex items-center justify-center shadow-lg">
-                    <span className="text-white font-black text-lg">{qIndex + 1}</span>
-                </div>
-
-                {/* Question Text */}
-                <div className="mb-6 pr-14">
-                    <div className="flex items-start gap-3">
-                        <Target className="w-6 h-6 text-purple-600 flex-shrink-0 mt-1" />
-                        <EnhancedText className="text-gray-900 font-bold text-xl">
-                            {question.question}
-                        </EnhancedText>
-                    </div>
-                </div>
-
-                {/* Options */}
-                <div className="space-y-3 mb-6">
-                    {question.options.map((option, oIndex) => {
-                        const isSelected = quizAnswers[qIndex] === oIndex;
-                        const isCorrectAnswer = question.correctAnswer === oIndex;
-                        const showAnswer = showSolution[qIndex];
-
-                        let buttonClass = 'bg-gray-50 border-2 border-gray-200 hover:border-purple-300 text-gray-700 hover:bg-purple-50';
-
-                        if (showAnswer) {
-                            if (isCorrectAnswer) {
-                                buttonClass = 'bg-gradient-to-r from-green-50 to-emerald-50 border-3 border-green-500 text-green-900 shadow-lg';
-                            } else if (isSelected) {
-                                buttonClass = 'bg-gradient-to-r from-red-50 to-pink-50 border-3 border-red-500 text-red-900';
-                            } else {
-                                buttonClass = 'bg-gray-100 border-2 border-gray-300 text-gray-500 opacity-60';
-                            }
-                        } else if (isSelected) {
-                            buttonClass = 'bg-gradient-to-r from-purple-100 to-pink-100 border-3 border-purple-500 text-purple-900 shadow-lg';
-                        }
-
-                        return (
-                            <motion.button
-                                key={oIndex}
-                                onClick={() => !showAnswer && onAnswerSelect(qIndex, oIndex)}
-                                disabled={showAnswer}
-                                variants={cardHover}
-                                initial="rest"
-                                whileHover={!showAnswer ? "hover" : "rest"}
-                                whileTap={!showAnswer ? "tap" : "rest"}
-                                className={`w-full text-right p-5 rounded-xl font-bold transition-all relative overflow-hidden ${buttonClass}`}
-                            >
-                                {/* Option Letter */}
-                                <div className="flex items-center gap-4">
-                                    <div className={`w-10 h-10 rounded-lg flex items-center justify-center font-black text-lg ${
-                                        showAnswer
-                                            ? isCorrectAnswer
-                                                ? 'bg-green-500 text-white'
-                                                : isSelected
-                                                    ? 'bg-red-500 text-white'
-                                                    : 'bg-gray-300 text-gray-600'
-                                            : isSelected
-                                                ? 'bg-purple-500 text-white'
-                                                : 'bg-gray-200 text-gray-600'
-                                    }`}>
-                                        {String.fromCharCode(65 + oIndex)}
-                                    </div>
-                                    <span className="flex-1 text-right text-lg">{option}</span>
-
-                                    {/* Check/X Icon */}
-                                    {showAnswer && (
-                                        <motion.div
-                                            initial={{ scale: 0, rotate: -180 }}
-                                            animate={{ scale: 1, rotate: 0 }}
-                                            transition={{ type: "spring", stiffness: 200 }}
-                                        >
-                                            {isCorrectAnswer ? (
-                                                <CheckCircle2 className="w-7 h-7 text-green-600" />
-                                            ) : isSelected ? (
-                                                <XCircle className="w-7 h-7 text-red-600" />
-                                            ) : null}
-                                        </motion.div>
-                                    )}
-                                </div>
-                            </motion.button>
-                        );
-                    })}
-                </div>
-
-                {/* Check Answer Button */}
-                {isAnswered && !showSolution[qIndex] && (
-                    <motion.button
-                        initial={{ opacity: 0, y: 10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        whileHover={{ scale: 1.05 }}
-                        whileTap={{ scale: 0.95 }}
-                        onClick={() => onCheckAnswer(qIndex)}
-                        className="w-full px-6 py-4 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-xl font-black text-lg shadow-xl hover:shadow-2xl transition-all flex items-center justify-center gap-2"
-                    >
-                        <Zap className="w-6 h-6" />
-                        בדוק תשובה
-                        <Sparkles className="w-6 h-6" />
-                    </motion.button>
-                )}
-
-                {/* Explanation */}
-                {showSolution[qIndex] && (
-                    <motion.div
-                        initial={{ opacity: 0, height: 0 }}
-                        animate={{ opacity: 1, height: 'auto' }}
-                        transition={{ duration: 0.4 }}
-                        className={`mt-6 p-6 rounded-2xl border-3 ${
-                            isCorrect
-                                ? 'bg-gradient-to-br from-green-50 to-emerald-50 border-green-400'
-                                : 'bg-gradient-to-br from-red-50 to-pink-50 border-red-400'
-                        }`}
-                    >
-                        <div className="flex items-center gap-3 mb-4">
-                            {isCorrect ? (
-                                <>
-                                    <motion.div
-                                        animate={{ rotate: [0, 360] }}
-                                        transition={{ duration: 0.5 }}
-                                    >
-                                        <Trophy className="w-8 h-8 text-green-600" />
-                                    </motion.div>
-                                    <span className="text-2xl font-black text-green-900">
-                                        מעולה! תשובה נכונה! 🎉
-                                    </span>
-                                </>
-                            ) : (
-                                <>
-                                    <XCircle className="w-8 h-8 text-red-600" />
-                                    <span className="text-2xl font-black text-red-900">
-                                        לא נכון, אבל זה בסדר! 💪
-                                    </span>
-                                </>
-                            )}
-                        </div>
-
-                        <div className="bg-white/80 backdrop-blur-sm rounded-xl p-4 border-2 border-gray-200">
-                            <div className="font-bold text-gray-900 mb-2 flex items-center gap-2">
-                                <Brain className="w-5 h-5 text-purple-600" />
-                                הסבר:
-                            </div>
-                            <EnhancedText className="text-gray-800">
-                                {question.explanation}
-                            </EnhancedText>
-                        </div>
-                    </motion.div>
-                )}
-            </motion.div>
-        </motion.div>
-    );
-};
-
-// ==================== 🎓 MAIN COMPONENT ====================
-const AILearningArea = memo(({ topic, subtopic, personality, onComplete, onStartPractice, onClose }) => {
-    const [content, setContent] = useState(null);
-    const [loading, setLoading] = useState(false);
-    const [error, setError] = useState(null);
-    const [currentPage, setCurrentPage] = useState(0);
-    const [quizAnswers, setQuizAnswers] = useState({});
-    const [showSolution, setShowSolution] = useState({});
-
-    // ✅ Single ref to track if this instance loaded content
-    const hasLoadedRef = useRef(false);
-
-    const user = useAuthStore(state => state.user);
-
-    // Get topic key for caching
-    const getTopicKey = useCallback(() => {
-        const topicName = topic?.name || topic || 'general';
-        const subtopicName = subtopic?.name || subtopic || 'none';
-        return `${topicName}-${subtopicName}`.toLowerCase().replace(/\s+/g, '-');
+    useEffect(() => {
+        loadLearningContent();
+        loadSavedNotes();
     }, [topic, subtopic]);
 
-    // ✅ Memoized function to generate content
-    const generateContent = useCallback(async () => {
-        const topicKey = getTopicKey();
-
-        // Check if already loaded in this instance
-        if (hasLoadedRef.current) {
-            console.log('⏭️ Already loaded in this instance');
-            return;
+    useEffect(() => {
+        if (chatEndRef.current) {
+            chatEndRef.current.scrollIntoView({ behavior: 'smooth' });
         }
+    }, [chatHistory]);
 
-        // Check module-level cache first
-        const cached = CONTENT_CACHE.get(topicKey);
-        if (cached) {
-            console.log('💾 Using MODULE cache for:', topicKey);
-            setContent(cached);
-            hasLoadedRef.current = true;
-            return;
-        }
-
-        // Check if another instance is already loading this
-        if (LOADING_TRACKER.get(topicKey)) {
-            console.log('⏳ Another instance is loading, waiting...');
-            // Wait for the other instance to finish
-            const checkInterval = setInterval(() => {
-                const cached = CONTENT_CACHE.get(topicKey);
-                if (cached) {
-                    console.log('💾 Content now available from other instance');
-                    setContent(cached);
-                    hasLoadedRef.current = true;
-                    clearInterval(checkInterval);
-                }
-            }, 100);
-            return;
-        }
-
-        // Mark as loading globally
-        LOADING_TRACKER.set(topicKey, true);
-        console.log('🎓 SINGLE API CALL: Generating content for:', topicKey);
-
-        setLoading(true);
-        setError(null);
-
+    const loadLearningContent = async () => {
         try {
-            const API_BASE_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
-
-            const startTime = Date.now();
-            console.log('⏱️ Generation started...');
-
-            const response = await fetch(`${API_BASE_URL}/api/learning/generate-content`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    topic: topic?.name || topic,
-                    subtopic: subtopic?.name || subtopic,
-                    grade: user?.grade || '7',
-                    personality: personality?.group || 'nexon',
-                    userId: user?.uid || 'anonymous'
-                })
+            setLoading(true);
+            const response = await axios.post(`${API_URL}/api/learning/get-content`, {
+                topicId: topic?.id,
+                subtopicId: subtopic?.id,
+                topicName: topic?.name,
+                subtopicName: subtopic?.name,
+                gradeLevel: gradeLevel,
+                userId: userId,
+                mode: 'lecture', // Enhanced lecture mode with full examples
+                requestFullExamples: true, // Request step-by-step solutions
+                numExamples: 3 // Request 3 examples before quiz
             });
 
-            const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-            console.log(`✅ API Response: ${response.status} (${elapsed}s)`);
-
-            if (!response.ok) {
-                const data = await response.json().catch(() => ({ error: 'Server error' }));
-                throw new Error(data.error || `Server error: ${response.status}`);
+            if (response.data.success) {
+                // Fix Hebrew text in all content
+                const content = response.data.content;
+                if (content.sections) {
+                    content.sections = content.sections.map(section => ({
+                        ...section,
+                        title: fixHebrewText(section.title),
+                        subtitle: fixHebrewText(section.subtitle),
+                        story: fixHebrewText(section.story),
+                        explanation: fixHebrewText(section.explanation),
+                        keyPoints: section.keyPoints?.map(fixHebrewText),
+                        examples: section.examples?.map(ex => ({
+                            ...ex,
+                            title: fixHebrewText(ex.title),
+                            problem: fixHebrewText(ex.problem),
+                            solution: fixHebrewText(ex.solution),
+                            answer: fixHebrewText(ex.answer),
+                            steps: ex.steps?.map(fixHebrewText)
+                        })),
+                        quiz: section.quiz ? {
+                            ...section.quiz,
+                            question: fixHebrewText(section.quiz.question),
+                            hint: fixHebrewText(section.quiz.hint),
+                            answer: fixHebrewText(section.quiz.answer)
+                        } : null
+                    }));
+                }
+                setLearningContent(content);
             }
-
-            const data = await response.json();
-
-            if (data.success && data.content) {
-                console.log(`💾 Content cached for: ${topicKey} (Total: ${elapsed}s)`);
-
-                // Store in module-level cache
-                CONTENT_CACHE.set(topicKey, data.content);
-
-                setContent(data.content);
-                hasLoadedRef.current = true;
-            } else {
-                throw new Error('Invalid response format from server');
-            }
-
-        } catch (err) {
-            console.error('❌ Error:', err);
-
-            let errorMessage = err.message;
-            if (err.message.includes('Failed to fetch')) {
-                errorMessage = 'לא ניתן להתחבר לשרת. בדוק שהשרת פועל.';
-            }
-
-            setError(errorMessage);
-            toast.error('שגיאה בטעינת תוכן הלימוד');
+        } catch (error) {
+            console.error('Error loading learning content:', error);
+            toast.error('שגיאה בטעינת התוכן הלימודי');
         } finally {
             setLoading(false);
-            LOADING_TRACKER.delete(topicKey); // Clear loading flag
         }
-    }, [topic, subtopic, user, personality, getTopicKey]);
+    };
 
-    // ✅ Effect - ONLY depends on topic/subtopic
-    useEffect(() => {
-        const topicKey = getTopicKey();
+    const loadSavedNotes = async () => {
+        try {
+            const response = await axios.get(`${API_URL}/api/notebook/notes/${userId}/${topic?.id}`);
+            if (response.data.success) {
+                setSavedNotes(response.data.notes || []);
+            }
+        } catch (error) {
+            console.error('Error loading notes:', error);
+        }
+    };
 
-        console.log('🔍 Component effect triggered:', topicKey);
+    const handleSectionComplete = () => {
+        setCompletedSections(prev => new Set([...prev, currentSection]));
+    };
 
-        // Reset for new topic
-        hasLoadedRef.current = false;
+    const handleNextSection = () => {
+        handleSectionComplete();
+        if (currentSection < learningContent.sections.length - 1) {
+            setCurrentSection(prev => prev + 1);
+            setShowQuiz(false);
+            setQuizAnswer('');
+            setQuizFeedback(null);
+            setQuizAttempts(0);
+            setChatHistory([]);
+        }
+    };
 
-        // Check cache immediately
-        const cached = CONTENT_CACHE.get(topicKey);
-        if (cached) {
-            console.log('💾 Instant load from cache:', topicKey);
-            setContent(cached);
-            hasLoadedRef.current = true;
-        } else {
-            // Generate only if not cached
-            generateContent();
+    const handlePreviousSection = () => {
+        if (currentSection > 0) {
+            setCurrentSection(prev => prev - 1);
+            setShowQuiz(false);
+            setQuizAnswer('');
+            setQuizFeedback(null);
+            setQuizAttempts(0);
+            setChatHistory([]);
+        }
+    };
+
+    const handleQuizSubmit = async () => {
+        try {
+            setQuizAttempts(prev => prev + 1);
+            const section = learningContent.sections[currentSection];
+
+            const response = await axios.post(`${API_URL}/api/learning/check-quiz`, {
+                question: section.quiz.question,
+                correctAnswer: section.quiz.answer,
+                userAnswer: quizAnswer,
+                topic: topic?.name,
+                userId: userId
+            });
+
+            const feedback = fixHebrewText(response.data.feedback);
+            setQuizFeedback({ ...response.data, feedback });
+
+            if (response.data.isCorrect) {
+                handleSectionComplete();
+                toast.success('תשובה נכונה! כל הכבוד! 🎉');
+
+                // Save to notebook automatically
+                await saveToNotebook(`שאלת בדיקה: ${section.quiz.question}\nתשובתי: ${quizAnswer}\n✅ נכון!`);
+            } else if (quizAttempts >= 2) {
+                toast('💡 רוצה לנסות שוב או לקבל הסבר נוסף?', {
+                    duration: 5000,
+                    icon: '🤔'
+                });
+            }
+        } catch (error) {
+            console.error('Error checking quiz:', error);
+            toast.error('שגיאה בבדיקת התשובה');
+        }
+    };
+
+    // Send message to Nexon
+    const sendMessageToNexon = async (message, isQuickButton = false) => {
+        try {
+            setChatLoading(true);
+            const section = learningContent.sections[currentSection];
+
+            // Add user message to history
+            const userMessage = {
+                role: 'user',
+                content: fixHebrewText(message),
+                timestamp: new Date()
+            };
+            setChatHistory(prev => [...prev, userMessage]);
+
+            const response = await axios.post(`${API_URL}/api/learning/ask-nexon`, {
+                message: message,
+                context: {
+                    topic: topic?.name,
+                    subtopic: subtopic?.name,
+                    sectionTitle: section.title,
+                    sectionContent: section.explanation,
+                    currentExample: section.examples?.[0], // Send current example for context
+                    gradeLevel: gradeLevel
+                },
+                userId: userId,
+                conversationHistory: chatHistory
+            });
+
+            const nexonReply = {
+                role: 'assistant',
+                content: fixHebrewText(response.data.reply),
+                timestamp: new Date()
+            };
+            setChatHistory(prev => [...prev, nexonReply]);
+
+            // Text-to-speech if enabled
+            if (voiceEnabled && response.data.reply) {
+                speakText(response.data.reply);
+            }
+
+            if (!isQuickButton) {
+                setChatMessage('');
+            }
+
+        } catch (error) {
+            console.error('Error sending message to Nexon:', error);
+            toast.error('שגיאה בשליחת ההודעה');
+        } finally {
+            setChatLoading(false);
+        }
+    };
+
+    // Save notes to notebook
+    const saveToNotebook = async (noteContent = notebookNotes) => {
+        if (!noteContent.trim()) {
+            toast.error('אנא כתוב משהו לפני השמירה');
+            return;
         }
 
-        return () => {
-            // Cleanup
-            console.log('🧹 Component unmounting');
-        };
-    }, [topic, subtopic]); // ONLY topic and subtopic!
+        try {
+            const response = await axios.post(`${API_URL}/api/notebook/save-note`, {
+                userId: userId,
+                topicId: topic?.id,
+                topicName: topic?.name,
+                subtopicName: subtopic?.name,
+                sectionTitle: learningContent.sections[currentSection].title,
+                noteContent: noteContent,
+                noteType: 'lecture'
+            });
 
-    // ✅ Memoized handlers
-    const handleNextPage = useCallback(() => {
-        if (content && currentPage < content.pages.length - 1) {
-            setCurrentPage(prev => prev + 1);
-            setQuizAnswers({});
-            setShowSolution({});
-            window.scrollTo({ top: 0, behavior: 'smooth' });
+            if (response.data.success) {
+                toast.success('ההערה נשמרה במחברת! 📝');
+                setSavedNotes(prev => [...prev, {
+                    content: noteContent,
+                    timestamp: new Date(),
+                    sectionTitle: learningContent.sections[currentSection].title
+                }]);
+                setNotebookNotes('');
+                setShowNotebook(false);
+            }
+        } catch (error) {
+            console.error('Error saving note:', error);
+            toast.error('שגיאה בשמירת ההערה');
         }
-    }, [content, currentPage]);
+    };
 
-    const handlePrevPage = useCallback(() => {
-        if (currentPage > 0) {
-            setCurrentPage(prev => prev - 1);
-            setQuizAnswers({});
-            setShowSolution({});
-            window.scrollTo({ top: 0, behavior: 'smooth' });
+    // Text-to-speech
+    const speakText = (text) => {
+        if ('speechSynthesis' in window) {
+            const utterance = new SpeechSynthesisUtterance(text);
+            utterance.lang = 'he-IL';
+            utterance.rate = 0.9;
+            utterance.pitch = voiceGender === 'female' ? 1.2 : 0.8;
+            window.speechSynthesis.speak(utterance);
         }
-    }, [currentPage]);
+    };
 
-    const handleAnswerSelect = useCallback((questionIndex, answerIndex) => {
-        setQuizAnswers(prev => ({
-            ...prev,
-            [questionIndex]: answerIndex
-        }));
-    }, []);
+    const stopSpeaking = () => {
+        if ('speechSynthesis' in window) {
+            window.speechSynthesis.cancel();
+        }
+    };
 
-    const handleCheckAnswer = useCallback((questionIndex) => {
-        setShowSolution(prev => ({
-            ...prev,
-            [questionIndex]: true
-        }));
-    }, []);
+    const allSectionsCompleted = completedSections.size === learningContent?.sections.length;
+    const progress = learningContent ? (completedSections.size / learningContent.sections.length) * 100 : 0;
 
-    const handleComplete = useCallback(() => {
-        toast.success('🎉 כל הכבוד! סיימת את החומר', {
-            icon: '🏆',
-            style: {
-                borderRadius: '16px',
-                background: '#10b981',
-                color: '#fff',
-            },
-        });
-        if (onComplete) onComplete();
-        if (onStartPractice) onStartPractice();
-    }, [onComplete, onStartPractice]);
-
-    const handleRetry = useCallback(() => {
-        setError(null);
-        setLoading(false);
-        hasLoadedRef.current = false;
-        generateContent();
-    }, [generateContent]);
-
-    // ==================== 🎨 RENDER STATES ====================
-
-    // Loading state
     if (loading) {
         return (
-            <motion.div
-                {...pageTransition}
-                className="min-h-screen bg-gradient-to-br from-purple-600 via-pink-500 to-red-500 flex items-center justify-center p-4"
-            >
-                <ThinkingAnimation message="נקסון מכין לך חומר לימוד מותאם אישית..." />
-            </motion.div>
+            <div className="min-h-screen bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50 flex items-center justify-center" dir="rtl">
+                <motion.div
+                    initial={{ opacity: 0, scale: 0.9 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    className="text-center"
+                >
+                    <motion.div
+                        animate={{ rotate: 360 }}
+                        transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
+                    >
+                        <Brain className="w-20 h-20 text-purple-600 mx-auto mb-4" />
+                    </motion.div>
+                    <p className="text-2xl font-bold text-gray-900">נקסון מכין עבורך תוכן לימודי מותאם...</p>
+                    <p className="text-gray-600 mt-2">זה ייקח רק כמה שניות</p>
+                </motion.div>
+            </div>
         );
     }
 
-    // Error state
-    if (error) {
+    if (!learningContent) {
         return (
-            <motion.div
-                {...pageTransition}
-                className="min-h-screen bg-gradient-to-br from-purple-600 via-pink-500 to-red-500 flex items-center justify-center p-4"
-                dir="rtl"
-            >
-                <motion.div
-                    variants={scaleIn}
-                    initial="hidden"
-                    animate="visible"
-                    className="bg-white rounded-3xl p-12 max-w-md text-center shadow-2xl"
-                >
+            <div className="min-h-screen bg-gradient-to-br from-blue-50 to-purple-50 flex items-center justify-center p-4" dir="rtl">
+                <div className="text-center">
+                    <AlertCircle className="w-20 h-20 text-red-500 mx-auto mb-4" />
+                    <p className="text-2xl text-gray-800 font-bold mb-4">לא נמצא תוכן לימודי לנושא זה</p>
+                    <p className="text-gray-600">אנא נסה שוב או בחר נושא אחר</p>
+                </div>
+            </div>
+        );
+    }
+
+    const section = learningContent.sections[currentSection];
+
+    return (
+        <div className="min-h-screen bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50" dir="rtl">
+            {/* Sticky Header */}
+            <div className="bg-white border-b-2 border-purple-200 sticky top-0 z-20 shadow-lg">
+                <div className="max-w-5xl mx-auto p-4 md:p-6">
+                    <div className="flex items-center justify-between mb-4">
+                        <div className="flex items-center gap-3">
+                            <GraduationCap className="w-8 h-8 text-purple-600" />
+                            <div>
+                                <h1 className="text-xl md:text-2xl font-black text-gray-900">{topic?.name}</h1>
+                                {subtopic && <p className="text-gray-600 text-sm">{subtopic.name}</p>}
+                            </div>
+                        </div>
+
+                        <div className="flex items-center gap-3">
+                            {/* Voice Toggle */}
+                            <motion.button
+                                whileHover={{ scale: 1.1 }}
+                                whileTap={{ scale: 0.9 }}
+                                onClick={() => {
+                                    setVoiceEnabled(!voiceEnabled);
+                                    if (voiceEnabled) stopSpeaking();
+                                }}
+                                className={`p-3 rounded-xl transition-colors ${
+                                    voiceEnabled
+                                        ? 'bg-purple-600 text-white'
+                                        : 'bg-gray-100 text-gray-600'
+                                }`}
+                            >
+                                {voiceEnabled ? <Volume2 className="w-5 h-5" /> : <VolumeX className="w-5 h-5" />}
+                            </motion.button>
+
+                            {/* Voice Gender */}
+                            {voiceEnabled && (
+                                <select
+                                    value={voiceGender}
+                                    onChange={(e) => setVoiceGender(e.target.value)}
+                                    className="px-3 py-2 rounded-xl bg-gray-100 border-2 border-gray-200 font-bold text-sm"
+                                >
+                                    <option value="female">קול נשי</option>
+                                    <option value="male">קול גברי</option>
+                                </select>
+                            )}
+
+                            {/* Progress */}
+                            <div className="text-left hidden md:block">
+                                <p className="text-sm text-gray-600">התקדמות</p>
+                                <p className="text-2xl font-black text-purple-600">{Math.round(progress)}%</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Progress Bar */}
+                    <div className="flex gap-2">
+                        {learningContent.sections.map((_, idx) => (
+                            <div
+                                key={idx}
+                                className={`h-2 flex-1 rounded-full transition-all ${
+                                    completedSections.has(idx)
+                                        ? 'bg-green-500'
+                                        : idx === currentSection
+                                            ? 'bg-purple-600'
+                                            : 'bg-gray-200'
+                                }`}
+                            />
+                        ))}
+                    </div>
+                </div>
+            </div>
+
+            {/* Main Content */}
+            <div className="max-w-5xl mx-auto p-4 md:p-6">
+                <AnimatePresence mode="wait">
                     <motion.div
-                        animate={{
-                            scale: [1, 1.1, 1],
-                            rotate: [0, 10, -10, 0]
-                        }}
-                        transition={{
-                            duration: 2,
-                            repeat: Infinity
-                        }}
+                        key={currentSection}
+                        initial={{ opacity: 0, x: 50 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        exit={{ opacity: 0, x: -50 }}
+                        className="bg-white rounded-3xl shadow-2xl p-6 md:p-8 mb-6"
                     >
-                        <XCircle className="w-24 h-24 text-red-500 mx-auto mb-6" />
-                    </motion.div>
+                        {/* Section Header */}
+                        <div className="flex items-start gap-4 mb-6">
+                            <div className="p-4 bg-gradient-to-br from-purple-500 to-pink-500 rounded-2xl">
+                                <Lightbulb className="w-10 h-10 text-white" />
+                            </div>
+                            <div className="flex-1">
+                                <div className="flex items-center gap-3 mb-2">
+                                    <h2 className="text-3xl md:text-4xl font-black text-gray-900">{section.title}</h2>
+                                    {completedSections.has(currentSection) && (
+                                        <CheckCircle className="w-8 h-8 text-green-500" />
+                                    )}
+                                </div>
+                                <p className="text-gray-700 text-lg md:text-xl">{section.subtitle}</p>
+                            </div>
+                        </div>
 
-                    <h2 className="text-3xl font-black text-gray-900 mb-4">
-                        אופס! משהו השתבש
-                    </h2>
-                    <p className="text-gray-600 text-lg mb-8 leading-relaxed">{error}</p>
+                        {/* Story/Introduction */}
+                        {section.story && (
+                            <motion.div
+                                initial={{ opacity: 0, y: 20 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                className="bg-gradient-to-r from-blue-50 to-cyan-50 rounded-2xl p-6 mb-6 border-2 border-blue-200"
+                            >
+                                <div className="flex items-start gap-3">
+                                    <Sparkles className="w-7 h-7 text-blue-600 flex-shrink-0 mt-1" />
+                                    <p className="text-lg md:text-xl text-gray-800 leading-relaxed">{section.story}</p>
+                                </div>
+                            </motion.div>
+                        )}
 
-                    <div className="flex gap-4">
-                        <motion.button
-                            whileHover={{ scale: 1.05 }}
-                            whileTap={{ scale: 0.95 }}
-                            onClick={handleRetry}
-                            className="flex-1 px-6 py-4 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-2xl font-black text-lg shadow-xl hover:shadow-2xl transition-all flex items-center justify-center gap-2"
-                        >
-                            <Activity className="w-6 h-6" />
-                            נסה שוב
-                        </motion.button>
-                        {onClose && (
+                        {/* Main Explanation - ENHANCED */}
+                        <div className="space-y-6 mb-8">
+                            <h3 className="text-2xl md:text-3xl font-black text-gray-900 flex items-center gap-3">
+                                <Target className="w-8 h-8 text-purple-600" />
+                                ההסבר המלא
+                            </h3>
+                            <div className="prose prose-lg md:prose-xl max-w-none">
+                                {section.explanation.split('\n\n').map((para, idx) => (
+                                    <motion.p
+                                        key={idx}
+                                        initial={{ opacity: 0, y: 10 }}
+                                        animate={{ opacity: 1, y: 0 }}
+                                        transition={{ delay: idx * 0.1 }}
+                                        className="text-gray-800 leading-relaxed mb-4 text-lg"
+                                    >
+                                        {para}
+                                    </motion.p>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* Enhanced Examples - STEP BY STEP, NO USER INPUT */}
+                        {section.examples && section.examples.length > 0 && (
+                            <div className="space-y-6 mb-8">
+                                <h3 className="text-2xl md:text-3xl font-black text-gray-900 flex items-center gap-3">
+                                    <BookOpen className="w-8 h-8 text-green-600" />
+                                    דוגמאות פתורות במלואן
+                                </h3>
+                                <p className="text-gray-700 text-lg">
+                                    💡 כאן תראה איך פותרים שלב אחר שלב - אין צורך לפתור, רק להבין!
+                                </p>
+
+                                <div className="space-y-6">
+                                    {section.examples.map((example, idx) => (
+                                        <motion.div
+                                            key={idx}
+                                            initial={{ opacity: 0, y: 20 }}
+                                            animate={{ opacity: 1, y: 0 }}
+                                            transition={{ delay: idx * 0.15 }}
+                                            className="bg-gradient-to-br from-green-50 to-emerald-50 rounded-3xl p-6 md:p-8 border-2 border-green-300 shadow-lg"
+                                        >
+                                            <h4 className="text-xl md:text-2xl font-black text-gray-900 mb-4">
+                                                דוגמה {idx + 1}: {example.title}
+                                            </h4>
+
+                                            {/* Problem */}
+                                            <div className="bg-white rounded-2xl p-5 mb-5 border-2 border-green-200">
+                                                <p className="text-sm text-green-700 font-bold mb-2">📝 השאלה:</p>
+                                                <p className="text-xl md:text-2xl font-bold text-gray-900 leading-relaxed">
+                                                    {example.problem}
+                                                </p>
+                                            </div>
+
+                                            {/* Step-by-step Solution */}
+                                            <div className="bg-white rounded-2xl p-5 mb-5 border-2 border-blue-200">
+                                                <p className="text-sm text-blue-700 font-bold mb-4">🔍 הפתרון שלב אחר שלב:</p>
+                                                <div className="space-y-4">
+                                                    {(example.steps || example.solution.split('\n')).map((step, stepIdx) => (
+                                                        <motion.div
+                                                            key={stepIdx}
+                                                            initial={{ opacity: 0, x: -10 }}
+                                                            animate={{ opacity: 1, x: 0 }}
+                                                            transition={{ delay: 0.3 + stepIdx * 0.1 }}
+                                                            className="flex items-start gap-3 p-3 bg-blue-50 rounded-xl"
+                                                        >
+                                                            <div className="flex-shrink-0 w-8 h-8 bg-blue-600 text-white rounded-full flex items-center justify-center font-black">
+                                                                {stepIdx + 1}
+                                                            </div>
+                                                            <p className="text-gray-800 text-lg leading-relaxed flex-1">
+                                                                {typeof step === 'string' ? step : step}
+                                                            </p>
+                                                        </motion.div>
+                                                    ))}
+                                                </div>
+                                            </div>
+
+                                            {/* Final Answer */}
+                                            {example.answer && (
+                                                <motion.div
+                                                    initial={{ opacity: 0, scale: 0.95 }}
+                                                    animate={{ opacity: 1, scale: 1 }}
+                                                    transition={{ delay: 0.5 }}
+                                                    className="bg-gradient-to-r from-purple-100 to-pink-100 rounded-2xl p-5 border-2 border-purple-300"
+                                                >
+                                                    <p className="text-sm text-purple-700 font-bold mb-2">✅ התשובה הסופית:</p>
+                                                    <p className="text-2xl md:text-3xl font-black text-purple-900">
+                                                        {example.answer}
+                                                    </p>
+                                                </motion.div>
+                                            )}
+                                        </motion.div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Key Points */}
+                        {section.keyPoints && section.keyPoints.length > 0 && (
+                            <div className="bg-gradient-to-r from-yellow-50 to-orange-50 rounded-2xl p-6 mb-6 border-2 border-yellow-300">
+                                <h3 className="text-xl md:text-2xl font-black text-gray-900 mb-4 flex items-center gap-2">
+                                    <Star className="w-7 h-7 text-yellow-600" />
+                                    נקודות מפתח לזכור
+                                </h3>
+                                <ul className="space-y-3">
+                                    {section.keyPoints.map((point, idx) => (
+                                        <motion.li
+                                            key={idx}
+                                            initial={{ opacity: 0, x: -10 }}
+                                            animate={{ opacity: 1, x: 0 }}
+                                            transition={{ delay: idx * 0.1 }}
+                                            className="flex items-start gap-3"
+                                        >
+                                            <CheckCircle className="w-6 h-6 text-green-600 flex-shrink-0 mt-1" />
+                                            <span className="text-gray-800 text-lg leading-relaxed">{point}</span>
+                                        </motion.li>
+                                    ))}
+                                </ul>
+                            </div>
+                        )}
+
+                        {/* Communication with Nexon */}
+                        <div className="mt-8 space-y-4">
+                            <div className="flex items-center justify-between">
+                                <h3 className="text-xl md:text-2xl font-black text-gray-900">
+                                    יש לך שאלה? דבר עם נקסון! 💬
+                                </h3>
+                                <motion.button
+                                    whileHover={{ scale: 1.05 }}
+                                    whileTap={{ scale: 0.95 }}
+                                    onClick={() => setShowChatBox(!showChatBox)}
+                                    className={`px-6 py-3 rounded-xl font-bold transition-all ${
+                                        showChatBox
+                                            ? 'bg-red-500 text-white'
+                                            : 'bg-purple-600 text-white hover:bg-purple-700'
+                                    }`}
+                                >
+                                    {showChatBox ? 'סגור צ׳אט' : 'פתח צ׳אט עם נקסון'}
+                                </motion.button>
+                            </div>
+
+                            {/* Quick Action Buttons */}
+                            <div className="flex flex-wrap gap-3">
+                                <motion.button
+                                    whileHover={{ scale: 1.05 }}
+                                    whileTap={{ scale: 0.95 }}
+                                    onClick={() => sendMessageToNexon('לא הבנתי את החלק הזה, תוכל להסביר שוב?', true)}
+                                    className="px-5 py-3 bg-orange-500 text-white rounded-xl font-bold hover:bg-orange-600 transition-colors flex items-center gap-2"
+                                >
+                                    <HelpCircle className="w-5 h-5" />
+                                    <span>לא הבנתי</span>
+                                </motion.button>
+
+                                <motion.button
+                                    whileHover={{ scale: 1.05 }}
+                                    whileTap={{ scale: 0.95 }}
+                                    onClick={() => sendMessageToNexon('תוכל לתת לי עוד דוגמה?', true)}
+                                    className="px-5 py-3 bg-blue-500 text-white rounded-xl font-bold hover:bg-blue-600 transition-colors flex items-center gap-2"
+                                >
+                                    <Repeat className="w-5 h-5" />
+                                    <span>עוד דוגמה</span>
+                                </motion.button>
+
+                                <motion.button
+                                    whileHover={{ scale: 1.05 }}
+                                    whileTap={{ scale: 0.95 }}
+                                    onClick={() => sendMessageToNexon('תוכל לפרק את זה לשלבים קטנים יותר?', true)}
+                                    className="px-5 py-3 bg-green-500 text-white rounded-xl font-bold hover:bg-green-600 transition-colors flex items-center gap-2"
+                                >
+                                    <Target className="w-5 h-5" />
+                                    <span>שלבים קטנים יותר</span>
+                                </motion.button>
+
+                                <motion.button
+                                    whileHover={{ scale: 1.05 }}
+                                    whileTap={{ scale: 0.95 }}
+                                    onClick={() => sendMessageToNexon('מעולה! הבנתי!', true)}
+                                    className="px-5 py-3 bg-purple-500 text-white rounded-xl font-bold hover:bg-purple-600 transition-colors flex items-center gap-2"
+                                >
+                                    <ThumbsUp className="w-5 h-5" />
+                                    <span>הבנתי!</span>
+                                </motion.button>
+                            </div>
+
+                            {/* Chat Box */}
+                            <AnimatePresence>
+                                {showChatBox && (
+                                    <motion.div
+                                        initial={{ opacity: 0, height: 0 }}
+                                        animate={{ opacity: 1, height: 'auto' }}
+                                        exit={{ opacity: 0, height: 0 }}
+                                        className="bg-gradient-to-br from-purple-50 to-pink-50 rounded-2xl p-6 border-2 border-purple-300"
+                                    >
+                                        {/* Chat History */}
+                                        <div className="bg-white rounded-xl p-4 mb-4 max-h-96 overflow-y-auto">
+                                            {chatHistory.length === 0 ? (
+                                                <div className="text-center py-8">
+                                                    <Brain className="w-16 h-16 text-purple-400 mx-auto mb-3" />
+                                                    <p className="text-gray-600">שאל את נקסון כל שאלה!</p>
+                                                </div>
+                                            ) : (
+                                                <div className="space-y-4">
+                                                    {chatHistory.map((msg, idx) => (
+                                                        <motion.div
+                                                            key={idx}
+                                                            initial={{ opacity: 0, y: 10 }}
+                                                            animate={{ opacity: 1, y: 0 }}
+                                                            className={`flex items-start gap-3 ${
+                                                                msg.role === 'user' ? 'flex-row-reverse' : ''
+                                                            }`}
+                                                        >
+                                                            <div className={`flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center ${
+                                                                msg.role === 'user'
+                                                                    ? 'bg-blue-500'
+                                                                    : 'bg-purple-600'
+                                                            }`}>
+                                                                {msg.role === 'user' ? (
+                                                                    <User className="w-6 h-6 text-white" />
+                                                                ) : (
+                                                                    <Brain className="w-6 h-6 text-white" />
+                                                                )}
+                                                            </div>
+                                                            <div className={`flex-1 p-4 rounded-2xl ${
+                                                                msg.role === 'user'
+                                                                    ? 'bg-blue-100 text-gray-900'
+                                                                    : 'bg-purple-100 text-gray-900'
+                                                            }`}>
+                                                                <p className="text-base leading-relaxed whitespace-pre-wrap">
+                                                                    {msg.content}
+                                                                </p>
+                                                            </div>
+                                                        </motion.div>
+                                                    ))}
+                                                    <div ref={chatEndRef} />
+                                                </div>
+                                            )}
+
+                                            {chatLoading && (
+                                                <div className="flex items-center gap-2 text-purple-600">
+                                                    <motion.div
+                                                        animate={{ rotate: 360 }}
+                                                        transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                                                    >
+                                                        <Brain className="w-6 h-6" />
+                                                    </motion.div>
+                                                    <span>נקסון חושב...</span>
+                                                </div>
+                                            )}
+                                        </div>
+
+                                        {/* Chat Input */}
+                                        <div className="flex gap-3">
+                                            <input
+                                                type="text"
+                                                value={chatMessage}
+                                                onChange={(e) => setChatMessage(e.target.value)}
+                                                onKeyPress={(e) => {
+                                                    if (e.key === 'Enter' && chatMessage.trim() && !chatLoading) {
+                                                        sendMessageToNexon(chatMessage);
+                                                    }
+                                                }}
+                                                placeholder="כתוב את השאלה שלך לנקסון..."
+                                                className="flex-1 px-5 py-4 border-2 border-purple-300 rounded-xl focus:border-purple-500 focus:outline-none text-lg"
+                                                disabled={chatLoading}
+                                            />
+                                            <motion.button
+                                                whileHover={{ scale: 1.05 }}
+                                                whileTap={{ scale: 0.95 }}
+                                                onClick={() => {
+                                                    if (chatMessage.trim() && !chatLoading) {
+                                                        sendMessageToNexon(chatMessage);
+                                                    }
+                                                }}
+                                                disabled={!chatMessage.trim() || chatLoading}
+                                                className="px-6 py-4 bg-purple-600 text-white rounded-xl font-bold hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                                            >
+                                                <Send className="w-6 h-6" />
+                                            </motion.button>
+                                        </div>
+                                    </motion.div>
+                                )}
+                            </AnimatePresence>
+                        </div>
+
+                        {/* Notebook Feature */}
+                        <div className="mt-6">
                             <motion.button
                                 whileHover={{ scale: 1.05 }}
                                 whileTap={{ scale: 0.95 }}
-                                onClick={onClose}
-                                className="flex-1 px-6 py-4 bg-gray-200 text-gray-700 rounded-2xl font-black text-lg hover:bg-gray-300 transition-all flex items-center justify-center gap-2"
+                                onClick={() => setShowNotebook(!showNotebook)}
+                                className="w-full px-6 py-4 bg-gradient-to-r from-yellow-400 to-orange-400 text-gray-900 rounded-xl font-bold hover:shadow-xl transition-all flex items-center justify-center gap-3"
                             >
-                                <ArrowLeft className="w-6 h-6" />
-                                חזור
+                                <FileText className="w-6 h-6" />
+                                <span>{showNotebook ? 'סגור מחברת' : 'פתח מחברת לרישום הערות'}</span>
+                            </motion.button>
+
+                            <AnimatePresence>
+                                {showNotebook && (
+                                    <motion.div
+                                        initial={{ opacity: 0, height: 0 }}
+                                        animate={{ opacity: 1, height: 'auto' }}
+                                        exit={{ opacity: 0, height: 0 }}
+                                        className="mt-4 bg-gradient-to-br from-yellow-50 to-orange-50 rounded-2xl p-6 border-2 border-yellow-300"
+                                    >
+                                        <h4 className="text-xl font-black text-gray-900 mb-4 flex items-center gap-2">
+                                            <FileText className="w-6 h-6" />
+                                            המחברת שלי - רשום הערות
+                                        </h4>
+
+                                        <textarea
+                                            value={notebookNotes}
+                                            onChange={(e) => setNotebookNotes(e.target.value)}
+                                            placeholder="רשום כאן הערות, שאלות, או דברים שחשוב לך לזכור..."
+                                            className="w-full min-h-[200px] p-4 border-2 border-yellow-300 rounded-xl focus:border-orange-400 focus:outline-none text-lg resize-y"
+                                        />
+
+                                        <div className="flex gap-3 mt-4">
+                                            <motion.button
+                                                whileHover={{ scale: 1.05 }}
+                                                whileTap={{ scale: 0.95 }}
+                                                onClick={() => saveToNotebook()}
+                                                disabled={!notebookNotes.trim()}
+                                                className="flex-1 px-6 py-3 bg-green-600 text-white rounded-xl font-bold hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
+                                            >
+                                                <Save className="w-5 h-5" />
+                                                <span>שמור למחברת</span>
+                                            </motion.button>
+
+                                            <motion.button
+                                                whileHover={{ scale: 1.05 }}
+                                                whileTap={{ scale: 0.95 }}
+                                                onClick={() => {
+                                                    setNotebookNotes('');
+                                                    setShowNotebook(false);
+                                                }}
+                                                className="px-6 py-3 bg-gray-200 text-gray-700 rounded-xl font-bold hover:bg-gray-300 transition-colors"
+                                            >
+                                                <X className="w-5 h-5" />
+                                            </motion.button>
+                                        </div>
+
+                                        {/* Previous Notes */}
+                                        {savedNotes.length > 0 && (
+                                            <div className="mt-6">
+                                                <h5 className="font-bold text-gray-800 mb-3">הערות שנשמרו בסעיף זה:</h5>
+                                                <div className="space-y-2">
+                                                    {savedNotes
+                                                        .filter(note => note.sectionTitle === section.title)
+                                                        .map((note, idx) => (
+                                                            <div key={idx} className="bg-white rounded-xl p-3 border-2 border-yellow-200">
+                                                                <p className="text-sm text-gray-700">{note.content}</p>
+                                                            </div>
+                                                        ))
+                                                    }
+                                                </div>
+                                            </div>
+                                        )}
+                                    </motion.div>
+                                )}
+                            </AnimatePresence>
+                        </div>
+
+                        {/* Quiz Section - AFTER EXAMPLES */}
+                        {section.quiz && !showQuiz && section.examples && section.examples.length >= 2 && !completedSections.has(currentSection) && (
+                            <motion.button
+                                whileHover={{ scale: 1.05 }}
+                                whileTap={{ scale: 0.95 }}
+                                onClick={() => setShowQuiz(true)}
+                                className="w-full mt-8 py-5 bg-gradient-to-r from-blue-500 to-purple-500 text-white rounded-2xl font-black text-xl hover:shadow-2xl transition-all flex items-center justify-center gap-3"
+                            >
+                                <Brain className="w-8 h-8" />
+                                <span>עכשיו בוא נבדוק שהבנת! 🎯</span>
                             </motion.button>
                         )}
-                    </div>
-                </motion.div>
-            </motion.div>
-        );
-    }
 
-    // No content yet
-    if (!content || !content.pages || content.pages.length === 0) {
-        return (
-            <motion.div
-                {...pageTransition}
-                className="min-h-screen bg-gradient-to-br from-purple-600 via-pink-500 to-red-500 flex items-center justify-center p-4"
-                dir="rtl"
-            >
-                <motion.div
-                    variants={scaleIn}
-                    initial="hidden"
-                    animate="visible"
-                    className="bg-white rounded-3xl p-12 max-w-md text-center shadow-2xl"
-                >
-                    <BookOpen className="w-24 h-24 text-gray-400 mx-auto mb-6" />
-                    <h2 className="text-3xl font-black text-gray-900 mb-4">
-                        אין תוכן זמין
-                    </h2>
-                    <p className="text-gray-600 text-lg mb-8">
-                        לא הצלחנו לטעון את חומר הלימוד
-                    </p>
-                    <motion.button
-                        whileHover={{ scale: 1.05 }}
-                        whileTap={{ scale: 0.95 }}
-                        onClick={handleRetry}
-                        className="px-8 py-4 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-2xl font-black text-lg shadow-xl hover:shadow-2xl transition-all"
-                    >
-                        טען מחדש
-                    </motion.button>
-                </motion.div>
-            </motion.div>
-        );
-    }
-
-    const currentPageData = content.pages[currentPage];
-    const isLastPage = currentPage === content.pages.length - 1;
-    const progress = ((currentPage + 1) / content.pages.length) * 100;
-
-    // ==================== 📚 MAIN CONTENT VIEW ====================
-    return (
-        <motion.div
-            {...pageTransition}
-            className="min-h-screen bg-gradient-to-br from-purple-600 via-pink-500 to-red-500 p-4 md:p-8"
-            dir="rtl"
-        >
-            <div className="max-w-5xl mx-auto">
-                {/* ==================== 🎯 HEADER ====================*/}
-                <div className="mb-8">
-                    <div className="flex items-center justify-between mb-6">
-                        {/* Back Button */}
-                        <motion.button
-                            whileHover={{ scale: 1.05, x: -5 }}
-                            whileTap={{ scale: 0.95 }}
-                            onClick={onClose}
-                            className="flex items-center gap-2 px-6 py-3 bg-white/20 backdrop-blur-md text-white rounded-2xl font-bold hover:bg-white/30 transition-all"
-                        >
-                            <ArrowLeft className="w-5 h-5" />
-                            <span>חזרה</span>
-                        </motion.button>
-
-                        {/* Page Counter */}
-                        <motion.div
-                            animate={pulseGlow.animate}
-                            className="px-6 py-3 bg-white/20 backdrop-blur-md rounded-2xl"
-                        >
-                            <div className="text-white text-center">
-                                <div className="text-sm font-medium opacity-90">עמוד</div>
-                                <div className="text-2xl font-black">
-                                    {currentPage + 1} / {content.pages.length}
-                                </div>
-                            </div>
-                        </motion.div>
-
-                        {/* Trophy Icon */}
-                        <motion.div
-                            animate={{
-                                rotate: [0, 10, -10, 0],
-                                scale: [1, 1.1, 1]
-                            }}
-                            transition={{
-                                duration: 2,
-                                repeat: Infinity,
-                                repeatDelay: 1
-                            }}
-                            className="w-14 h-14 bg-gradient-to-br from-yellow-400 to-orange-500 rounded-2xl flex items-center justify-center shadow-2xl"
-                        >
-                            <Trophy className="w-8 h-8 text-white" />
-                        </motion.div>
-                    </div>
-
-                    {/* Title */}
-                    <motion.div
-                        initial={{ opacity: 0, y: -20 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        className="text-center mb-6"
-                    >
-                        <h1 className="text-4xl md:text-5xl font-black text-white mb-3 drop-shadow-lg">
-                            {content.title}
-                        </h1>
-                        <div className="flex items-center justify-center gap-2 text-white/90 text-lg">
-                            <BookOpen className="w-5 h-5" />
-                            <span>מודול לימודי אינטראקטיבי</span>
-                        </div>
-                    </motion.div>
-
-                    {/* Progress Bar */}
-                    <div className="relative">
-                        <div className="bg-white/20 rounded-full h-4 overflow-hidden backdrop-blur-sm shadow-inner">
+                        {/* Quiz Question */}
+                        {showQuiz && section.quiz && (
                             <motion.div
-                                className="h-full bg-gradient-to-r from-yellow-400 via-orange-400 to-red-400 rounded-full relative overflow-hidden"
-                                initial={{ width: 0 }}
-                                animate={{ width: `${progress}%` }}
-                                transition={{ duration: 0.5, ease: "easeOut" }}
-                            >
-                                {/* Shimmer Effect */}
-                                <motion.div
-                                    className="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent"
-                                    animate={{
-                                        x: ['-100%', '200%']
-                                    }}
-                                    transition={{
-                                        duration: 1.5,
-                                        repeat: Infinity,
-                                        ease: "easeInOut"
-                                    }}
-                                />
-                            </motion.div>
-                        </div>
-
-                        {/* Progress Percentage */}
-                        <motion.div
-                            initial={{ scale: 0 }}
-                            animate={{ scale: 1 }}
-                            className="absolute -top-10 left-1/2 -translate-x-1/2 px-4 py-2 bg-white rounded-full shadow-lg"
-                        >
-                            <span className="font-black text-purple-600 text-sm">
-                                {Math.round(progress)}% הושלם
-                            </span>
-                        </motion.div>
-                    </div>
-                </div>
-
-                {/* ==================== 📖 CONTENT CARD ==================== */}
-                <AnimatePresence mode="wait">
-                    <motion.div
-                        key={currentPage}
-                        variants={slideInRight}
-                        initial="hidden"
-                        animate="visible"
-                        exit={{ opacity: 0, x: -50 }}
-                        className="bg-white rounded-3xl p-8 md:p-12 mb-8 shadow-2xl relative overflow-hidden"
-                    >
-                        {/* Decorative Background Elements */}
-                        <div className="absolute top-0 right-0 w-64 h-64 bg-gradient-to-br from-purple-100 to-pink-100 rounded-full blur-3xl opacity-30 -z-0" />
-                        <div className="absolute bottom-0 left-0 w-48 h-48 bg-gradient-to-tr from-blue-100 to-cyan-100 rounded-full blur-3xl opacity-30 -z-0" />
-
-                        <div className="relative z-10">
-                            {/* Page Title */}
-                            <motion.div
-                                initial={{ opacity: 0, y: -20 }}
+                                initial={{ opacity: 0, y: 20 }}
                                 animate={{ opacity: 1, y: 0 }}
-                                className="mb-10"
+                                className="mt-8 bg-gradient-to-br from-indigo-50 to-purple-50 rounded-3xl p-8 border-2 border-indigo-300 shadow-xl"
                             >
-                                <div className="flex items-center gap-4 mb-4">
-                                    <motion.div
-                                        animate={{
-                                            rotate: [0, 360],
-                                            scale: [1, 1.1, 1]
-                                        }}
-                                        transition={{
-                                            rotate: { duration: 20, repeat: Infinity, ease: "linear" },
-                                            scale: { duration: 2, repeat: Infinity }
-                                        }}
-                                        className="w-16 h-16 bg-gradient-to-br from-purple-500 to-pink-500 rounded-2xl flex items-center justify-center shadow-xl"
-                                    >
-                                        <Book className="w-9 h-9 text-white" />
-                                    </motion.div>
+                                <h3 className="text-2xl md:text-3xl font-black text-gray-900 mb-4 flex items-center gap-3">
+                                    <Brain className="w-10 h-10 text-indigo-600" />
+                                    שאלת בדיקה - בוא נראה אם הבנת!
+                                </h3>
 
-                                    <div className="flex-1">
-                                        <h2 className="text-3xl md:text-4xl font-black text-transparent bg-clip-text bg-gradient-to-r from-purple-600 via-pink-600 to-red-600">
-                                            {currentPageData.title}
-                                        </h2>
-                                        <div className="flex items-center gap-2 mt-2 text-gray-600">
-                                            <Bookmark className="w-4 h-4" />
-                                            <span className="text-sm font-medium">נושא {currentPage + 1}</span>
-                                        </div>
-                                    </div>
+                                <div className="bg-white rounded-2xl p-6 mb-6 border-2 border-indigo-200">
+                                    <p className="text-xl md:text-2xl text-gray-900 font-bold leading-relaxed">
+                                        {section.quiz.question}
+                                    </p>
                                 </div>
 
-                                <div className="h-1 bg-gradient-to-r from-purple-200 via-pink-200 to-red-200 rounded-full" />
-                            </motion.div>
+                                <div className="space-y-4">
+                                    <input
+                                        type="text"
+                                        value={quizAnswer}
+                                        onChange={(e) => setQuizAnswer(e.target.value)}
+                                        onKeyPress={(e) => {
+                                            if (e.key === 'Enter' && quizAnswer.trim() && !quizFeedback?.isCorrect) {
+                                                handleQuizSubmit();
+                                            }
+                                        }}
+                                        placeholder="הקלד את התשובה שלך כאן..."
+                                        className="w-full px-6 py-4 border-2 border-indigo-300 rounded-xl focus:border-purple-500 focus:outline-none text-xl"
+                                        disabled={quizFeedback?.isCorrect}
+                                    />
 
-                            {/* Content Items */}
-                            <div className="space-y-8 mb-10">
-                                {currentPageData.content.map((item, index) => (
-                                    <div key={index}>
-                                        {item.type === 'text' && (
-                                            <motion.div
-                                                custom={index}
-                                                variants={fadeInUp}
-                                                initial="hidden"
-                                                animate="visible"
-                                                className="bg-gradient-to-br from-gray-50 to-blue-50 rounded-2xl p-6 border-2 border-gray-200 shadow-sm"
-                                            >
-                                                <EnhancedText>{item.value}</EnhancedText>
-                                            </motion.div>
-                                        )}
-
-                                        {item.type === 'example' && (
-                                            <ExampleCard example={item} index={index} />
-                                        )}
-
-                                        {item.type === 'tip' && (
-                                            <TipCard tip={item} index={index} />
-                                        )}
-                                    </div>
-                                ))}
-                            </div>
-
-                            {/* Quiz Section */}
-                            {currentPageData.quiz && currentPageData.quiz.length > 0 && (
-                                <motion.div
-                                    initial={{ opacity: 0, y: 30 }}
-                                    animate={{ opacity: 1, y: 0 }}
-                                    transition={{ delay: 0.3 }}
-                                    className="bg-gradient-to-br from-purple-50 via-pink-50 to-red-50 rounded-3xl p-8 border-4 border-purple-200 shadow-xl"
-                                >
-                                    {/* Quiz Header */}
-                                    <div className="flex items-center gap-4 mb-8">
-                                        <motion.div
-                                            animate={{
-                                                rotate: [0, -10, 10, -10, 0],
-                                                scale: [1, 1.1, 1]
-                                            }}
-                                            transition={{
-                                                duration: 2,
-                                                repeat: Infinity,
-                                                repeatDelay: 2
-                                            }}
-                                            className="w-16 h-16 bg-gradient-to-br from-purple-500 to-pink-500 rounded-2xl flex items-center justify-center shadow-xl"
+                                    {!quizFeedback && (
+                                        <motion.button
+                                            whileHover={{ scale: 1.05 }}
+                                            whileTap={{ scale: 0.95 }}
+                                            onClick={handleQuizSubmit}
+                                            disabled={!quizAnswer.trim()}
+                                            className="w-full py-4 bg-purple-600 text-white rounded-xl font-black text-xl hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                                         >
-                                            <Trophy className="w-9 h-9 text-white" />
-                                        </motion.div>
+                                            בדוק תשובה
+                                        </motion.button>
+                                    )}
 
-                                        <div>
-                                            <h3 className="text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-purple-600 to-pink-600">
-                                                שאלות לתרגול
-                                            </h3>
-                                            <p className="text-gray-600 font-medium mt-1">
-                                                בדוק את ההבנה שלך! 🎯
+                                    {quizFeedback && (
+                                        <motion.div
+                                            initial={{ opacity: 0, scale: 0.9 }}
+                                            animate={{ opacity: 1, scale: 1 }}
+                                            className={`p-6 rounded-2xl border-2 ${
+                                                quizFeedback.isCorrect
+                                                    ? 'bg-green-50 border-green-300'
+                                                    : 'bg-orange-50 border-orange-300'
+                                            }`}
+                                        >
+                                            <p className={`font-black text-xl mb-3 ${
+                                                quizFeedback.isCorrect ? 'text-green-700' : 'text-orange-700'
+                                            }`}>
+                                                {quizFeedback.isCorrect ? '✅ נכון מצוין! כל הכבוד!' : '❌ לא ממש...'}
                                             </p>
-                                        </div>
-                                    </div>
+                                            <p className="text-gray-800 text-lg leading-relaxed">{quizFeedback.feedback}</p>
 
-                                    {/* Questions */}
-                                    <div className="space-y-6">
-                                        {currentPageData.quiz.map((question, qIndex) => (
-                                            <QuizQuestion
-                                                key={qIndex}
-                                                question={question}
-                                                qIndex={qIndex}
-                                                quizAnswers={quizAnswers}
-                                                showSolution={showSolution}
-                                                onAnswerSelect={handleAnswerSelect}
-                                                onCheckAnswer={handleCheckAnswer}
-                                            />
-                                        ))}
-                                    </div>
-                                </motion.div>
-                            )}
-                        </div>
+                                            {!quizFeedback.isCorrect && section.quiz.hint && quizAttempts >= 2 && (
+                                                <div className="mt-4 p-4 bg-yellow-100 rounded-xl border-2 border-yellow-300">
+                                                    <p className="text-yellow-900 font-bold mb-1">💡 רמז:</p>
+                                                    <p className="text-gray-800">{section.quiz.hint}</p>
+                                                </div>
+                                            )}
+
+                                            {!quizFeedback.isCorrect && (
+                                                <motion.button
+                                                    whileHover={{ scale: 1.05 }}
+                                                    whileTap={{ scale: 0.95 }}
+                                                    onClick={() => {
+                                                        setQuizFeedback(null);
+                                                        setQuizAnswer('');
+                                                    }}
+                                                    className="mt-4 w-full py-3 bg-orange-500 text-white rounded-xl font-bold hover:bg-orange-600 transition-colors"
+                                                >
+                                                    נסה שוב 🔄
+                                                </motion.button>
+                                            )}
+                                        </motion.div>
+                                    )}
+                                </div>
+                            </motion.div>
+                        )}
                     </motion.div>
                 </AnimatePresence>
 
-                {/* ==================== 🎮 NAVIGATION BUTTONS ==================== */}
-                <div className="flex gap-4">
-                    {/* Previous Button */}
+                {/* Navigation */}
+                <div className="flex items-center justify-between gap-4 pb-8">
                     <motion.button
-                        onClick={handlePrevPage}
-                        disabled={currentPage === 0}
-                        whileHover={currentPage > 0 ? { scale: 1.05, x: 5 } : {}}
-                        whileTap={currentPage > 0 ? { scale: 0.95 } : {}}
-                        className="flex-1 flex items-center justify-center gap-3 px-8 py-5 bg-white text-purple-600 rounded-2xl font-black text-xl disabled:opacity-50 disabled:cursor-not-allowed hover:bg-white/90 transition-all shadow-xl"
+                        whileHover={{ scale: 1.05 }}
+                        whileTap={{ scale: 0.95 }}
+                        onClick={handlePreviousSection}
+                        disabled={currentSection === 0}
+                        className="flex items-center gap-2 px-8 py-4 bg-white border-2 border-gray-300 rounded-xl font-bold hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-lg"
                     >
-                        <ChevronRight className="w-7 h-7" />
-                        עמוד קודם
+                        <ChevronRight className="w-6 h-6" />
+                        <span>קודם</span>
                     </motion.button>
 
-                    {/* Next / Complete Button */}
-                    {!isLastPage ? (
+                    <div className="text-center">
+                        <p className="text-sm text-gray-600">סעיף {currentSection + 1} מתוך {learningContent.sections.length}</p>
+                    </div>
+
+                    {currentSection < learningContent.sections.length - 1 ? (
                         <motion.button
-                            onClick={handleNextPage}
-                            whileHover={{ scale: 1.05, x: -5 }}
+                            whileHover={{ scale: 1.05 }}
                             whileTap={{ scale: 0.95 }}
-                            className="flex-1 flex items-center justify-center gap-3 px-8 py-5 bg-white text-purple-600 rounded-2xl font-black text-xl hover:bg-white/90 transition-all shadow-xl"
+                            onClick={handleNextSection}
+                            className="flex items-center gap-2 px-8 py-4 bg-purple-600 text-white rounded-xl font-bold hover:bg-purple-700 transition-colors shadow-lg"
                         >
-                            עמוד הבא
-                            <ChevronLeft className="w-7 h-7" />
+                            <span>הבא</span>
+                            <ChevronLeft className="w-6 h-6" />
                         </motion.button>
                     ) : (
                         <motion.button
-                            onClick={handleComplete}
                             whileHover={{ scale: 1.05 }}
                             whileTap={{ scale: 0.95 }}
-                            animate={pulseGlow.animate}
-                            className="flex-1 flex items-center justify-center gap-3 px-8 py-5 bg-gradient-to-r from-green-500 via-emerald-500 to-teal-500 text-white rounded-2xl font-black text-xl shadow-2xl hover:shadow-3xl transition-all relative overflow-hidden"
+                            onClick={onComplete}
+                            disabled={!allSectionsCompleted}
+                            className="flex items-center gap-3 px-10 py-5 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-xl font-black text-xl hover:shadow-2xl disabled:opacity-50 disabled:cursor-not-allowed transition-all"
                         >
-                            {/* Shimmer Effect */}
-                            <motion.div
-                                className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent"
-                                animate={{
-                                    x: ['-100%', '200%']
-                                }}
-                                transition={{
-                                    duration: 2,
-                                    repeat: Infinity,
-                                    ease: "easeInOut"
-                                }}
-                            />
-
-                            <Rocket className="w-7 h-7 relative z-10" />
-                            <span className="relative z-10">התחל תרגול!</span>
-                            <Sparkles className="w-7 h-7 relative z-10" />
+                            <CheckCircle className="w-7 h-7" />
+                            <span>סיימתי! 🎉</span>
                         </motion.button>
                     )}
                 </div>
-
-                {/* ==================== ☕ ENCOURAGEMENT MESSAGE ==================== */}
-                <motion.div
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.5 }}
-                    className="mt-8 text-center"
-                >
-                    <div className="inline-flex items-center gap-3 px-6 py-3 bg-white/20 backdrop-blur-md rounded-2xl">
-                        <motion.div
-                            animate={{
-                                rotate: [0, 10, -10, 0]
-                            }}
-                            transition={{
-                                duration: 2,
-                                repeat: Infinity
-                            }}
-                        >
-                            <Heart className="w-6 h-6 text-white fill-white" />
-                        </motion.div>
-                        <span className="text-white font-bold text-lg">
-                            {currentPage === 0 && "בואו נתחיל למידה מהנה! 🚀"}
-                            {currentPage > 0 && currentPage < content.pages.length - 1 && "אתה עושה עבודה מצוינת! 💪"}
-                            {currentPage === content.pages.length - 1 && "כמעט סיימת! עוד קצת! 🎉"}
-                        </span>
-                        <Coffee className="w-6 h-6 text-white" />
-                    </div>
-                </motion.div>
             </div>
-        </motion.div>
+        </div>
     );
-}, (prevProps, nextProps) => {
-    // ✅ Comparison function - only re-render if topic/subtopic actually changed
-    const topicChanged = (prevProps.topic?.name || prevProps.topic) !== (nextProps.topic?.name || nextProps.topic);
-    const subtopicChanged = (prevProps.subtopic?.name || prevProps.subtopic) !== (nextProps.subtopic?.name || nextProps.subtopic);
-
-    return !topicChanged && !subtopicChanged;
-});
-
-AILearningArea.displayName = 'AILearningArea';
+};
 
 export default AILearningArea;
