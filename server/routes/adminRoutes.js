@@ -1,4 +1,4 @@
-// server/routes/adminRoutes.js - CORRECTED FOR PRODUCTION
+// server/routes/adminRoutes.js - CORRECTED FOR PRODUCTION WITH DUAL ID SUPPORT
 import express from 'express';
 import multer from 'multer';
 import path from 'path';
@@ -436,23 +436,30 @@ router.put('/users/:userId', async (req, res) => {
 });
 
 /**
- * 💬 GET /api/admin/user-message/:userId - FIXED TO RESOLVE FIREBASE UID
+ * 💬 GET /api/admin/user-message/:userId - HANDLES BOTH DB ID AND FIREBASE UID
  */
 router.get('/user-message/:userId', async (req, res) => {
     try {
         const { userId } = req.params;
+        let dbUserId;
 
-        // First, resolve Firebase UID to database user ID
-        const userResult = await pool.query(
-            'SELECT id FROM prototype_students WHERE firebase_uid = $1',
-            [userId]
-        );
+        // Check if userId is a number (database ID) or Firebase UID (string)
+        if (/^\d+$/.test(userId)) {
+            // It's a database ID, use it directly
+            dbUserId = parseInt(userId);
+        } else {
+            // It's a Firebase UID, resolve to database ID
+            const userResult = await pool.query(
+                'SELECT id FROM prototype_students WHERE firebase_uid = $1',
+                [userId]
+            );
 
-        if (userResult.rows.length === 0) {
-            return res.status(404).json({ success: false, error: 'User not found' });
+            if (userResult.rows.length === 0) {
+                return res.status(404).json({ success: false, error: 'User not found' });
+            }
+
+            dbUserId = userResult.rows[0].id;
         }
-
-        const dbUserId = userResult.rows[0].id;
 
         // Now query admin_messages with the integer user ID
         const result = await pool.query(
@@ -474,7 +481,7 @@ router.get('/user-message/:userId', async (req, res) => {
 });
 
 /**
- * 💬 POST /api/admin/user-message/:userId - FIXED TO RESOLVE FIREBASE UID
+ * 💬 POST /api/admin/user-message/:userId - HANDLES BOTH DB ID AND FIREBASE UID
  */
 router.post('/user-message/:userId', async (req, res) => {
     try {
@@ -485,17 +492,25 @@ router.post('/user-message/:userId', async (req, res) => {
             return res.status(400).json({ success: false, error: 'Message cannot be empty' });
         }
 
-        // First, resolve Firebase UID to database user ID
-        const userResult = await pool.query(
-            'SELECT id FROM prototype_students WHERE firebase_uid = $1',
-            [userId]
-        );
+        let dbUserId;
 
-        if (userResult.rows.length === 0) {
-            return res.status(404).json({ success: false, error: 'User not found' });
+        // Check if userId is a number (database ID) or Firebase UID (string)
+        if (/^\d+$/.test(userId)) {
+            // It's a database ID, use it directly
+            dbUserId = parseInt(userId);
+        } else {
+            // It's a Firebase UID, resolve to database ID
+            const userResult = await pool.query(
+                'SELECT id FROM prototype_students WHERE firebase_uid = $1',
+                [userId]
+            );
+
+            if (userResult.rows.length === 0) {
+                return res.status(404).json({ success: false, error: 'User not found' });
+            }
+
+            dbUserId = userResult.rows[0].id;
         }
-
-        const dbUserId = userResult.rows[0].id;
 
         // Now insert/update admin_messages with the integer user ID
         const result = await pool.query(
