@@ -22,6 +22,14 @@ const AdminUserDetail = () => {
     const [adminMessage, setAdminMessage] = useState('');
     const [loading, setLoading] = useState(true);
 
+    // Edit user state
+    const [isEditingUser, setIsEditingUser] = useState(false);
+    const [editUserData, setEditUserData] = useState({
+        displayName: '',
+        email: '',
+        grade: ''
+    });
+
     // Mission creation modal
     const [showMissionModal, setShowMissionModal] = useState(false);
     const [newMission, setNewMission] = useState({
@@ -57,6 +65,11 @@ const AdminUserDetail = () => {
 
             if (userData.success) {
                 setUser(userData.user);
+                setEditUserData({
+                    displayName: userData.user.displayName || '',
+                    email: userData.user.email || '',
+                    grade: userData.user.grade || ''
+                });
             }
 
             if (statsData.success) {
@@ -67,6 +80,34 @@ const AdminUserDetail = () => {
             toast.error('שגיאה בטעינת נתוני משתמש');
         } finally {
             setLoading(false);
+        }
+    };
+
+    const saveUserEdit = async () => {
+        if (!editUserData.displayName.trim()) {
+            toast.error('אנא הכנס שם');
+            return;
+        }
+
+        try {
+            const response = await fetch(`${API_URL}/api/admin/users/${userId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(editUserData)
+            });
+
+            const data = await response.json();
+
+            if (data.success) {
+                setUser(data.user);
+                setIsEditingUser(false);
+                toast.success('פרטי המשתמש עודכנו בהצלחה! ✅');
+            } else {
+                toast.error('שגיאה בעדכון פרטים');
+            }
+        } catch (error) {
+            console.error('❌ Error updating user:', error);
+            toast.error('שגיאה בעדכון פרטים');
         }
     };
 
@@ -315,19 +356,93 @@ const AdminUserDetail = () => {
                                     <User className="w-10 h-10 text-purple-600" />
                                 </div>
                                 <div className="flex-1">
-                                    <h2 className="text-2xl font-black text-white">{user.name || user.displayName}</h2>
-                                    <p className="text-white/80">{user.email}</p>
+                                    {isEditingUser ? (
+                                        <div className="space-y-2">
+                                            <input
+                                                type="text"
+                                                value={editUserData.displayName}
+                                                onChange={(e) => setEditUserData({ ...editUserData, displayName: e.target.value })}
+                                                placeholder="שם מלא"
+                                                className="w-full px-3 py-2 bg-white/90 rounded-lg text-gray-900 text-lg font-bold"
+                                            />
+                                            <input
+                                                type="email"
+                                                value={editUserData.email}
+                                                onChange={(e) => setEditUserData({ ...editUserData, email: e.target.value })}
+                                                placeholder="אימייל"
+                                                className="w-full px-3 py-2 bg-white/90 rounded-lg text-gray-900 text-sm"
+                                            />
+                                        </div>
+                                    ) : (
+                                        <>
+                                            <h2 className="text-2xl font-black text-white">
+                                                {user.name || user.displayName || 'ללא שם'}
+                                            </h2>
+                                            <p className="text-white/80">{user.email || 'אין אימייל'}</p>
+                                        </>
+                                    )}
                                 </div>
+                                <motion.button
+                                    whileHover={{ scale: 1.1 }}
+                                    whileTap={{ scale: 0.9 }}
+                                    onClick={() => {
+                                        if (isEditingUser) {
+                                            saveUserEdit();
+                                        } else {
+                                            setIsEditingUser(true);
+                                        }
+                                    }}
+                                    className="p-3 bg-white/20 hover:bg-white/30 rounded-lg transition-colors"
+                                >
+                                    {isEditingUser ? (
+                                        <Save className="w-5 h-5 text-white" />
+                                    ) : (
+                                        <Edit2 className="w-5 h-5 text-white" />
+                                    )}
+                                </motion.button>
+                                {isEditingUser && (
+                                    <motion.button
+                                        whileHover={{ scale: 1.1 }}
+                                        whileTap={{ scale: 0.9 }}
+                                        onClick={() => {
+                                            setIsEditingUser(false);
+                                            setEditUserData({
+                                                displayName: user.displayName || '',
+                                                email: user.email || '',
+                                                grade: user.grade || ''
+                                            });
+                                        }}
+                                        className="p-3 bg-white/20 hover:bg-white/30 rounded-lg transition-colors"
+                                    >
+                                        <X className="w-5 h-5 text-white" />
+                                    </motion.button>
+                                )}
                             </div>
 
                             <div className="space-y-3">
                                 <div className="flex items-center gap-3 text-white">
                                     <Calendar className="w-5 h-5" />
-                                    <span>כיתה: {user.grade || 'לא צוין'}</span>
+                                    {isEditingUser ? (
+                                        <select
+                                            value={editUserData.grade}
+                                            onChange={(e) => setEditUserData({ ...editUserData, grade: e.target.value })}
+                                            className="flex-1 px-3 py-2 bg-white/90 rounded-lg text-gray-900"
+                                        >
+                                            <option value="">בחר כיתה...</option>
+                                            <option value="7">כיתה ז'</option>
+                                            <option value="8">כיתה ח'</option>
+                                            <option value="9">כיתה ט'</option>
+                                            <option value="10">כיתה י'</option>
+                                            <option value="11">כיתה י"א</option>
+                                            <option value="12">כיתה י"ב</option>
+                                        </select>
+                                    ) : (
+                                        <span>כיתה: {user.grade || 'לא צוין'}</span>
+                                    )}
                                 </div>
                                 <div className="flex items-center gap-3 text-white">
                                     <Award className="w-5 h-5" />
-                                    <span>מסלול: {user.track || 'לא צוין'}</span>
+                                    <span>מסלול: {user.track || user.grade || 'לא צוין'}</span>
                                 </div>
                                 {user.createdAt && (
                                     <div className="flex items-center gap-3 text-white">

@@ -50,7 +50,7 @@ router.post('/upload-exam-enhanced', upload.single('image'), async (req, res) =>
         }
         const { examTitle, gradeLevel, subject, units, examType, uploadedBy } = req.body;
         const uploadResult = await pool.query(
-            `INSERT INTO exam_uploads (filename, original_name, file_path, file_size, mime_type, exam_title, exam_type, grade_level, subject, units, uploaded_by, status) 
+            `INSERT INTO exam_uploads (filename, original_name, file_path, file_size, mime_type, exam_title, exam_type, grade_level, subject, units, uploaded_by, status)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'processing') RETURNING id`,
             [req.file.filename, req.file.originalname, req.file.path, req.file.size, req.file.mimetype, examTitle, examType, parseInt(gradeLevel), subject, units ? parseInt(units) : null, uploadedBy]
         );
@@ -95,7 +95,7 @@ router.post('/upload-exam-grouped-enhanced', upload.single('image'), async (req,
         if (!req.file) return res.status(400).json({ success: false, error: 'No image' });
         const { examTitle, gradeLevel, subject, units, examType, examGroupId, fileOrder, isSolutionPage, totalFilesInGroup, uploadedBy } = req.body;
         const uploadResult = await pool.query(
-            `INSERT INTO exam_uploads (filename, original_name, file_path, file_size, mime_type, exam_title, exam_type, grade_level, subject, units, uploaded_by, status, exam_group_id, file_order, is_solution_page, total_files_in_group) 
+            `INSERT INTO exam_uploads (filename, original_name, file_path, file_size, mime_type, exam_title, exam_type, grade_level, subject, units, uploaded_by, status, exam_group_id, file_order, is_solution_page, total_files_in_group)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'processing', $12, $13, $14, $15) RETURNING id`,
             [req.file.filename, req.file.originalname, req.file.path, req.file.size, req.file.mimetype, examTitle, examType, parseInt(gradeLevel), subject, units ? parseInt(units) : null, uploadedBy, examGroupId, parseInt(fileOrder), isSolutionPage === 'true', parseInt(totalFilesInGroup)]
         );
@@ -397,6 +397,37 @@ router.get('/users/:userId', async (req, res) => {
     } catch (error) {
         console.error('❌ Get user error:', error);
         res.status(500).json({ success: false, error: 'Failed to load user' });
+    }
+});
+
+/**
+ * ✏️ PUT /api/admin/users/:userId - Update user information
+ */
+router.put('/users/:userId', async (req, res) => {
+    try {
+        const { userId } = req.params;
+        const { displayName, email, grade } = req.body;
+
+        const result = await pool.query(`
+            UPDATE users 
+            SET 
+                display_name = COALESCE($1, display_name),
+                email = COALESCE($2, email),
+                grade = COALESCE($3, grade),
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = $4
+            RETURNING id, firebase_uid as "firebaseUid", display_name as "displayName", 
+                      display_name as name, email, grade, created_at as "createdAt"
+        `, [displayName, email, grade, userId]);
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ success: false, error: 'User not found' });
+        }
+
+        res.json({ success: true, user: result.rows[0] });
+    } catch (error) {
+        console.error('❌ Update user error:', error);
+        res.status(500).json({ success: false, error: 'Failed to update user' });
     }
 });
 
