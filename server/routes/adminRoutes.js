@@ -50,7 +50,7 @@ router.post('/upload-exam-enhanced', upload.single('image'), async (req, res) =>
         }
         const { examTitle, gradeLevel, subject, units, examType, uploadedBy } = req.body;
         const uploadResult = await pool.query(
-            `INSERT INTO exam_uploads (filename, original_name, file_path, file_size, mime_type, exam_title, exam_type, grade_level, subject, units, uploaded_by, status)
+            `INSERT INTO exam_uploads (filename, original_name, file_path, file_size, mime_type, exam_title, exam_type, grade_level, subject, units, uploaded_by, status) 
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'processing') RETURNING id`,
             [req.file.filename, req.file.originalname, req.file.path, req.file.size, req.file.mimetype, examTitle, examType, parseInt(gradeLevel), subject, units ? parseInt(units) : null, uploadedBy]
         );
@@ -95,7 +95,7 @@ router.post('/upload-exam-grouped-enhanced', upload.single('image'), async (req,
         if (!req.file) return res.status(400).json({ success: false, error: 'No image' });
         const { examTitle, gradeLevel, subject, units, examType, examGroupId, fileOrder, isSolutionPage, totalFilesInGroup, uploadedBy } = req.body;
         const uploadResult = await pool.query(
-            `INSERT INTO exam_uploads (filename, original_name, file_path, file_size, mime_type, exam_title, exam_type, grade_level, subject, units, uploaded_by, status, exam_group_id, file_order, is_solution_page, total_files_in_group)
+            `INSERT INTO exam_uploads (filename, original_name, file_path, file_size, mime_type, exam_title, exam_type, grade_level, subject, units, uploaded_by, status, exam_group_id, file_order, is_solution_page, total_files_in_group) 
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'processing', $12, $13, $14, $15) RETURNING id`,
             [req.file.filename, req.file.originalname, req.file.path, req.file.size, req.file.mimetype, examTitle, examType, parseInt(gradeLevel), subject, units ? parseInt(units) : null, uploadedBy, examGroupId, parseInt(fileOrder), isSolutionPage === 'true', parseInt(totalFilesInGroup)]
         );
@@ -285,7 +285,7 @@ router.get('/dashboard-stats', async (req, res) => {
 
         // Missions stats
         const missionsResult = await pool.query(`
-            SELECT COUNT(*) as total, COUNT(CASE WHEN completed = true THEN 1 END) as completed
+            SELECT COUNT(*) as total, COUNT(CASE WHEN completed = true THEN 1 END) as completed 
             FROM missions
         `);
         const totalMissions = parseInt(missionsResult.rows[0]?.total || 0);
@@ -321,24 +321,26 @@ router.get('/users', async (req, res) => {
         // Simple query that only uses columns we know exist in the users table
         // Note: u.id is INTEGER, but some tables may have user_id as VARCHAR, so we cast
         const query = `
-            SELECT
-                u.id,
+            SELECT 
+                u.id, 
+                u.firebase_uid as "firebaseUid",
                 u.display_name as "displayName",
-                u.email,
+                u.display_name as name,
+                u.email, 
                 u.grade,
                 u.created_at as "createdAt",
                 json_build_object(
-                        'questionsAnswered', COALESCE(sqh_count.total, 0),
-                        'correctAnswers', 0,
-                        'streak', 0,
-                        'practiceTime', 0,
-                        'completedMissions', COALESCE(m_completed.count, 0),
-                        'totalMissions', COALESCE(m_total.count, 0)
+                    'questionsAnswered', COALESCE(sqh_count.total, 0),
+                    'correctAnswers', 0,
+                    'streak', 0,
+                    'practiceTime', 0,
+                    'completedMissions', COALESCE(m_completed.count, 0),
+                    'totalMissions', COALESCE(m_total.count, 0)
                 ) as stats
             FROM users u
-                     LEFT JOIN (
-                SELECT
-                    CASE
+            LEFT JOIN (
+                SELECT 
+                    CASE 
                         WHEN user_id ~ '^[0-9]+$' THEN user_id::integer 
                         ELSE NULL 
                     END as user_id, 
@@ -347,19 +349,19 @@ router.get('/users', async (req, res) => {
                 WHERE user_id IS NOT NULL
                 GROUP BY user_id
             ) sqh_count ON u.id = sqh_count.user_id
-                     LEFT JOIN (
+            LEFT JOIN (
                 SELECT user_id, COUNT(*) as count
                 FROM missions
                 WHERE completed = true
                 GROUP BY user_id
             ) m_completed ON u.id = m_completed.user_id
-                     LEFT JOIN (
+            LEFT JOIN (
                 SELECT user_id, COUNT(*) as count
                 FROM missions
                 GROUP BY user_id
             ) m_total ON u.id = m_total.user_id
-            ORDER BY u.created_at DESC
-                LIMIT $1
+            ORDER BY u.created_at DESC 
+            LIMIT $1
         `;
 
         const result = await pool.query(query, [limit]);
@@ -377,7 +379,19 @@ router.get('/users', async (req, res) => {
 router.get('/users/:userId', async (req, res) => {
     try {
         const { userId } = req.params;
-        const result = await pool.query(`SELECT id, display_name as "displayName", email, grade, created_at as "createdAt" FROM users WHERE id = $1`, [userId]);
+        const result = await pool.query(`
+            SELECT 
+                id, 
+                firebase_uid as "firebaseUid",
+                display_name as "displayName", 
+                display_name as name,
+                email, 
+                grade,
+                grade as track,
+                created_at as "createdAt" 
+            FROM users 
+            WHERE id = $1
+        `, [userId]);
         if (result.rows.length === 0) return res.status(404).json({ success: false, error: 'User not found' });
         res.json({ success: true, user: result.rows[0] });
     } catch (error) {
@@ -443,7 +457,35 @@ router.post('/missions/create', async (req, res) => {
     try {
         const { userId, title, description, type, topicId } = req.body;
         if (!userId || !title) return res.status(400).json({ success: false, error: 'userId and title required' });
-        const result = await pool.query(`INSERT INTO missions (user_id, title, description, type, topic_id) VALUES ($1, $2, $3, $4, $5) RETURNING *`, [userId, title, description || null, type || 'practice', topicId || null]);
+
+        // Get the user's firebase_uid
+        const userResult = await pool.query('SELECT firebase_uid FROM users WHERE id = $1', [userId]);
+        const firebaseUid = userResult.rows[0]?.firebase_uid;
+
+        // Check if missions table has firebase_uid column
+        const columnCheck = await pool.query(`
+            SELECT column_name 
+            FROM information_schema.columns 
+            WHERE table_name = 'missions' AND column_name = 'firebase_uid'
+        `);
+
+        let result;
+        if (columnCheck.rows.length > 0 && firebaseUid) {
+            // Insert with firebase_uid
+            result = await pool.query(`
+                INSERT INTO missions (user_id, firebase_uid, title, description, type, topic_id) 
+                VALUES ($1, $2, $3, $4, $5, $6) 
+                RETURNING *
+            `, [userId, firebaseUid, title, description || null, type || 'practice', topicId || null]);
+        } else {
+            // Insert without firebase_uid
+            result = await pool.query(`
+                INSERT INTO missions (user_id, title, description, type, topic_id) 
+                VALUES ($1, $2, $3, $4, $5) 
+                RETURNING *
+            `, [userId, title, description || null, type || 'practice', topicId || null]);
+        }
+
         res.json({ success: true, mission: result.rows[0] });
     } catch (error) {
         console.error('❌ Create mission error:', error);
@@ -571,6 +613,64 @@ router.get('/topics', async (req, res) => {
         { id: 'trigonometry', name: 'טריגונומטריה' }
     ];
     res.json({ success: true, topics });
+});
+
+/**
+ * 🎯 GET /api/admin/my-missions - Get missions for a user by firebase_uid
+ * This can be used by the student's dashboard to fetch their missions
+ */
+router.get('/my-missions', async (req, res) => {
+    try {
+        const { firebaseUid, userId } = req.query;
+
+        if (!firebaseUid && !userId) {
+            return res.status(400).json({ success: false, error: 'firebaseUid or userId required' });
+        }
+
+        let query, params;
+
+        if (firebaseUid) {
+            // Query by firebase_uid
+            query = `
+                SELECT 
+                    m.id, 
+                    m.title, 
+                    m.description, 
+                    m.topic_id as "topicId", 
+                    m.type, 
+                    m.completed, 
+                    m.created_at as "createdAt", 
+                    m.completed_at as "completedAt"
+                FROM missions m
+                WHERE m.firebase_uid = $1
+                ORDER BY m.completed ASC, m.created_at DESC
+            `;
+            params = [firebaseUid];
+        } else {
+            // Query by user_id
+            query = `
+                SELECT 
+                    m.id, 
+                    m.title, 
+                    m.description, 
+                    m.topic_id as "topicId", 
+                    m.type, 
+                    m.completed, 
+                    m.created_at as "createdAt", 
+                    m.completed_at as "completedAt"
+                FROM missions m
+                WHERE m.user_id = $1
+                ORDER BY m.completed ASC, m.created_at DESC
+            `;
+            params = [userId];
+        }
+
+        const result = await pool.query(query, params);
+        res.json({ success: true, missions: result.rows });
+    } catch (error) {
+        console.error('❌ Get my missions error:', error);
+        res.status(500).json({ success: false, error: 'Failed to load missions' });
+    }
 });
 
 console.log('✅ Admin routes (exams + student management) CORRECTED AND LOADED');
