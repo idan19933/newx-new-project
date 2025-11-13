@@ -40,7 +40,6 @@ const upload = multer({
 });
 
 // ==================== EXAM UPLOAD ENDPOINTS ====================
-// [Keeping all exam endpoints unchanged - they work fine]
 
 router.post('/upload-exam-enhanced', upload.single('image'), async (req, res) => {
     try {
@@ -250,18 +249,16 @@ router.delete('/upload/:id', async (req, res) => {
     }
 });
 
-// ==================== FIXED STUDENT MANAGEMENT ENDPOINTS ====================
+// ==================== STUDENT MANAGEMENT ENDPOINTS ====================
 
 /**
- * 📊 GET /api/admin/dashboard-stats - FIXED
+ * 📊 GET /api/admin/dashboard-stats
  */
 router.get('/dashboard-stats', async (req, res) => {
     try {
-        // Total users from prototype_students table (has all students)
         const usersResult = await pool.query('SELECT COUNT(*) FROM prototype_students');
         const totalUsers = parseInt(usersResult.rows[0].count);
 
-        // Active users - users who have records in student_question_history in last 7 days
         const activeUsersResult = await pool.query(`
             SELECT COUNT(DISTINCT
                          CASE
@@ -275,15 +272,12 @@ router.get('/dashboard-stats', async (req, res) => {
         `);
         const activeUsers = parseInt(activeUsersResult.rows[0].count);
 
-        // Total questions from student_question_history
         const questionsResult = await pool.query('SELECT COUNT(*) FROM student_question_history');
         const totalQuestions = parseInt(questionsResult.rows[0].count);
 
-        // Total exams
         const examsResult = await pool.query('SELECT COUNT(*) FROM bagrut_exams');
         const totalExams = parseInt(examsResult.rows[0].count);
 
-        // Missions stats
         const missionsResult = await pool.query(`
             SELECT COUNT(*) as total, COUNT(CASE WHEN completed = true THEN 1 END) as completed
             FROM missions
@@ -291,35 +285,23 @@ router.get('/dashboard-stats', async (req, res) => {
         const totalMissions = parseInt(missionsResult.rows[0]?.total || 0);
         const completedMissions = parseInt(missionsResult.rows[0]?.completed || 0);
 
-        // Average accuracy - simplified to avoid column issues
-        const averageAccuracy = 0; // Will calculate once we know the correct column names
-
-        // Average streak
-        const averageStreak = 0;
-
-        // Total learning time - set to 0 since we don't know the column name
-        const totalLearningTime = 0;
-
         res.json({
             success: true,
-            stats: { totalUsers, activeUsers, totalQuestions, totalExams, totalMissions, completedMissions, averageAccuracy, averageStreak, totalLearningTime }
+            stats: { totalUsers, activeUsers, totalQuestions, totalExams, totalMissions, completedMissions, averageAccuracy: 0, averageStreak: 0, totalLearningTime: 0 }
         });
     } catch (error) {
         console.error('❌ Dashboard stats error:', error);
-        console.error('Full error:', error.stack);
         res.status(500).json({ success: false, error: 'Failed to load stats', details: error.message });
     }
 });
 
 /**
- * 👥 GET /api/admin/users - SIMPLIFIED TO AVOID COLUMN ISSUES
+ * 👥 GET /api/admin/users
  */
 router.get('/users', async (req, res) => {
     try {
         const { limit = 100 } = req.query;
 
-        // Query prototype_students as the main source (has all 100+ students)
-        // LEFT JOIN to users table for authentication data
         const query = `
             SELECT
                 ps.id,
@@ -369,7 +351,6 @@ router.get('/users', async (req, res) => {
         res.json({ success: true, users: result.rows });
     } catch (error) {
         console.error('❌ Get users error:', error);
-        console.error('Full error:', error.stack);
         res.status(500).json({ success: false, error: 'Failed to load users', details: error.message });
     }
 });
@@ -403,7 +384,7 @@ router.get('/users/:userId', async (req, res) => {
 });
 
 /**
- * ✏️ PUT /api/admin/users/:userId - Update user information
+ * ✏️ PUT /api/admin/users/:userId
  */
 router.put('/users/:userId', async (req, res) => {
     try {
@@ -443,12 +424,9 @@ router.get('/user-message/:userId', async (req, res) => {
         const { userId } = req.params;
         let dbUserId;
 
-        // Check if userId is a number (database ID) or Firebase UID (string)
         if (/^\d+$/.test(userId)) {
-            // It's a database ID, use it directly
             dbUserId = parseInt(userId);
         } else {
-            // It's a Firebase UID, resolve to database ID
             const userResult = await pool.query(
                 'SELECT id FROM prototype_students WHERE firebase_uid = $1',
                 [userId]
@@ -461,7 +439,6 @@ router.get('/user-message/:userId', async (req, res) => {
             dbUserId = userResult.rows[0].id;
         }
 
-        // Now query admin_messages with the integer user ID
         const result = await pool.query(
             `SELECT message, created_at as "createdAt", updated_at as "updatedAt" 
              FROM admin_messages 
@@ -494,12 +471,9 @@ router.post('/user-message/:userId', async (req, res) => {
 
         let dbUserId;
 
-        // Check if userId is a number (database ID) or Firebase UID (string)
         if (/^\d+$/.test(userId)) {
-            // It's a database ID, use it directly
             dbUserId = parseInt(userId);
         } else {
-            // It's a Firebase UID, resolve to database ID
             const userResult = await pool.query(
                 'SELECT id FROM prototype_students WHERE firebase_uid = $1',
                 [userId]
@@ -512,13 +486,12 @@ router.post('/user-message/:userId', async (req, res) => {
             dbUserId = userResult.rows[0].id;
         }
 
-        // Now insert/update admin_messages with the integer user ID
         const result = await pool.query(
-            `INSERT INTO admin_messages (user_id, message) 
-             VALUES ($1, $2) 
-             ON CONFLICT (user_id) 
-             DO UPDATE SET message = EXCLUDED.message, updated_at = CURRENT_TIMESTAMP 
-             RETURNING *`,
+            `INSERT INTO admin_messages (user_id, message)
+             VALUES ($1, $2)
+                 ON CONFLICT (user_id) 
+             DO UPDATE SET message = EXCLUDED.message, updated_at = CURRENT_TIMESTAMP
+                                     RETURNING *`,
             [dbUserId, message.trim()]
         );
 
@@ -530,16 +503,42 @@ router.post('/user-message/:userId', async (req, res) => {
 });
 
 /**
- * 🎯 GET /api/admin/missions/user/:userId
+ * 🎯 GET /api/admin/missions/user/:userId - HANDLES BOTH USER_ID AND FIREBASE_UID
  */
 router.get('/missions/user/:userId', async (req, res) => {
     try {
         const { userId } = req.params;
         const { type } = req.query;
-        let query = `SELECT id, title, description, topic_id as "topicId", type, completed, created_at as "createdAt", completed_at as "completedAt" FROM missions WHERE user_id = $1`;
-        const params = [userId];
-        if (type) { query += ` AND type = $2`; params.push(type); }
+
+        let query, params;
+
+        if (/^\d+$/.test(userId)) {
+            // It's a database ID
+            query = `SELECT id, title, description, topic_id as "topicId", type, completed, created_at as "createdAt", completed_at as "completedAt" FROM missions WHERE user_id = $1`;
+            params = [parseInt(userId)];
+        } else {
+            // It's a Firebase UID
+            const userResult = await pool.query(
+                'SELECT id FROM prototype_students WHERE firebase_uid = $1',
+                [userId]
+            );
+
+            if (userResult.rows.length > 0) {
+                const dbUserId = userResult.rows[0].id;
+                // Query by BOTH firebase_uid and user_id to catch all missions
+                query = `SELECT id, title, description, topic_id as "topicId", type, completed, created_at as "createdAt", completed_at as "completedAt" FROM missions WHERE firebase_uid = $1 OR user_id = $2`;
+                params = [userId, dbUserId];
+            } else {
+                return res.json({ success: true, missions: [] });
+            }
+        }
+
+        if (type) {
+            query += ` AND type = $${params.length + 1}`;
+            params.push(type);
+        }
         query += ` ORDER BY completed ASC, created_at DESC`;
+
         const result = await pool.query(query, params);
         res.json({ success: true, missions: result.rows });
     } catch (error) {
@@ -556,11 +555,9 @@ router.post('/missions/create', async (req, res) => {
         const { userId, title, description, type, topicId } = req.body;
         if (!userId || !title) return res.status(400).json({ success: false, error: 'userId and title required' });
 
-        // Get the user's firebase_uid from prototype_students
         const userResult = await pool.query('SELECT firebase_uid FROM prototype_students WHERE id = $1', [userId]);
         const firebaseUid = userResult.rows[0]?.firebase_uid;
 
-        // Check if missions table has firebase_uid column
         const columnCheck = await pool.query(`
             SELECT column_name
             FROM information_schema.columns
@@ -569,14 +566,12 @@ router.post('/missions/create', async (req, res) => {
 
         let result;
         if (columnCheck.rows.length > 0 && firebaseUid) {
-            // Insert with firebase_uid
             result = await pool.query(`
                 INSERT INTO missions (user_id, firebase_uid, title, description, type, topic_id)
                 VALUES ($1, $2, $3, $4, $5, $6)
                     RETURNING *
             `, [userId, firebaseUid, title, description || null, type || 'practice', topicId || null]);
         } else {
-            // Insert without firebase_uid
             result = await pool.query(`
                 INSERT INTO missions (user_id, title, description, type, topic_id)
                 VALUES ($1, $2, $3, $4, $5)
@@ -638,13 +633,12 @@ router.delete('/missions/:missionId', async (req, res) => {
 });
 
 /**
- * 📊 GET /api/admin/profile/stats/:userId - Get detailed user stats
+ * 📊 GET /api/admin/profile/stats/:userId
  */
 router.get('/profile/stats/:userId', async (req, res) => {
     try {
         const { userId } = req.params;
 
-        // Get question stats from student_question_history
         const questionStatsResult = await pool.query(`
             SELECT
                 COUNT(*) as questions_answered,
@@ -658,7 +652,6 @@ router.get('/profile/stats/:userId', async (req, res) => {
             END
         `, [userId]);
 
-        // Get mission stats
         const missionStatsResult = await pool.query(`
             SELECT
                 COUNT(*) as total_missions,
@@ -684,7 +677,7 @@ router.get('/profile/stats/:userId', async (req, res) => {
 });
 
 /**
- * 📚 GET /api/admin/curriculum/topics - Get curriculum topics
+ * 📚 GET /api/admin/curriculum/topics
  */
 router.get('/curriculum/topics', async (req, res) => {
     const topics = [
@@ -714,8 +707,7 @@ router.get('/topics', async (req, res) => {
 });
 
 /**
- * 🎯 GET /api/admin/my-missions - Get missions for a user by firebase_uid
- * This can be used by the student's dashboard to fetch their missions
+ * 🎯 GET /api/admin/my-missions - UPDATED TO QUERY BOTH WAYS
  */
 router.get('/my-missions', async (req, res) => {
     try {
@@ -728,7 +720,18 @@ router.get('/my-missions', async (req, res) => {
         let query, params;
 
         if (firebaseUid) {
-            // Query by firebase_uid
+            const userResult = await pool.query(
+                'SELECT id FROM prototype_students WHERE firebase_uid = $1',
+                [firebaseUid]
+            );
+
+            if (userResult.rows.length === 0) {
+                return res.json({ success: true, missions: [] });
+            }
+
+            const dbUserId = userResult.rows[0].id;
+
+            // Query by BOTH firebase_uid AND user_id to catch all missions
             query = `
                 SELECT
                     m.id,
@@ -740,12 +743,11 @@ router.get('/my-missions', async (req, res) => {
                     m.created_at as "createdAt",
                     m.completed_at as "completedAt"
                 FROM missions m
-                WHERE m.firebase_uid = $1
+                WHERE m.firebase_uid = $1 OR m.user_id = $2
                 ORDER BY m.completed ASC, m.created_at DESC
             `;
-            params = [firebaseUid];
+            params = [firebaseUid, dbUserId];
         } else {
-            // Query by user_id
             query = `
                 SELECT
                     m.id,
@@ -772,14 +774,12 @@ router.get('/my-missions', async (req, res) => {
 });
 
 /**
- * 🔍 GET /api/admin/debug-users - Debug raw user data
+ * 🔍 GET /api/admin/debug-users
  */
 router.get('/debug-users', async (req, res) => {
     try {
-        // Get ALL fields from users table
         const users = await pool.query(`SELECT * FROM users ORDER BY id LIMIT 10`);
 
-        // Get column names
         const columns = await pool.query(`
             SELECT column_name, data_type, is_nullable
             FROM information_schema.columns
