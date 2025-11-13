@@ -324,8 +324,8 @@ router.get('/users', async (req, res) => {
             SELECT
                 ps.id,
                 ps.firebase_uid as "firebaseUid",
-                COALESCE(ps.name, ps.display_name, u.display_name) as "displayName",
-                COALESCE(ps.name, ps.display_name, u.display_name) as name,
+                COALESCE(ps.name, u.display_name) as "displayName",
+                COALESCE(ps.name, u.display_name) as name,
                 COALESCE(ps.email, u.email) as email,
                 COALESCE(ps.grade, u.grade) as grade,
                 ps.created_at as "createdAt",
@@ -384,8 +384,8 @@ router.get('/users/:userId', async (req, res) => {
             SELECT
                 ps.id,
                 ps.firebase_uid as "firebaseUid",
-                COALESCE(ps.name, ps.display_name, u.display_name) as "displayName",
-                COALESCE(ps.name, ps.display_name, u.display_name) as name,
+                COALESCE(ps.name, u.display_name) as "displayName",
+                COALESCE(ps.name, u.display_name) as name,
                 COALESCE(ps.email, u.email) as email,
                 COALESCE(ps.grade, u.grade) as grade,
                 COALESCE(ps.grade, u.grade) as track,
@@ -414,14 +414,13 @@ router.put('/users/:userId', async (req, res) => {
             UPDATE prototype_students
             SET
                 name = COALESCE($1, name),
-                display_name = COALESCE($1, display_name),
                 email = COALESCE($2, email),
                 grade = COALESCE($3, grade),
                 updated_at = CURRENT_TIMESTAMP
             WHERE id = $4
                 RETURNING id, firebase_uid as "firebaseUid", 
-                      COALESCE(name, display_name) as "displayName", 
-                      COALESCE(name, display_name) as name, 
+                      name as "displayName", 
+                      name, 
                       email, grade, created_at as "createdAt"
         `, [displayName, email, grade, userId]);
 
@@ -720,7 +719,7 @@ router.get('/debug-users', async (req, res) => {
         // Get column names
         const columns = await pool.query(`
             SELECT column_name, data_type, is_nullable
-            FROM information_schema.columns 
+            FROM information_schema.columns
             WHERE table_name = 'users'
             ORDER BY ordinal_position
         `);
