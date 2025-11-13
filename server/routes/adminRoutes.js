@@ -257,8 +257,8 @@ router.delete('/upload/:id', async (req, res) => {
  */
 router.get('/dashboard-stats', async (req, res) => {
     try {
-        // Total users from users table
-        const usersResult = await pool.query('SELECT COUNT(*) FROM users');
+        // Total users from prototype_students table (has all students)
+        const usersResult = await pool.query('SELECT COUNT(*) FROM prototype_students');
         const totalUsers = parseInt(usersResult.rows[0].count);
 
         // Active users - users who have records in student_question_history in last 7 days
@@ -285,7 +285,7 @@ router.get('/dashboard-stats', async (req, res) => {
 
         // Missions stats
         const missionsResult = await pool.query(`
-            SELECT COUNT(*) as total, COUNT(CASE WHEN completed = true THEN 1 END) as completed 
+            SELECT COUNT(*) as total, COUNT(CASE WHEN completed = true THEN 1 END) as completed
             FROM missions
         `);
         const totalMissions = parseInt(missionsResult.rows[0]?.total || 0);
@@ -318,29 +318,30 @@ router.get('/users', async (req, res) => {
     try {
         const { limit = 100 } = req.query;
 
-        // Simple query that only uses columns we know exist in the users table
-        // Note: u.id is INTEGER, but some tables may have user_id as VARCHAR, so we cast
+        // Query prototype_students as the main source (has all 100+ students)
+        // LEFT JOIN to users table for authentication data
         const query = `
-            SELECT 
-                u.id, 
-                u.firebase_uid as "firebaseUid",
-                u.display_name as "displayName",
-                u.display_name as name,
-                u.email, 
-                u.grade,
-                u.created_at as "createdAt",
+            SELECT
+                ps.id,
+                ps.firebase_uid as "firebaseUid",
+                COALESCE(ps.name, ps.display_name, u.display_name) as "displayName",
+                COALESCE(ps.name, ps.display_name, u.display_name) as name,
+                COALESCE(ps.email, u.email) as email,
+                COALESCE(ps.grade, u.grade) as grade,
+                ps.created_at as "createdAt",
                 json_build_object(
-                    'questionsAnswered', COALESCE(sqh_count.total, 0),
-                    'correctAnswers', 0,
-                    'streak', 0,
-                    'practiceTime', 0,
-                    'completedMissions', COALESCE(m_completed.count, 0),
-                    'totalMissions', COALESCE(m_total.count, 0)
+                        'questionsAnswered', COALESCE(sqh_count.total, 0),
+                        'correctAnswers', 0,
+                        'streak', 0,
+                        'practiceTime', 0,
+                        'completedMissions', COALESCE(m_completed.count, 0),
+                        'totalMissions', COALESCE(m_total.count, 0)
                 ) as stats
-            FROM users u
-            LEFT JOIN (
-                SELECT 
-                    CASE 
+            FROM prototype_students ps
+                     LEFT JOIN users u ON ps.firebase_uid = u.firebase_uid OR ps.email = u.email
+                     LEFT JOIN (
+                SELECT
+                    CASE
                         WHEN user_id ~ '^[0-9]+$' THEN user_id::integer 
                         ELSE NULL 
                     END as user_id, 
@@ -348,20 +349,20 @@ router.get('/users', async (req, res) => {
                 FROM student_question_history
                 WHERE user_id IS NOT NULL
                 GROUP BY user_id
-            ) sqh_count ON u.id = sqh_count.user_id
-            LEFT JOIN (
+            ) sqh_count ON ps.id = sqh_count.user_id
+                     LEFT JOIN (
                 SELECT user_id, COUNT(*) as count
                 FROM missions
                 WHERE completed = true
                 GROUP BY user_id
-            ) m_completed ON u.id = m_completed.user_id
-            LEFT JOIN (
+            ) m_completed ON ps.id = m_completed.user_id
+                     LEFT JOIN (
                 SELECT user_id, COUNT(*) as count
                 FROM missions
                 GROUP BY user_id
-            ) m_total ON u.id = m_total.user_id
-            ORDER BY u.created_at DESC 
-            LIMIT $1
+            ) m_total ON ps.id = m_total.user_id
+            ORDER BY ps.created_at DESC
+                LIMIT $1
         `;
 
         const result = await pool.query(query, [limit]);
@@ -380,17 +381,18 @@ router.get('/users/:userId', async (req, res) => {
     try {
         const { userId } = req.params;
         const result = await pool.query(`
-            SELECT 
-                id, 
-                firebase_uid as "firebaseUid",
-                display_name as "displayName", 
-                display_name as name,
-                email, 
-                grade,
-                grade as track,
-                created_at as "createdAt" 
-            FROM users 
-            WHERE id = $1
+            SELECT
+                ps.id,
+                ps.firebase_uid as "firebaseUid",
+                COALESCE(ps.name, ps.display_name, u.display_name) as "displayName",
+                COALESCE(ps.name, ps.display_name, u.display_name) as name,
+                COALESCE(ps.email, u.email) as email,
+                COALESCE(ps.grade, u.grade) as grade,
+                COALESCE(ps.grade, u.grade) as track,
+                ps.created_at as "createdAt"
+            FROM prototype_students ps
+                     LEFT JOIN users u ON ps.firebase_uid = u.firebase_uid OR ps.email = u.email
+            WHERE ps.id = $1
         `, [userId]);
         if (result.rows.length === 0) return res.status(404).json({ success: false, error: 'User not found' });
         res.json({ success: true, user: result.rows[0] });
@@ -409,15 +411,18 @@ router.put('/users/:userId', async (req, res) => {
         const { displayName, email, grade } = req.body;
 
         const result = await pool.query(`
-            UPDATE users 
-            SET 
+            UPDATE prototype_students
+            SET
+                name = COALESCE($1, name),
                 display_name = COALESCE($1, display_name),
                 email = COALESCE($2, email),
                 grade = COALESCE($3, grade),
                 updated_at = CURRENT_TIMESTAMP
             WHERE id = $4
-            RETURNING id, firebase_uid as "firebaseUid", display_name as "displayName", 
-                      display_name as name, email, grade, created_at as "createdAt"
+                RETURNING id, firebase_uid as "firebaseUid", 
+                      COALESCE(name, display_name) as "displayName", 
+                      COALESCE(name, display_name) as name, 
+                      email, grade, created_at as "createdAt"
         `, [displayName, email, grade, userId]);
 
         if (result.rows.length === 0) {
@@ -489,14 +494,14 @@ router.post('/missions/create', async (req, res) => {
         const { userId, title, description, type, topicId } = req.body;
         if (!userId || !title) return res.status(400).json({ success: false, error: 'userId and title required' });
 
-        // Get the user's firebase_uid
-        const userResult = await pool.query('SELECT firebase_uid FROM users WHERE id = $1', [userId]);
+        // Get the user's firebase_uid from prototype_students
+        const userResult = await pool.query('SELECT firebase_uid FROM prototype_students WHERE id = $1', [userId]);
         const firebaseUid = userResult.rows[0]?.firebase_uid;
 
         // Check if missions table has firebase_uid column
         const columnCheck = await pool.query(`
-            SELECT column_name 
-            FROM information_schema.columns 
+            SELECT column_name
+            FROM information_schema.columns
             WHERE table_name = 'missions' AND column_name = 'firebase_uid'
         `);
 
@@ -504,16 +509,16 @@ router.post('/missions/create', async (req, res) => {
         if (columnCheck.rows.length > 0 && firebaseUid) {
             // Insert with firebase_uid
             result = await pool.query(`
-                INSERT INTO missions (user_id, firebase_uid, title, description, type, topic_id) 
-                VALUES ($1, $2, $3, $4, $5, $6) 
-                RETURNING *
+                INSERT INTO missions (user_id, firebase_uid, title, description, type, topic_id)
+                VALUES ($1, $2, $3, $4, $5, $6)
+                    RETURNING *
             `, [userId, firebaseUid, title, description || null, type || 'practice', topicId || null]);
         } else {
             // Insert without firebase_uid
             result = await pool.query(`
-                INSERT INTO missions (user_id, title, description, type, topic_id) 
-                VALUES ($1, $2, $3, $4, $5) 
-                RETURNING *
+                INSERT INTO missions (user_id, title, description, type, topic_id)
+                VALUES ($1, $2, $3, $4, $5)
+                    RETURNING *
             `, [userId, title, description || null, type || 'practice', topicId || null]);
         }
 
@@ -579,21 +584,21 @@ router.get('/profile/stats/:userId', async (req, res) => {
 
         // Get question stats from student_question_history
         const questionStatsResult = await pool.query(`
-            SELECT 
+            SELECT
                 COUNT(*) as questions_answered,
                 0 as correct_answers,
                 0 as streak,
                 0 as practice_time
             FROM student_question_history
-            WHERE CASE 
-                WHEN user_id ~ '^[0-9]+$' THEN user_id::integer = $1
+            WHERE CASE
+                      WHEN user_id ~ '^[0-9]+$' THEN user_id::integer = $1
                 ELSE false
             END
         `, [userId]);
 
         // Get mission stats
         const missionStatsResult = await pool.query(`
-            SELECT 
+            SELECT
                 COUNT(*) as total_missions,
                 COUNT(CASE WHEN completed = true THEN 1 END) as completed_missions
             FROM missions
@@ -663,14 +668,14 @@ router.get('/my-missions', async (req, res) => {
         if (firebaseUid) {
             // Query by firebase_uid
             query = `
-                SELECT 
-                    m.id, 
-                    m.title, 
-                    m.description, 
-                    m.topic_id as "topicId", 
-                    m.type, 
-                    m.completed, 
-                    m.created_at as "createdAt", 
+                SELECT
+                    m.id,
+                    m.title,
+                    m.description,
+                    m.topic_id as "topicId",
+                    m.type,
+                    m.completed,
+                    m.created_at as "createdAt",
                     m.completed_at as "completedAt"
                 FROM missions m
                 WHERE m.firebase_uid = $1
@@ -680,14 +685,14 @@ router.get('/my-missions', async (req, res) => {
         } else {
             // Query by user_id
             query = `
-                SELECT 
-                    m.id, 
-                    m.title, 
-                    m.description, 
-                    m.topic_id as "topicId", 
-                    m.type, 
-                    m.completed, 
-                    m.created_at as "createdAt", 
+                SELECT
+                    m.id,
+                    m.title,
+                    m.description,
+                    m.topic_id as "topicId",
+                    m.type,
+                    m.completed,
+                    m.created_at as "createdAt",
                     m.completed_at as "completedAt"
                 FROM missions m
                 WHERE m.user_id = $1
@@ -701,6 +706,34 @@ router.get('/my-missions', async (req, res) => {
     } catch (error) {
         console.error('❌ Get my missions error:', error);
         res.status(500).json({ success: false, error: 'Failed to load missions' });
+    }
+});
+
+/**
+ * 🔍 GET /api/admin/debug-users - Debug raw user data
+ */
+router.get('/debug-users', async (req, res) => {
+    try {
+        // Get ALL fields from users table
+        const users = await pool.query(`SELECT * FROM users ORDER BY id LIMIT 10`);
+
+        // Get column names
+        const columns = await pool.query(`
+            SELECT column_name, data_type, is_nullable
+            FROM information_schema.columns 
+            WHERE table_name = 'users'
+            ORDER BY ordinal_position
+        `);
+
+        res.json({
+            success: true,
+            columns: columns.rows,
+            users: users.rows,
+            message: 'These are ALL the fields in the users table'
+        });
+    } catch (error) {
+        console.error('❌ Debug error:', error);
+        res.status(500).json({ success: false, error: error.message });
     }
 });
 
