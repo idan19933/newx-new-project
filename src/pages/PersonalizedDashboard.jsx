@@ -1,4 +1,4 @@
-// src/pages/PersonalizedDashboard.jsx - SIMPLIFIED PERSONAL AREA (אזור אישי)
+// src/pages/PersonalizedDashboard.jsx - FIXED MISSIONS LOADING
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
@@ -56,16 +56,40 @@ const PersonalizedDashboard = () => {
             // Load stats from backend
             const userStats = await profileService.getUserStats(user.uid);
 
+            // FIXED: Load missions for this user by firebase_uid
+            const missionsResponse = await fetch(`${API_URL}/api/admin/my-missions?firebaseUid=${user.uid}`);
+            const missionsData = await missionsResponse.json();
+
+            console.log('📋 Missions loaded:', missionsData);
+
             // Load admin message for this user
             const messageResponse = await fetch(`${API_URL}/api/admin/user-message/${user.uid}`);
             const messageData = await messageResponse.json();
 
+            // Calculate mission stats
+            let completedMissions = 0;
+            let openMissions = 0;
+
+            if (missionsData.success && missionsData.missions) {
+                completedMissions = missionsData.missions.filter(m => m.completed).length;
+                openMissions = missionsData.missions.filter(m => !m.completed).length;
+                console.log(`✅ Found ${completedMissions} completed, ${openMissions} open missions`);
+            }
+
             if (userStats) {
                 setStats({
-                    completedMissions: userStats.completedMissions || 0,
-                    openMissions: userStats.openMissions || 0,
+                    completedMissions: completedMissions,
+                    openMissions: openMissions,
                     learningStreak: userStats.streak || 0,
-                    totalLearningTime: Math.round((userStats.practiceTime || 0) / 60) // Convert to minutes
+                    totalLearningTime: Math.round((userStats.practiceTime || 0) / 60)
+                });
+            } else {
+                // If no userStats, just set missions
+                setStats({
+                    completedMissions: completedMissions,
+                    openMissions: openMissions,
+                    learningStreak: 0,
+                    totalLearningTime: 0
                 });
             }
 

@@ -436,13 +436,36 @@ router.put('/users/:userId', async (req, res) => {
 });
 
 /**
- * 💬 GET /api/admin/user-message/:userId
+ * 💬 GET /api/admin/user-message/:userId - FIXED TO RESOLVE FIREBASE UID
  */
 router.get('/user-message/:userId', async (req, res) => {
     try {
         const { userId } = req.params;
-        const result = await pool.query(`SELECT message, created_at as "createdAt", updated_at as "updatedAt" FROM admin_messages WHERE user_id = $1`, [userId]);
-        if (result.rows.length === 0) return res.json({ success: true, message: null });
+
+        // First, resolve Firebase UID to database user ID
+        const userResult = await pool.query(
+            'SELECT id FROM prototype_students WHERE firebase_uid = $1',
+            [userId]
+        );
+
+        if (userResult.rows.length === 0) {
+            return res.status(404).json({ success: false, error: 'User not found' });
+        }
+
+        const dbUserId = userResult.rows[0].id;
+
+        // Now query admin_messages with the integer user ID
+        const result = await pool.query(
+            `SELECT message, created_at as "createdAt", updated_at as "updatedAt" 
+             FROM admin_messages 
+             WHERE user_id = $1`,
+            [dbUserId]
+        );
+
+        if (result.rows.length === 0) {
+            return res.json({ success: true, message: null });
+        }
+
         res.json({ success: true, ...result.rows[0] });
     } catch (error) {
         console.error('❌ Get message error:', error);
@@ -451,14 +474,39 @@ router.get('/user-message/:userId', async (req, res) => {
 });
 
 /**
- * 💬 POST /api/admin/user-message/:userId
+ * 💬 POST /api/admin/user-message/:userId - FIXED TO RESOLVE FIREBASE UID
  */
 router.post('/user-message/:userId', async (req, res) => {
     try {
         const { userId } = req.params;
         const { message } = req.body;
-        if (!message || !message.trim()) return res.status(400).json({ success: false, error: 'Message cannot be empty' });
-        const result = await pool.query(`INSERT INTO admin_messages (user_id, message) VALUES ($1, $2) ON CONFLICT (user_id) DO UPDATE SET message = EXCLUDED.message, updated_at = CURRENT_TIMESTAMP RETURNING *`, [userId, message.trim()]);
+
+        if (!message || !message.trim()) {
+            return res.status(400).json({ success: false, error: 'Message cannot be empty' });
+        }
+
+        // First, resolve Firebase UID to database user ID
+        const userResult = await pool.query(
+            'SELECT id FROM prototype_students WHERE firebase_uid = $1',
+            [userId]
+        );
+
+        if (userResult.rows.length === 0) {
+            return res.status(404).json({ success: false, error: 'User not found' });
+        }
+
+        const dbUserId = userResult.rows[0].id;
+
+        // Now insert/update admin_messages with the integer user ID
+        const result = await pool.query(
+            `INSERT INTO admin_messages (user_id, message) 
+             VALUES ($1, $2) 
+             ON CONFLICT (user_id) 
+             DO UPDATE SET message = EXCLUDED.message, updated_at = CURRENT_TIMESTAMP 
+             RETURNING *`,
+            [dbUserId, message.trim()]
+        );
+
         res.json({ success: true, message: result.rows[0] });
     } catch (error) {
         console.error('❌ Save message error:', error);
