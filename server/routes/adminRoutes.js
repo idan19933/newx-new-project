@@ -262,13 +262,16 @@ router.get('/dashboard-stats', async (req, res) => {
         const totalUsers = parseInt(usersResult.rows[0].count);
 
         // Active users - users who have records in student_question_history in last 7 days
-        // Note: user_id in student_question_history is VARCHAR, so we cast it to integer
         const activeUsersResult = await pool.query(`
-            SELECT COUNT(DISTINCT user_id::integer)
+            SELECT COUNT(DISTINCT
+                         CASE
+                             WHEN user_id ~ '^[0-9]+$' THEN user_id::integer
+                         ELSE NULL
+                         END
+                   )
             FROM student_question_history
             WHERE created_at > NOW() - INTERVAL '7 days'
               AND user_id IS NOT NULL
-              AND user_id ~ '^[0-9]+$'
         `);
         const activeUsers = parseInt(activeUsersResult.rows[0].count);
 
@@ -334,10 +337,15 @@ router.get('/users', async (req, res) => {
                 ) as stats
             FROM users u
                      LEFT JOIN (
-                SELECT user_id::integer as user_id, COUNT(*) as total
+                SELECT
+                    CASE
+                        WHEN user_id ~ '^[0-9]+$' THEN user_id::integer 
+                        ELSE NULL 
+                    END as user_id, 
+                    COUNT(*) as total
                 FROM student_question_history
-                WHERE user_id IS NOT NULL AND user_id ~ '^[0-9]+$'
-                GROUP BY user_id::integer
+                WHERE user_id IS NOT NULL
+                GROUP BY user_id
             ) sqh_count ON u.id = sqh_count.user_id
                      LEFT JOIN (
                 SELECT user_id, COUNT(*) as count
@@ -487,6 +495,67 @@ router.delete('/missions/:missionId', async (req, res) => {
         console.error('❌ Delete mission error:', error);
         res.status(500).json({ success: false, error: 'Failed to delete mission' });
     }
+});
+
+/**
+ * 📊 GET /api/admin/profile/stats/:userId - Get detailed user stats
+ */
+router.get('/profile/stats/:userId', async (req, res) => {
+    try {
+        const { userId } = req.params;
+
+        // Get question stats from student_question_history
+        const questionStatsResult = await pool.query(`
+            SELECT 
+                COUNT(*) as questions_answered,
+                0 as correct_answers,
+                0 as streak,
+                0 as practice_time
+            FROM student_question_history
+            WHERE CASE 
+                WHEN user_id ~ '^[0-9]+$' THEN user_id::integer = $1
+                ELSE false
+            END
+        `, [userId]);
+
+        // Get mission stats
+        const missionStatsResult = await pool.query(`
+            SELECT 
+                COUNT(*) as total_missions,
+                COUNT(CASE WHEN completed = true THEN 1 END) as completed_missions
+            FROM missions
+            WHERE user_id = $1
+        `, [userId]);
+
+        const stats = {
+            questionsAnswered: parseInt(questionStatsResult.rows[0]?.questions_answered || 0),
+            correctAnswers: parseInt(questionStatsResult.rows[0]?.correct_answers || 0),
+            streak: parseInt(questionStatsResult.rows[0]?.streak || 0),
+            practiceTime: parseInt(questionStatsResult.rows[0]?.practice_time || 0),
+            totalMissions: parseInt(missionStatsResult.rows[0]?.total_missions || 0),
+            completedMissions: parseInt(missionStatsResult.rows[0]?.completed_missions || 0)
+        };
+
+        res.json({ success: true, stats });
+    } catch (error) {
+        console.error('❌ Get profile stats error:', error);
+        res.status(500).json({ success: false, error: 'Failed to load stats' });
+    }
+});
+
+/**
+ * 📚 GET /api/admin/curriculum/topics - Get curriculum topics
+ */
+router.get('/curriculum/topics', async (req, res) => {
+    const topics = [
+        { id: 'algebra', name: 'אלגברה' },
+        { id: 'geometry', name: 'גאומטריה' },
+        { id: 'functions', name: 'פונקציות' },
+        { id: 'calculus', name: 'חשבון אינפיניטסימלי' },
+        { id: 'statistics', name: 'סטטיסטיקה והסתברות' },
+        { id: 'trigonometry', name: 'טריגונומטריה' }
+    ];
+    res.json({ success: true, topics });
 });
 
 /**

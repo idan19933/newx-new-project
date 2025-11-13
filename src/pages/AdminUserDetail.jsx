@@ -1,4 +1,4 @@
-// src/pages/AdminUserDetail.jsx - FULL USER MANAGEMENT WITH MISSIONS & MESSAGES
+// src/pages/AdminUserDetail.jsx - FIXED API PATHS VERSION
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useParams, useNavigate } from 'react-router-dom';
@@ -51,8 +51,8 @@ const AdminUserDetail = () => {
             const userResponse = await fetch(`${API_URL}/api/admin/users/${userId}`);
             const userData = await userResponse.json();
 
-            // Load user stats
-            const statsResponse = await fetch(`${API_URL}/api/profile/stats/${userId}`);
+            // Load user stats - FIXED PATH
+            const statsResponse = await fetch(`${API_URL}/api/admin/profile/stats/${userId}`);
             const statsData = await statsResponse.json();
 
             if (userData.success) {
@@ -72,7 +72,8 @@ const AdminUserDetail = () => {
 
     const loadUserMissions = async () => {
         try {
-            const response = await fetch(`${API_URL}/api/missions/user/${userId}`);
+            // FIXED PATH
+            const response = await fetch(`${API_URL}/api/admin/missions/user/${userId}`);
             const data = await response.json();
 
             if (data.success) {
@@ -98,8 +99,8 @@ const AdminUserDetail = () => {
 
     const loadAvailableTopics = async () => {
         try {
-            // This should load from your curriculum
-            const response = await fetch(`${API_URL}/api/curriculum/topics`);
+            // FIXED PATH
+            const response = await fetch(`${API_URL}/api/admin/curriculum/topics`);
             const data = await response.json();
 
             if (data.success) {
@@ -151,7 +152,8 @@ const AdminUserDetail = () => {
         }
 
         try {
-            const response = await fetch(`${API_URL}/api/missions/create`, {
+            // FIXED PATH
+            const response = await fetch(`${API_URL}/api/admin/missions/create`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -185,7 +187,8 @@ const AdminUserDetail = () => {
         }
 
         try {
-            const response = await fetch(`${API_URL}/api/missions/${missionId}`, {
+            // FIXED PATH
+            const response = await fetch(`${API_URL}/api/admin/missions/${missionId}`, {
                 method: 'DELETE'
             });
 
@@ -205,7 +208,8 @@ const AdminUserDetail = () => {
 
     const toggleMissionComplete = async (missionId, currentStatus) => {
         try {
-            const response = await fetch(`${API_URL}/api/missions/${missionId}/toggle`, {
+            // FIXED PATH
+            const response = await fetch(`${API_URL}/api/admin/missions/${missionId}/toggle`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ completed: !currentStatus })
