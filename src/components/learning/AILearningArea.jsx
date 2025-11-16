@@ -10,7 +10,7 @@ import {
 import axios from 'axios';
 import toast from 'react-hot-toast';
 
-const API_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
+const API_URL = "nexons-production-1915.up.railway.app";
 
 // Helper function to fix Hebrew-English-Number mixed text
 const fixHebrewText = (text) => {

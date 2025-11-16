@@ -1,4 +1,4 @@
-// src/pages/LearningSpaceHub.jsx - MAIN LEARNING SPACE HUB (מרחב למידה מרכזי)
+// src/pages/LearningSpaceHub.jsx - FIXED VERSION
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
@@ -62,9 +62,11 @@ const LearningSpaceHub = () => {
             // Load user stats
             const userStats = await profileService.getUserStats(user.uid);
 
-            // Load missions from backend
-            const missionsResponse = await fetch(`${API_URL}/api/missions/user/${user.uid}`);
+            // Load missions from backend - FIXED ENDPOINT PATH
+            console.log('🔍 Loading missions for user:', user.uid);
+            const missionsResponse = await fetch(`${API_URL}/api/admin/missions/user/${user.uid}`);
             const missionsData = await missionsResponse.json();
+            console.log('📋 Missions response:', missionsData);
 
             if (userStats && typeof userStats === 'object') {
                 setStats({
@@ -79,12 +81,23 @@ const LearningSpaceHub = () => {
                 });
             }
 
-            if (missionsData.success && missionsData.missions) {
-                setMissions(missionsData.missions);
+            // FIXED: Categorize missions by type
+            if (missionsData.success && missionsData.missions && Array.isArray(missionsData.missions)) {
+                console.log('✅ Got missions:', missionsData.missions);
+                const categorizedMissions = {
+                    practice: missionsData.missions.filter(m => m.type === 'practice'),
+                    lecture: missionsData.missions.filter(m => m.type === 'lecture'),
+                    review: missionsData.missions.filter(m => m.type === 'review')
+                };
+                console.log('📂 Categorized missions:', categorizedMissions);
+                setMissions(categorizedMissions);
+            } else {
+                console.log('⚠️ No missions found or invalid format');
             }
 
         } catch (error) {
             console.error('❌ Error loading learning space:', error);
+            toast.error('שגיאה בטעינת המשימות');
         } finally {
             setLoading(false);
         }
