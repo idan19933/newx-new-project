@@ -303,6 +303,7 @@ ${context.sectionContent ? `תוכן הסעיף:\n${context.sectionContent.subst
 
     } catch (error) {
         console.error('❌ Error in ask-nexon:', error);
+        console.error('❌ Error in ask-nexon:', error);
         res.status(500).json({
             success: false,
             error: error.message
