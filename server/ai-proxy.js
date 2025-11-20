@@ -2851,6 +2851,8 @@ async function loadPersonalityFromStorage() {    // ← הפונקציה (רק �
         }
     } catch (error) {
         console.error('❌ Error loading personality:', error.message);
+        console.error('❌ Error loading personality:', error.message);
+
     }
 }
 app.listen(PORT, '0.0.0.0', async () => {
