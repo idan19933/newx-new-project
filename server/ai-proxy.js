@@ -2858,6 +2858,8 @@ app.listen(PORT, '0.0.0.0', async () => {
 
     console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     console.log('🚀 NEXON AI - SMART TOPIC-BASED QUESTIONS');
+    console.log('🚀 NEXON AI - SMART TOPIC-BASED QUESTIONS');
+
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     console.log(`📡 Server: http://0.0.0.0:${PORT}`);
     console.log(`   • Personality: ${personalitySystem.loaded ? '✅' : '❌'}`);
