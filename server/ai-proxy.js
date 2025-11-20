@@ -2829,7 +2829,11 @@ console.log('✅ Enhanced Question System endpoints registered');
 
 // ==================== START SERVER ====================
 
-async function loadPersonalityFromStorage() {    // ← הפונקציה (רק פעם אחת!)
+// ==================== START SERVER ====================
+// העתק את כל הקטע הזה והדבק אותו במקום הסוף של server/ai-proxy.js
+// החל משורה "async function loadPersonalityFromStorage()"
+
+async function loadPersonalityFromStorage() {
     if (!bucket) {
         console.log('⚠️ Firebase not configured - using local storage');
         const localPath = path.join(__dirname, '../uploads/personality-system.xlsx');
@@ -2851,17 +2855,14 @@ async function loadPersonalityFromStorage() {    // ← הפונקציה (רק �
         }
     } catch (error) {
         console.error('❌ Error loading personality:', error.message);
-        console.error('❌ Error loading personality:', error.message);
-
     }
 }
+
 app.listen(PORT, '0.0.0.0', async () => {
     await loadPersonalityFromStorage();
 
     console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     console.log('🚀 NEXON AI - SMART TOPIC-BASED QUESTIONS');
-    console.log('🚀 NEXON AI - SMART TOPIC-BASED QUESTIONS');
-
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     console.log(`📡 Server: http://0.0.0.0:${PORT}`);
     console.log(`   • Personality: ${personalitySystem.loaded ? '✅' : '❌'}`);
