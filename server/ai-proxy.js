@@ -2852,6 +2852,7 @@ async function loadPersonalityFromStorage() {
             await file.download({ destination: tempPath });
             personalitySystem.loadFromExcel(tempPath);
             console.log('✅ Loaded from Firebase');
+            console.log('✅ Loaded from Firebase');
         }
     } catch (error) {
         console.error('❌ Error loading personality:', error.message);
