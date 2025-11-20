@@ -2322,37 +2322,44 @@ app.post('/api/ai/chat', async (req, res) => {
 });
 
 // ==================== ENHANCED MATH FORMATTER ====================
+// ==================== ENHANCED MATH FORMATTER - FIXED ====================
+// Replace this function in server/ai-proxy.js (around line 2550)
+
 function formatMathematicalContent(text) {
     let formatted = text;
 
+    // ❌ DON'T USE HTML TAGS - they don't render properly in the frontend
+    // Remove any HTML/LaTeX wrapper tags
     formatted = formatted
         .replace(/\$\$/g, '')
         .replace(/\\\[/g, '')
         .replace(/\\\]/g, '')
         .replace(/\\begin{equation}/g, '')
-        .replace(/\\end{equation}/g, '');
+        .replace(/\\end{equation}/g, '')
+        .replace(/<[^>]*>/g, '');  // ✅ REMOVE ALL HTML TAGS
 
+    // Clean up multiple newlines
     formatted = formatted.replace(/\n{3,}/g, '\n\n');
 
+    // Add spaces around operators (keeping Hebrew text intact)
     formatted = formatted
-        .replace(/([a-zA-Z0-9\u0590-\u05FF])\+([a-zA-Z0-9\u0590-\u05FF])/g, '$1 + $2')
-        .replace(/([a-zA-Z0-9\u0590-\u05FF])\-([a-zA-Z0-9\u0590-\u05FF])/g, '$1 - $2')
-        .replace(/([a-zA-Z0-9\u0590-\u05FF])\*([a-zA-Z0-9\u0590-\u05FF])/g, '$1 * $2')
-        .replace(/([a-zA-Z0-9\u0590-\u05FF])\/([a-zA-Z0-9\u0590-\u05FF])/g, '$1 / $2')
-        .replace(/([a-zA-Z0-9\u0590-\u05FF])\=([a-zA-Z0-9\u0590-\u05FF])/g, '$1 = $2');
+        .replace(/([a-zA-Z0-9\u0590-\u05FF])([+\-*\/=])([a-zA-Z0-9\u0590-\u05FF])/g, '$1 $2 $3');
 
+    // Format powers using ^
     formatted = formatted
         .replace(/\^{([^}]+)}/g, '^$1')
         .replace(/\^(\d+)/g, '^$1');
 
+    // Format subscripts using _
     formatted = formatted
         .replace(/_{([^}]+)}/g, '_$1')
         .replace(/_(\d+)/g, '_$1');
 
-    formatted = formatted.replace(/\\frac{([^}]*)}{([^}]*)}/g, '\\frac{$1}{$2}');
-
+    // Convert LaTeX symbols to Unicode
     formatted = formatted
         .replace(/\\sqrt{([^}]*)}/g, '√($1)')
+        .replace(/\\sqrt\[([^\]]*)\]{([^}]*)}/g, '$1√($2)')
+        .replace(/\\frac{([^}]*)}{([^}]*)}/g, '($1)/($2)')
         .replace(/\\partial/g, '∂')
         .replace(/\\times/g, '×')
         .replace(/\\cdot/g, '·')
@@ -2360,7 +2367,12 @@ function formatMathematicalContent(text) {
         .replace(/\\geq/g, '≥')
         .replace(/\\leq/g, '≤')
         .replace(/\\neq/g, '≠')
-        .replace(/\\approx/g, '≈');
+        .replace(/\\approx/g, '≈')
+        .replace(/\\infty/g, '∞')
+        .replace(/\\pi/g, 'π')
+        .replace(/\\theta/g, 'θ')
+        .replace(/\\alpha/g, 'α')
+        .replace(/\\beta/g, 'β');
 
     return formatted;
 }
