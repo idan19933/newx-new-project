@@ -2853,6 +2853,7 @@ async function loadPersonalityFromStorage() {
             personalitySystem.loadFromExcel(tempPath);
             console.log('✅ Loaded from Firebase');
             console.log('✅ Loaded from Firebase');
+            console.log('✅ Loaded from Firebase');
         }
     } catch (error) {
         console.error('❌ Error loading personality:', error.message);
