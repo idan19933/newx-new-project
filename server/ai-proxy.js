@@ -2829,7 +2829,30 @@ console.log('✅ Enhanced Question System endpoints registered');
 
 // ==================== START SERVER ====================
 
+async function loadPersonalityFromStorage() {    // ← הפונקציה (רק פעם אחת!)
+    if (!bucket) {
+        console.log('⚠️ Firebase not configured - using local storage');
+        const localPath = path.join(__dirname, '../uploads/personality-system.xlsx');
+        if (fs.existsSync(localPath)) {
+            personalitySystem.loadFromExcel(localPath);
+            console.log('✅ Loaded from local file');
+        }
+        return;
+    }
 
+    try {
+        const file = bucket.file('personality-system.xlsx');
+        const [exists] = await file.exists();
+        if (exists) {
+            const tempPath = `/tmp/personality-system.xlsx`;
+            await file.download({ destination: tempPath });
+            personalitySystem.loadFromExcel(tempPath);
+            console.log('✅ Loaded from Firebase');
+        }
+    } catch (error) {
+        console.error('❌ Error loading personality:', error.message);
+    }
+}
 app.listen(PORT, '0.0.0.0', async () => {
     await loadPersonalityFromStorage();
 
