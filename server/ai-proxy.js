@@ -1,4 +1,4 @@
-// server/ai-proxy.js - SMART TOPIC-BASED QUESTION GENERATION WITH LATEX
+// server/ai-proxy.js - SMART TOPIC-BASED QUESTION GENERATION
 import { formatMathAnswer, compareMathExpressions } from './utils/mathFormatter.js';
 import express from 'express';
 import cors from 'cors';
@@ -8,7 +8,7 @@ import dotenv from 'dotenv';
 dotenv.config();
 import multer from 'multer';
 import fs from 'fs';
-import fsPromises from 'fs/promises';
+import fsPromises from 'fs/promises';  // ✅ FIXED: Different name to avoid duplicate
 import path from 'path';
 import { fileURLToPath } from 'url';
 import personalitySystem from './services/personalityLoader.js';
@@ -29,6 +29,7 @@ import enhancedQuestionsRouter from './routes/enhancedQuestions.js';
 import calculusValidator from './services/calculus-validator.js';
 import bagrutExamRoutes from './routes/bagrExamRoutes.js';
 import adminRoutes from './routes/adminRoutes.js';
+// בתחילת הקובץ, אחרי ה-imports הקיימים:
 import claudeApi from './utils/claudeApiHelper.js';
 import * as cronManager from './services/cronJobs.js';
 import israeliSourcesRoutes from './routes/israeliSourcesRoutes.js';
@@ -36,6 +37,7 @@ import adaptiveRoutes from './routes/adaptive.js';
 import notebookService from './services/notebookService.js';
 import smartQuestionService from './services/smartQuestionService.js';
 import adminBagrutRoutes from './routes/adminBagrutRoutes.js';
+
 import userRoutes from './routes/userRoutes.js';
 import pool from './config/database.js';
 
@@ -65,9 +67,11 @@ app.use(cors({
     allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
+// Body Parser - MUST come before logging
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
+// SIMPLE TEST ROUTE
 app.get('/test', (req, res) => {
     console.error('✓✓ TEST ROUTE HIT!');
     res.json({ success: true, message: 'Server is reachable!' });
@@ -91,6 +95,7 @@ app.use('/api/bagrut', bagrutExamRoutes);
 app.use('/api/admin/bagrut', adminBagrutRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/ai', aiAnalysisRoutes);
+
 console.log('✅ All routes registered!');
 
 app.post('/api/test-progress', (req, res) => {
@@ -98,6 +103,8 @@ app.post('/api/test-progress', (req, res) => {
     res.json({ success: true, message: 'Test progress endpoint works!' });
 });
 
+// LOG ALL INCOMING REQUESTS
+// LOG ALL INCOMING REQUESTS
 app.use((req, res, next) => {
     console.log('='.repeat(60));
     console.error('✓✓ INCOMING REQUEST');
@@ -105,6 +112,7 @@ app.use((req, res, next) => {
     console.error('✓✓ URL:', req.url);
     console.error('✓✓ Content-Type:', req.headers['content-type']);
 
+    // Don't log body for multipart/form-data (file uploads)
     if (!req.headers['content-type']?.includes('multipart/form-data')) {
         console.log('Body:', JSON.stringify(req.body));
     } else {
@@ -121,7 +129,7 @@ const storage = multer.memoryStorage();
 const upload = multer({
     storage,
     limits: {
-        fileSize: 10 * 1024 * 1024
+        fileSize: 10 * 1024 * 1024 // 10MB limit
     },
     fileFilter: (req, file, cb) => {
         console.log('📁 File upload attempt:');
@@ -860,7 +868,7 @@ function detectGeometryVisual(parsed, topic, subtopic) {
 app.get('/health', (req, res) => {
     res.json({
         status: 'ok',
-        message: 'Nexon AI Server - Smart Topic-Based Questions with LaTeX',
+        message: 'Nexon AI Server - Smart Topic-Based Questions',
         personalityLoaded: personalitySystem.loaded,
         curriculumLoaded: true,
         questionHistoryActive: true,
@@ -870,7 +878,7 @@ app.get('/health', (req, res) => {
     });
 });
 
-// ==================== SMART TOPIC-BASED QUESTION PROMPT WITH LATEX ====================
+// ==================== SMART TOPIC-BASED QUESTION PROMPT ====================
 function buildDynamicQuestionPrompt(topic, subtopic, difficulty, studentProfile, gradeId) {
     try {
         if (!topic || typeof topic !== 'object') {
@@ -1039,40 +1047,21 @@ function buildDynamicQuestionPrompt(topic, subtopic, difficulty, studentProfile,
             prompt += `          משתנה Y: 45, 52, 48, 55..."\n\n`;
         }
 
-        prompt += `\n🚨 פורמט JSON חובה עם LaTeX:\n`;
+        prompt += `\n🚨 פורמט JSON חובה:\n`;
         prompt += `{\n`;
-        prompt += `  "question": "השאלה עם LaTeX: פתור את $2x + 3 = 7$",\n`;
-        prompt += `  "correctAnswer": "התשובה עם LaTeX: $x = 2$",\n`;
-        prompt += `  "hints": ["רמז 1 עם LaTeX: נעביר את $3$ לצד השני", "רמז 2", "רמז 3"],\n`;
-        prompt += `  "explanation": "הסבר עם LaTeX:\\n1. $2x = 7 - 3$\\n2. $2x = 4$\\n3. $x = 2$"\n`;
-        prompt += `}\n\n`;
-
-        prompt += `**כללי LaTeX חובה:**\n`;
-        prompt += `- בתוך טקסט: $x + 5$\n`;
-        prompt += `- בלוק: $$x^2 + 5x + 6 = 0$$\n`;
-        prompt += `- חזקות: $x^2$, שברים: $\\frac{a}{b}$, שורשים: $\\sqrt{x}$\n`;
-        prompt += `- סימנים: $\\geq$, $\\leq$, $\\neq$, $\\approx$\n\n`;
-
-        prompt += `דוגמאות נכונות:\n`;
-        prompt += `✅ "מצא את $x$ כאשר $2x + 5 = 15$"\n`;
-        prompt += `✅ "חשב את השטח של ריבוע בעל צלע $x + 3$"\n`;
-        prompt += `✅ "הנוסחה היא $$A = \\frac{1}{2}bh$$"\n`;
-        prompt += `✅ "הפתרון: $x = \\frac{10}{3} \\approx 3.33$"\n\n`;
-
-        prompt += `דוגמאות שגויות:\n`;
-        prompt += `❌ "מצא את x כאשר 2x + 5 = 15" (ללא LaTeX)\n`;
-        prompt += `❌ "התשובה היא x=5" (ללא LaTeX)\n`;
-        prompt += `❌ "חשב 2+3" (צריך להיות $2+3$)\n\n`;
-
-        prompt += `• השתמש ב-\\n לשורה חדשה, לא Enter אמיתי\n`;
+        prompt += `  "question": "השאלה (ללא שורות חדשות אמיתיות)",\n`;
+        prompt += `  "correctAnswer": "התשובה",\n`;
+        prompt += `  "hints": ["רמז 1", "רמז 2", "רמז 3"],\n`;
+        prompt += `  "explanation": "הסבר"\n`;
+        prompt += `}\n`;
+        prompt += `• השתמש ב-\\n לשורה חדשה, לא Enter\n`;
         prompt += `• בדוק שאין פסיקים מיותרים\n`;
-        prompt += `• החזר רק JSON תקין, ללא טקסט נוסף\n`;
-        prompt += `• **כל מתמטיקה חייבת להיות עטופה ב-LaTeX ($...$)!**\n\n`;
+        prompt += `• החזר רק JSON, ללא טקסט נוסף\n\n`;
 
         console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-        console.log('📝 PROMPT READY WITH LATEX');
+        console.log('📝 PROMPT READY');
         console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
-
+        console.log(prompt);
         return prompt;
 
     } catch (error) {
@@ -1082,9 +1071,11 @@ function buildDynamicQuestionPrompt(topic, subtopic, difficulty, studentProfile,
 }
 
 // ==================== GENERATE QUESTION ENDPOINT ====================
+// ==================== GENERATE QUESTION ENDPOINT ====================
+// ==================== GENERATE QUESTION ENDPOINT - FULL WITH HISTORY TRACKING ====================
 app.post('/api/ai/generate-question', async (req, res) => {
     console.log('============================================================');
-    console.log('📝 SMART QUESTION GENERATION WITH LATEX');
+    console.log('📝 SMART QUESTION GENERATION (DB + AI) - DEBUG MODE');
     console.log('============================================================');
 
     try {
@@ -1359,34 +1350,23 @@ ${previousQuestionsText}
 5. 🚨 צור שאלה שונה לחלוטין משאלות קודמות - תחשוב על זווית חדשה!
 6. השאלה צריכה להיות מאתגרת ברמת ${difficulty}
 7. וודא שהשאלה שלמה ומסתיימת במשפט שלם עם נקודה
-8. **חובה: השתמש ב-LaTeX ($...$) לכל ביטוי מתמטי!**
-
-**כללי LaTeX חשובים:**
-- בתוך טקסט: $x + 5$
-- נוסחאות בלוק: $$x^2 + 5x + 6 = 0$$
-- חזקות: $x^2$, שברים: $\\frac{a}{b}$, שורשים: $\\sqrt{x}$
-- סימנים: $\\geq$, $\\leq$, $\\neq$, $\\approx$
-
-דוגמאות:
-✅ "מצא את $x$ כאשר $2x + 5 = 15$"
-✅ "חשב את השטח של ריבוע בעל צלע $x + 3$"
-❌ "מצא את x כאשר 2x + 5 = 15" (ללא LaTeX)
 
 פורמט JSON חובה (בעברית בלבד!):
 {
-  "question": "השאלה המלאה בעברית עם LaTeX",
-  "correctAnswer": "התשובה הנכונה עם LaTeX: $x = 5$",
-  "hints": ["רמז 1 עם LaTeX: נעביר את $3$ לצד השני", "רמז 2", "רמז 3"],
-  "explanation": "הסבר מפורט עם LaTeX:\\n1. $2x = 7 - 3$\\n2. $x = 2$"
+  "question": "השאלה המלאה בעברית",
+  "correctAnswer": "התשובה הנכונה",
+  "hints": ["רמז 1 בעברית", "רמז 2 בעברית", "רמז 3 בעברית"],
+  "explanation": "הסבר מפורט בעברית איך פותרים את השאלה"
 }
 
 חשוב: השתמש ב\\n לשורה חדשה, לא Enter אמיתי. החזר רק JSON, ללא טקסט נוסף.`;
 
         console.log('🔄 Calling Claude API with smart retry...');
 
+        // ✅ USE CLAUDE API HELPER
         const result = await claudeApi.complete(
             prompt,
-            'אתה מורה למתמטיקה ישראלי מנוסה. כל התשובות שלך חייבות להיות בעברית בלבד! אסור לך לכתוב באנגלית או בשפה אחרת. צור שאלות מקוריות ומעניינות שמתאימות לתכנית הלימודים הישראלית. וודא שהשאלה שלמה ומסתיימת במשפט שלם. **חשוב מאוד: השתמש ב-LaTeX ($...$) לכל ביטוי מתמטי!**',
+            'אתה מורה למתמטיקה ישראלי מנוסה. כל התשובות שלך חייבות להיות בעברית בלבד! אסור לך לכתוב באנגלית או בשפה אחרת. צור שאלות מקוריות ומעניינות שמתאימות לתכנית הלימודים הישראלית. וודא שהשאלה שלמה ומסתיימת במשפט שלם.',
             {
                 maxTokens: 3000,
                 temperature: 0.7,
@@ -1549,10 +1529,13 @@ ${previousQuestionsText}
         });
     }
 });
-
-// ==================== VERIFY ANSWER WITH LATEX ====================
+// ==================== VERIFY ANSWER ====================
+// ==================== VERIFY ANSWER - ENHANCED WITH SMART AI VALIDATION ====================
+// ==================== VERIFY ANSWER - ENHANCED WITH SMART VALIDATION ====================
+// ==================== VERIFY ANSWER - WITH MATHEMATICAL CALCULATION ====================
+// ==================== VERIFY ANSWER - WITH CALCULUS VALIDATION ====================
 app.post('/api/ai/verify-answer', async (req, res) => {
-    console.log('🔍 VERIFYING ANSWER WITH LATEX SUPPORT');
+    console.log('🔍 VERIFYING ANSWER - WITH CALCULUS VALIDATION');
     const startTime = Date.now();
 
     try {
@@ -1695,6 +1678,7 @@ ${mathematicalAnswer ? `\n🔢 חישוב מתמטי מדויק נעשה (אמת
   "confidence": 0-100
 }`;
 
+        // ✅ USE CLAUDE API HELPER
         const calcResult = await claudeApi.complete(
             calculationPrompt,
             'אתה מחשבון מדויק במתמטיקה. שים לב מיוחד לשאלות על נגזרות - הבן את ההבדל בין מקסימום של פונקציה למקסימום של הנגזרת שלה! החזר JSON בעברית.',
@@ -1829,7 +1813,7 @@ ${mathematicalAnswer ? `\n🔢 חישוב מתמטי מדויק נעשה (אמת
             }
         }
 
-        console.log('\n✅ Step 5: Verifying user answer with LaTeX...');
+        console.log('\n✅ Step 5: Verifying user answer...');
 
         const verificationPrompt = `בדוק תשובת התלמיד בקפידה.
 
@@ -1850,56 +1834,27 @@ ${shouldReview ? '⚠️ התשובה נשלחה לבדיקת אדמין מכי�
 - מקסימום של V'(t) → צריך V''(t) = 0 (לא V'(t) = 0!)
 - V'(t) = 0 מוצא איפה קצב המילוי הוא אפס, לא איפה הוא מקסימלי!
 
-**כללי LaTeX חובה:**
-השתמש ב-LaTeX לכל מתמטיקה:
-- בתוך טקסט: $x = 5$
-- נוסחאות בלוק: $$x^2 + 5x + 6 = 0$$
-- חזקות: $x^2$, שברים: $\\frac{a}{b}$, שורשים: $\\sqrt{x}$
-- סימנים: $\\geq$, $\\leq$, $\\neq$, $\\approx$
-
 כללי בדיקה:
-- השווה בגמישות: $\\frac{8}{3}$ = $2.67$ = 2 שעות ו-40 דקות
-- $\\frac{16}{3}$ = $5.33$ = 5 שעות ו-20 דקות
+- השווה בגמישות: 8/3 = 2.67 = 2 שעות ו-40 דקות
+- 16/3 = 5.33 = 5 שעות ו-20 דקות
 - אלה ערכים שונים לגמרי!
 - התעלם מיחידות: "21 מ״ק לשעה" = "21"
 - בדוק שיטה: גם אם יש טעות חישובית, ציין אם השיטה נכונה
-
-דוגמאות לתשובה טובה עם LaTeX:
-✅ "נכון מאוד! הפתרון $x = 5$ הוא מדויק!"
-✅ "לא בדיוק. הפתרון הנכון הוא $x = \\frac{10}{3}$ שזה בערך $3.33$"
-✅ "השיטה שלך נכונה, אבל יש טעות קטנה בחישוב. התשובה הנכונה היא $x = 7$"
-✅ "כמעט! התשובה $x = \\frac{21}{4} = 5.25$ היא הנכונה"
-
-דוגמאות שגויות (ללא LaTeX):
-❌ "התשובה היא x = 5"
-❌ "הפתרון: 5"
-❌ "התשובה הנכונה: x=7"
 
 החזר JSON בלבד:
 {
   "isCorrect": true/false,
   "confidence": 0-100,
-  "feedback": "משוב מעודד בעברית עם LaTeX (2-3 משפטים)",
-  "explanation": "הסבר מפורט של הפתרון הנכון עם LaTeX",
+  "feedback": "משוב מעודד בעברית (2-3 משפטים)",
+  "explanation": "הסבר מפורט של הפתרון הנכון",
   "methodCorrect": true/false,
   "calculationError": true/false
-}
+}`;
 
-דוגמה מלאה לתשובה נכונה:
-{
-  "isCorrect": false,
-  "confidence": 95,
-  "feedback": "לא בדיוק. השיטה שלך נכונה, אבל יש טעות קטנה בחישוב הסופי. התשובה הנכונה היא $x = \\frac{21}{4}$ שזה $5.25$ שעות.",
-  "explanation": "הפתרון הנכון:\\n\\n1. מהמשוואה: $2x + 3 = 13.5$\\n\\n2. נעביר את $3$ לצד השני: $2x = 13.5 - 3$\\n\\n3. מחשבים: $2x = 10.5$\\n\\n4. נחלק ב-$2$: $x = \\frac{10.5}{2} = 5.25$\\n\\nלכן התשובה היא $x = 5.25$ שעות, או 5 שעות ו-15 דקות.",
-  "methodCorrect": true,
-  "calculationError": true
-}
-
-זכור: **כל מתמטיקה חייבת להיות עטופה ב-LaTeX ($...$)!**`;
-
+        // ✅ USE CLAUDE API HELPER
         const verifyResult = await claudeApi.complete(
             verificationPrompt,
-            'מורה מתמטיקה מעודד. שים לב מיוחד לשאלות על נגזרות והבן את ההבדל בין מקסימום של פונקציה למקסימום של הנגזרת שלה. **חשוב: השתמש ב-LaTeX ($...$) לכל מתמטיקה!** JSON בעברית בלבד.',
+            'מורה מתמטיקה מעודד. שים לב מיוחד לשאלות על נגזרות והבן את ההבדל בין מקסימום של פונקציה למקסימום של הנגזרת שלה. JSON בעברית.',
             {
                 maxTokens: 2000,
                 temperature: 0.3,
@@ -1998,16 +1953,22 @@ ${shouldReview ? '⚠️ התשובה נשלחה לבדיקת אדמין מכי�
 });
 
 // ==================== HELPER: COMPARE MATH ANSWERS ====================
+// ==================== HELPER: IMPROVED MATH COMPARISON ====================
 function compareMathAnswers(answer1, answer2) {
     if (!answer1 || !answer2) return false;
 
+    // Clean both answers
     const clean = (str) => {
         return String(str)
             .trim()
             .toLowerCase()
+            // Remove Hebrew text
             .replace(/[א-ת]/g, '')
+            // Remove currency symbols
             .replace(/[₪$€£¥]/g, '')
+            // Remove units (km, m, cm, etc)
             .replace(/\b(ש"ח|שח|שקל|שקלים|מטר|ק"מ|ס"מ|יח'|יחידות|km|m|cm|units?)\b/gi, '')
+            // Remove extra spaces
             .replace(/\s+/g, ' ')
             .trim();
     };
@@ -2021,11 +1982,13 @@ function compareMathAnswers(answer1, answer2) {
     console.log('      Original 2:', answer2);
     console.log('      Cleaned 2:', a2);
 
+    // Direct match after cleaning
     if (a1 === a2) {
         console.log('   ✅ Direct match!');
         return true;
     }
 
+    // Extract all numbers from both
     const extractNumbers = (str) => {
         const nums = str.match(/-?\d+\.?\d*/g);
         return nums ? nums.map(n => parseFloat(n)).filter(n => !isNaN(n)) : [];
@@ -2037,6 +2000,7 @@ function compareMathAnswers(answer1, answer2) {
     console.log('      Numbers 1:', nums1);
     console.log('      Numbers 2:', nums2);
 
+    // If same number of values, compare each
     if (nums1.length > 0 && nums1.length === nums2.length) {
         const allMatch = nums1.every((n1, i) => {
             const n2 = nums2[i];
@@ -2054,10 +2018,12 @@ function compareMathAnswers(answer1, answer2) {
         }
     }
 
+    // Handle π (pi) expressions
     if (a1.includes('π') || a2.includes('π')) {
         const piValue = 3.141592653589793;
 
         const extractPi = (str) => {
+            // Match patterns like: 8π, 8*π, 8×π, 8·π
             const match = str.match(/(\d+\.?\d*)\s*[*×·]?\s*π/i) || str.match(/(\d+\.?\d*)π/i);
             return match ? parseFloat(match[1]) * piValue : null;
         };
@@ -2065,16 +2031,19 @@ function compareMathAnswers(answer1, answer2) {
         const pi1 = extractPi(a1);
         const pi2 = extractPi(a2);
 
+        // Extract regular numbers
         const num1 = parseFloat(a1.replace(/[^\d.-]/g, ''));
         const num2 = parseFloat(a2.replace(/[^\d.-]/g, ''));
 
         console.log('      Pi values:', { pi1, pi2, num1, num2 });
 
+        // Compare pi expressions
         if (pi1 !== null && pi2 !== null && Math.abs(pi1 - pi2) < 0.01) {
             console.log('   ✅ Pi expressions match!');
             return true;
         }
 
+        // Compare pi to decimal
         if (pi1 !== null && !isNaN(num2) && Math.abs(pi1 - num2) < 0.1) {
             console.log('   ✅ Pi matches decimal!');
             return true;
@@ -2085,6 +2054,7 @@ function compareMathAnswers(answer1, answer2) {
         }
     }
 
+    // Handle fractions: 1/2 = 0.5
     const fractionPattern = /(\d+)\s*\/\s*(\d+)/;
     const frac1 = a1.match(fractionPattern);
     const frac2 = a2.match(fractionPattern);
@@ -2103,20 +2073,772 @@ function compareMathAnswers(answer1, answer2) {
     return false;
 }
 
-// ... Rest of the file continues exactly as before (GET HINT, AI CHAT, IMAGE ANALYSIS, etc.) ...
-// Due to character limit, I'm providing the key updated parts above.
-// The rest of the endpoints remain unchanged from your original file.
+// ==================== HELPER: LOG WRONG STORED ANSWER ====================
+async function logWrongStoredAnswer(errorData) {
+    try {
+        console.log('🚨 LOGGING WRONG ANSWER:', errorData.questionId);
+
+        const query = `
+            INSERT INTO wrong_answer_log 
+            (question_id, question_text, wrong_stored_answer, correct_calculated_answer, created_at)
+            VALUES ($1, $2, $3, $4, $5)
+            ON CONFLICT (question_id) DO UPDATE
+            SET wrong_stored_answer = EXCLUDED.wrong_stored_answer,
+                correct_calculated_answer = EXCLUDED.correct_calculated_answer,
+                created_at = EXCLUDED.created_at
+        `;
+
+        await pool.query(query, [
+            errorData.questionId,
+            errorData.question,
+            errorData.wrongStoredAnswer,
+            errorData.correctCalculatedAnswer,
+            errorData.timestamp
+        ]);
+
+        console.log('✅ Wrong answer logged');
+    } catch (error) {
+        console.error('❌ Log failed:', error.message);
+    }
+}
+
+// ==================== GET HINT ====================
+app.post('/api/ai/get-hint', async (req, res) => {
+    try {
+        const { question, hintIndex } = req.body;
+
+        const hintLevels = ['רמז עדין', 'רמז ישיר', 'רמז ספציפי'];
+        const prompt = `תן ${hintLevels[hintIndex]} לשאלה:\n\n${question}`;
+
+        if (process.env.ANTHROPIC_API_KEY) {
+            const response = await fetch('https://api.anthropic.com/v1/messages', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'x-api-key': process.env.ANTHROPIC_API_KEY,
+                    'anthropic-version': '2023-06-01'
+                },
+                body: JSON.stringify({
+                    model: 'claude-sonnet-4-5-20250929',
+                    max_tokens: 500,
+                    temperature: 0.7,
+                    messages: [{ role: 'user', content: prompt }]
+                })
+            });
+
+            const data = await response.json();
+
+            if (!response.ok) {
+                throw new Error(data.error?.message || 'API error');
+            }
+
+            return res.json({
+                success: true,
+                hint: data.content[0].text
+            });
+        }
+
+        throw new Error('No AI configured');
+
+    } catch (error) {
+        console.error('❌ Error:', error);
+        res.json({
+            success: true,
+            hint: 'נסה לפרק את השאלה 🤔'
+        });
+    }
+});
+
+// ==================== AI CHAT ====================
+app.post('/api/ai/chat', async (req, res) => {
+    console.log('============================================================');
+    console.log('💬 AI CHAT REQUEST');
+    console.log('============================================================');
+
+    try {
+        const {
+            message,
+            context,
+            actionType = 'general',
+            hintLevel = 0
+        } = req.body;
+
+        console.log('📝 Chat Request:', {
+            message: message?.substring(0, 50),
+            actionType,
+            hintLevel,
+            studentName: context?.studentName
+        });
+
+        if (!message || !context) {
+            return res.status(400).json({
+                success: false,
+                error: 'Missing message or context'
+            });
+        }
+
+        let systemPrompt = '';
+
+        if (personalitySystem.loaded) {
+            const personality = personalitySystem.data.corePersonality;
+            systemPrompt += `אתה ${personality.teacher_name}, ${personality.description}.\n`;
+            systemPrompt += `${personality.teaching_approach}\n\n`;
+        } else {
+            systemPrompt += `אתה נקסון, מורה דיגיטלי למתמטיקה.\n\n`;
+        }
+
+        systemPrompt += `התלמיד: ${context.studentName}\n`;
+        systemPrompt += `השאלה: ${context.question}\n`;
+        if (context.answer) {
+            systemPrompt += `התשובה הנכונה: ${context.answer}\n`;
+        }
+
+        let userPrompt = message;
+        let maxTokens = 800;
+
+        switch (actionType) {
+            case 'hint':
+                maxTokens = 500;
+                if (hintLevel === 1) {
+                    systemPrompt += `
+תן רמז כללי מאוד שיכוון את התלמיד לחשוב על הגישה הנכונה.
+אל תגלה את השיטה או הנוסחה.
+דוגמאות: "חשוב על סוג המשוואה", "זכור את הכללים הבסיסיים"
+מקסימום 2 משפטים.`;
+                } else if (hintLevel === 2) {
+                    systemPrompt += `
+תן רמז יותר ספציפי על השיטה או הנוסחה הרלוונטית.
+אל תראה איך להשתמש בה.
+דוגמאות: "נסה להשתמש בנוסחת השורשים", "איזו נוסחה מתאימה למשוואה ריבועית?"
+מקסימום 3 משפטים.`;
+                } else if (hintLevel >= 3) {
+                    systemPrompt += `
+הראה את הצעד הראשון של הפתרון עם הסבר קצר.
+דוגמה: "נתחיל בזיהוי המקדמים: a=2, b=3, c=-5"
+אל תראה יותר מצעד אחד.`;
+                }
+                break;
+
+            case 'nextStep':
+                maxTokens = 600;
+                systemPrompt += `
+התלמיד שואל מה הצעד הבא.
+בדוק מה הוא כתב בהודעה ותן לו את הצעד הבא בלבד.
+אם הוא לא כתב כלום, תן לו את הצעד הראשון.
+אל תראה יותר מצעד אחד קדימה.
+הסבר כל צעד בבירור.`;
+                break;
+
+            case 'checkDirection':
+                maxTokens = 600;
+                systemPrompt += `
+התלמיד רוצה לבדוק אם הוא בכיוון הנכון.
+אם הוא בכיוון הנכון - עודד אותו וציין מה טוב.
+אם יש טעות - הצבע עליה בעדינות והסבר איך לתקן.
+אל תיתן את הפתרון המלא.`;
+                break;
+
+            case 'fullSolution':
+                maxTokens = 2000;
+                systemPrompt += `
+התלמיד מבקש את הפתרון המלא.
+הצג את כל השלבים בצורה מסודרת עם הסברים.
+כל צעד צריך להיות ברור עם חישובים מפורטים.
+השתמש במספור לכל שלב.`;
+                break;
+
+            default:
+                systemPrompt += `
+ענה לתלמיד בצורה מועילה וחינוכית.
+אם השאלה קשורה לבעיה המתמטית, עזור בהתאם.
+אם זו שאלה כללית, ענה בצורה ידידותית.`;
+        }
+
+        systemPrompt += `
+
+חשוב מאוד:
+1. כתוב בעברית ברורה וידידותית
+2. אל תשבור משוואות או ביטויים מתמטיים באמצע
+3. השתמש ב ^ לחזקות (לדוגמה: x^2, 3t^2)
+4. השתמש ב / לחלוקה ו - למינוס  
+5. שים רווחים מסביב לאופרטורים מתמטיים
+6. השתמש באימוג'ים כשמתאים 😊
+7. אל תשתמש בסימנים כמו $$ או \[ או \] - הם לא נחוצים
+8. לשברים השתמש ב: (מונה)/(מכנה) לדוגמה: (3x+1)/(2x-5)
+9. לשורשים השתמש ב: √ לדוגמה: √(x^2 + 1)
+10. כתוב נוסחאות בצורה פשוטה וקריאה`;
+
+        console.log('🤖 Calling Claude API...');
+        console.log('   Action:', actionType);
+        console.log('   Hint Level:', hintLevel);
+
+        const response = await fetch('https://api.anthropic.com/v1/messages', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'x-api-key': process.env.ANTHROPIC_API_KEY,
+                'anthropic-version': '2023-06-01'
+            },
+            body: JSON.stringify({
+                model: 'claude-sonnet-4-5-20250929',
+                max_tokens: maxTokens,
+                temperature: 0.7,
+                system: systemPrompt,
+                messages: [{
+                    role: 'user',
+                    content: userPrompt
+                }]
+            })
+        });
+
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(`API error: ${response.status} - ${errorData.error?.message}`);
+        }
+
+        const data = await response.json();
+        const aiResponse = data.content[0].text;
+
+        let formattedResponse = formatMathematicalContent(aiResponse);
+
+        console.log('✅ AI Response generated');
+        console.log('   Length:', formattedResponse.length);
+
+        res.json({
+            success: true,
+            response: formattedResponse,
+            actionType: actionType,
+            hintLevel: hintLevel,
+            model: 'claude-sonnet-4-5-20250929'
+        });
+
+    } catch (error) {
+        console.error('❌ AI Chat Error:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message || 'Internal server error'
+        });
+    }
+});
+
+// ==================== ENHANCED MATH FORMATTER ====================
+function formatMathematicalContent(text) {
+    let formatted = text;
+
+    formatted = formatted
+        .replace(/\$\$/g, '')
+        .replace(/\\\[/g, '')
+        .replace(/\\\]/g, '')
+        .replace(/\\begin{equation}/g, '')
+        .replace(/\\end{equation}/g, '');
+
+    formatted = formatted.replace(/\n{3,}/g, '\n\n');
+
+    formatted = formatted
+        .replace(/([a-zA-Z0-9\u0590-\u05FF])\+([a-zA-Z0-9\u0590-\u05FF])/g, '$1 + $2')
+        .replace(/([a-zA-Z0-9\u0590-\u05FF])\-([a-zA-Z0-9\u0590-\u05FF])/g, '$1 - $2')
+        .replace(/([a-zA-Z0-9\u0590-\u05FF])\*([a-zA-Z0-9\u0590-\u05FF])/g, '$1 * $2')
+        .replace(/([a-zA-Z0-9\u0590-\u05FF])\/([a-zA-Z0-9\u0590-\u05FF])/g, '$1 / $2')
+        .replace(/([a-zA-Z0-9\u0590-\u05FF])\=([a-zA-Z0-9\u0590-\u05FF])/g, '$1 = $2');
+
+    formatted = formatted
+        .replace(/\^{([^}]+)}/g, '^$1')
+        .replace(/\^(\d+)/g, '^$1');
+
+    formatted = formatted
+        .replace(/_{([^}]+)}/g, '_$1')
+        .replace(/_(\d+)/g, '_$1');
+
+    formatted = formatted.replace(/\\frac{([^}]*)}{([^}]*)}/g, '\\frac{$1}{$2}');
+
+    formatted = formatted
+        .replace(/\\sqrt{([^}]*)}/g, '√($1)')
+        .replace(/\\partial/g, '∂')
+        .replace(/\\times/g, '×')
+        .replace(/\\cdot/g, '·')
+        .replace(/\\pm/g, '±')
+        .replace(/\\geq/g, '≥')
+        .replace(/\\leq/g, '≤')
+        .replace(/\\neq/g, '≠')
+        .replace(/\\approx/g, '≈');
+
+    return formatted;
+}
+
+// ==================== IMAGE ANALYSIS FOR HANDWRITTEN WORK ====================
+app.post('/api/ai/analyze-handwritten-work', upload.single('image'), async (req, res) => {
+    console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log('📸 ANALYZING HANDWRITTEN WORK');
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+
+    try {
+        if (!req.file) {
+            return res.status(400).json({
+                success: false,
+                error: 'No image file uploaded'
+            });
+        }
+
+        const {
+            question,
+            correctAnswer,
+            studentName = 'תלמיד',
+            grade = '8',
+            topic = '',
+            personality = 'nexon',
+            mathFeeling = 'okay',
+            learningStyle = 'visual'
+        } = req.body;
+
+        console.log('   Question:', question?.substring(0, 60) + '...');
+        console.log('   Correct Answer:', correctAnswer);
+        console.log('   Student:', studentName);
+        console.log('   File:', req.file.originalname);
+        console.log('   Size:', (req.file.size / 1024).toFixed(2), 'KB');
+
+        if (!question || !correctAnswer) {
+            return res.status(400).json({
+                success: false,
+                error: 'Missing required fields: question and correctAnswer'
+            });
+        }
+
+        const base64Image = req.file.buffer.toString('base64');
+
+        const mediaTypeMap = {
+            'image/jpeg': 'image/jpeg',
+            'image/jpg': 'image/jpeg',
+            'image/png': 'image/png',
+            'image/webp': 'image/webp',
+            'image/gif': 'image/gif'
+        };
+        const mediaType = mediaTypeMap[req.file.mimetype] || 'image/jpeg';
+
+        console.log('   Media Type:', mediaType);
+
+        let personalityContext = 'אתה נקסון - מורה דיגיטלי ידידותי, אופטימי ומעודד. השתמש באימוג׳ים והיה חיובי.';
+
+        if (personalitySystem.loaded) {
+            const corePersonality = personalitySystem.data.corePersonality;
+            personalityContext = `אתה ${corePersonality.teacher_name}, ${corePersonality.description}. ${corePersonality.teaching_approach}`;
+        }
+
+        let feelingContext = '';
+        if (mathFeeling === 'struggle') {
+            feelingContext = 'התלמיד מתקשה - היה סבלני מאוד ומעודד.';
+        } else if (mathFeeling === 'love') {
+            feelingContext = 'התלמיד אוהב מתמטיקה - עודד אותו להמשיך!';
+        }
+
+        const analysisPrompt = `${personalityContext}
+
+${feelingContext ? feelingContext + '\n' : ''}
+אתה בודק את הפתרון בכתב יד של ${studentName} (כיתה ${grade}).
+${topic ? `נושא: ${topic}\n` : ''}
+
+**השאלה המקורית:**
+${question}
+
+**התשובה הנכונה:**
+${correctAnswer}
+
+**המשימה שלך:**
+1. זהה את התשובה הסופית שהתלמיד כתב בתמונה
+2. בדוק אם התשובה נכונה (השווה לתשובה הנכונה)
+3. נתח את השלבים שהתלמיד ביצע (אם נראים)
+4. תן משוב מעודד ומועיל בעברית
+
+**חשוב מאוד:**
+- אם התלמיד פתר שאלה אחרת (לא את השאלה המקורית), ציין זאת במפורש!
+- התעלם מהבדלים קלים בכתיב (למשל: 42 זהה ל-42.0, 1/2 זהה ל-0.5)
+- אם אתה רואה רק תשובה סופית ללא שלבים, זה בסדר - נתח מה שאתה רואה
+- היה סבלני וחיובי - זה תלמיד שמנסה!
+
+השב במבנה JSON הבא (בדיוק כך):
+{
+  "detectedAnswer": "התשובה המדויקת שזיהית מהתמונה (טקסט)",
+  "isCorrect": true או false,
+  "matchesQuestion": true או false (האם התלמיד פתר את השאלה הנכונה),
+  "feedback": "משוב מפורט בעברית עם אימוג'ים - עודד את התלמיד ותן טיפים",
+  "stepsAnalysis": ["שלב 1 שהתלמיד ביצע", "שלב 2...", "שלב 3..."] או [] אם לא נראים שלבים
+}
+
+אם לא מצאת פתרון בתמונה או שהתמונה לא ברורה, ציין זאת ב-feedback ו-detectedAnswer יהיה ריק.
+החזר **רק JSON** - ללא טקסט נוסף לפני או אחרי!`;
+
+        console.log('   📤 Sending to Claude Sonnet Vision API...');
+
+        let apiSuccess = false;
+        let claudeResponse = null;
+        let lastError = null;
+
+        for (let retryAttempt = 0; retryAttempt < 3; retryAttempt++) {
+            try {
+                if (retryAttempt > 0) {
+                    const waitTime = Math.pow(2, retryAttempt) * 1000;
+                    console.log(`   ⏳ API Retry ${retryAttempt}/3 - waiting ${waitTime}ms...`);
+                    await new Promise(resolve => setTimeout(resolve, waitTime));
+                }
+
+                const response = await fetch('https://api.anthropic.com/v1/messages', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'x-api-key': process.env.ANTHROPIC_API_KEY,
+                        'anthropic-version': '2023-06-01'
+                    },
+                    body: JSON.stringify({
+                        model: 'claude-sonnet-4-5-20250929',
+                        max_tokens: 2000,
+                        temperature: 0.5,
+                        messages: [{
+                            role: 'user',
+                            content: [
+                                {
+                                    type: 'image',
+                                    source: {
+                                        type: 'base64',
+                                        media_type: mediaType,
+                                        data: base64Image
+                                    }
+                                },
+                                {
+                                    type: 'text',
+                                    text: analysisPrompt
+                                }
+                            ]
+                        }]
+                    })
+                });
+
+                const data = await response.json();
+
+                if (response.status === 529) {
+                    lastError = new Error('Overloaded');
+                    console.log(`   ⚠️ API Overloaded (retry ${retryAttempt + 1}/3)`);
+                    continue;
+                }
+
+                if (!response.ok) {
+                    lastError = new Error(data.error?.message || `API error: ${response.status}`);
+                    console.log(`   ❌ API Error: ${lastError.message}`);
+                    console.log('   Full error:', JSON.stringify(data, null, 2));
+
+                    if (response.status >= 500 || response.status === 429) {
+                        continue;
+                    }
+
+                    throw lastError;
+                }
+
+                claudeResponse = data;
+                console.log('   ✅ API call successful');
+                apiSuccess = true;
+                break;
+
+            } catch (error) {
+                lastError = error;
+                console.error(`   ❌ API attempt ${retryAttempt + 1} failed:`, error.message);
+
+                if (retryAttempt === 2) {
+                    throw error;
+                }
+            }
+        }
+
+        if (!apiSuccess) {
+            throw lastError || new Error('All API retry attempts failed');
+        }
+
+        const claudeText = claudeResponse.content[0].text;
+        console.log('   📥 Raw response (first 200):', claudeText.substring(0, 200));
+
+        let analysis;
+        try {
+            const jsonText = cleanJsonText(claudeText);
+            analysis = JSON.parse(jsonText);
+            console.log('   ✅ JSON parsed successfully');
+        } catch (parseError) {
+            console.error('   ❌ JSON parse error:', parseError.message);
+
+            analysis = {
+                detectedAnswer: '',
+                isCorrect: false,
+                matchesQuestion: true,
+                feedback: claudeText.includes('לא') ? claudeText : 'לא הצלחתי לנתח את התמונה בצורה מלאה. נסה לצלם שוב עם תאורה טובה יותר! 📸',
+                stepsAnalysis: []
+            };
+        }
+
+        const cleanedAnalysis = {
+            detectedAnswer: String(analysis.detectedAnswer || '').trim(),
+            isCorrect: Boolean(analysis.isCorrect),
+            matchesQuestion: analysis.matchesQuestion !== false,
+            feedback: String(analysis.feedback || 'לא הצלחתי לנתח את התמונה. נסה שוב! 📸').trim(),
+            stepsAnalysis: Array.isArray(analysis.stepsAnalysis) ? analysis.stepsAnalysis : []
+        };
+
+        console.log('   📊 Analysis Result:');
+        console.log('      Detected:', cleanedAnalysis.detectedAnswer);
+        console.log('      Correct:', cleanedAnalysis.isCorrect ? '✅' : '❌');
+        console.log('      Matches Question:', cleanedAnalysis.matchesQuestion ? '✅' : '⚠️');
+        console.log('      Steps:', cleanedAnalysis.stepsAnalysis.length);
+        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+
+        res.json({
+            success: true,
+            analysis: cleanedAnalysis,
+            model: 'claude-sonnet-4-5-20250929',
+            timestamp: new Date().toISOString()
+        });
+
+    } catch (error) {
+        console.error('❌ CRITICAL ERROR:', error);
+        console.error('   Error details:', error.message);
+        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+
+        let errorMessage = error.message;
+        if (error.message === 'Overloaded') {
+            errorMessage = 'השרת עמוס כרגע. אנא נסה שוב בעוד כמה שניות.';
+        } else if (error.message.includes('API key')) {
+            errorMessage = 'שגיאת הגדרות שרת. אנא פנה למנהל המערכת.';
+        } else if (error.message.includes('model')) {
+            errorMessage = 'שגיאה במודל AI. מנסה שוב...';
+        }
+
+        res.status(500).json({
+            success: false,
+            error: errorMessage,
+            timestamp: new Date().toISOString()
+        });
+    }
+});
+
+// ==================== ADMIN: UPLOAD PERSONALITY FILE ====================
+app.post('/api/admin/upload-personality', upload.single('file'), async (req, res) => {
+    try {
+        console.log('📤 PERSONALITY FILE UPLOAD');
+
+        if (!req.file) {
+            return res.status(400).json({
+                success: false,
+                error: 'No file uploaded'
+            });
+        }
+
+        console.log('   File:', req.file.originalname);
+        console.log('   Size:', req.file.size, 'bytes');
+
+        const uploadsDir = path.join(__dirname, '../uploads');
+        if (!fs.existsSync(uploadsDir)) {
+            fs.mkdirSync(uploadsDir, { recursive: true });
+        }
+
+        const localPath = path.join(uploadsDir, 'personality-system.xlsx');
+        fs.writeFileSync(localPath, req.file.buffer);
+        console.log('   ✅ Saved locally:', localPath);
+
+        if (bucket) {
+            const file = bucket.file('personality-system.xlsx');
+            await file.save(req.file.buffer, {
+                metadata: {
+                    contentType: req.file.mimetype,
+                    metadata: {
+                        uploadedAt: new Date().toISOString()
+                    }
+                }
+            });
+            console.log('   ✅ Uploaded to Firebase Storage');
+        } else {
+            console.log('   ⚠️ Firebase not configured - local only');
+        }
+
+        personalitySystem.loadFromExcel(localPath);
+        console.log('   ✅ Personality system reloaded');
+
+        res.json({
+            success: true,
+            message: 'Personality file uploaded and loaded successfully',
+            filename: req.file.originalname,
+            size: req.file.size,
+            firebaseUploaded: !!bucket,
+            personalityLoaded: personalitySystem.loaded
+        });
+
+    } catch (error) {
+        console.error('❌ Upload error:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+// ==================== DEBUG: CHECK QUESTION HISTORY ====================
+app.get('/api/ai/question-history/:userId/:topicId', async (req, res) => {
+    try {
+        const { userId, topicId } = req.params;
+
+        console.log('🔍 Checking question history:', { userId, topicId });
+
+        const userIdInt = parseInt(userId);
+        const sessionKey = isNaN(userIdInt) ? userId : userIdInt;
+
+        const sessionHistory = questionHistoryManager.getRecentQuestions(sessionKey, topicId, 20);
+
+        let dbHistory = [];
+        if (!isNaN(userIdInt)) {
+            const query = `
+                SELECT question_text, difficulty, created_at
+                FROM question_history
+                WHERE user_id = $1 AND topic_id = $2
+                ORDER BY created_at DESC
+                LIMIT 20
+            `;
+            const result = await pool.query(query, [userIdInt, topicId]);
+            dbHistory = result.rows;
+        }
+
+        res.json({
+            success: true,
+            userId,
+            topicId,
+            sessionKey,
+            sessionHistory: {
+                count: sessionHistory?.length || 0,
+                questions: sessionHistory || []
+            },
+            databaseHistory: {
+                count: dbHistory.length,
+                questions: dbHistory
+            }
+        });
+
+    } catch (error) {
+        console.error('❌ Error checking history:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+// ==================== IMAGE UPLOAD ENDPOINT ====================
+const uploadStorage = multer.diskStorage({
+    destination: async (req, file, cb) => {
+        const dir = 'uploads/admin-images';
+        await fsPromises.mkdir(dir, { recursive: true });  // ✅ FIXED: Using fsPromises
+        cb(null, dir);
+    },
+    filename: (req, file, cb) => {
+        const uniqueName = `admin-${Date.now()}-${Math.random().toString(36).substr(2, 9)}${path.extname(file.originalname)}`;
+        cb(null, uniqueName);
+    }
+});
+
+const adminUpload = multer({
+    storage: uploadStorage,
+    limits: { fileSize: 10 * 1024 * 1024 },
+    fileFilter: (req, file, cb) => {
+        const allowed = /jpeg|jpg|png|gif|webp/;
+        const ext = allowed.test(path.extname(file.originalname).toLowerCase());
+        const mime = allowed.test(file.mimetype);
+
+        if (ext && mime) {
+            cb(null, true);
+        } else {
+            cb(new Error('Only images allowed'));
+        }
+    }
+});
+
+app.post('/api/admin/upload-image', adminUpload.single('image'), (req, res) => {
+    try {
+        if (!req.file) {
+            return res.status(400).json({
+                success: false,
+                error: 'No image uploaded'
+            });
+        }
+
+        const imageUrl = `/uploads/admin-images/${req.file.filename}`;
+
+        res.json({
+            success: true,
+            imageUrl: imageUrl,
+            filename: req.file.filename
+        });
+
+    } catch (error) {
+        console.error('Image upload error:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+// Serve uploaded files
+app.use('/uploads', express.static('uploads'));
+
+// ==================== TEST DATABASE CONNECTION ====================
+pool.query('SELECT NOW()', (err, result) => {
+    if (err) {
+        console.error('❌ Database connection failed:', err.message);
+    } else {
+        console.log('✅ Database connected successfully!');
+        console.log('   Connection time:', result.rows[0].now);
+    }
+});
+
+// ==================== INITIALIZE CRON JOBS ====================
+if (process.env.NODE_ENV === 'production') {
+    console.log('🕐 Initializing automated tasks...');
+    try {
+        cronManager.initialize();
+        console.log('✅ Cron jobs initialized successfully');
+    } catch (error) {
+        console.error('❌ Cron initialization failed:', error.message);
+    }
+}
+
+// ==================== CRON MANAGEMENT ENDPOINTS ====================
+app.get('/api/cron/status', (req, res) => {
+    try {
+        const status = cronManager.getAllStatus();
+        res.json({ success: true, jobs: status });
+    } catch (error) {
+        console.error('❌ Cron status error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.post('/api/cron/run/:jobName', async (req, res) => {
+    try {
+        const { jobName } = req.params;
+        console.log(`🔄 Manually running job: ${jobName}`);
+        await cronManager.runJobNow(jobName);
+        res.json({ success: true, message: `Job ${jobName} completed successfully` });
+    } catch (error) {
+        console.error(`❌ Manual job run error (${req.params.jobName}):`, error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+console.log('✅ Enhanced Question System endpoints registered');
+
+// ==================== START SERVER ====================
+
 
 app.listen(PORT, '0.0.0.0', async () => {
     await loadPersonalityFromStorage();
 
     console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('🚀 NEXON AI - WITH LATEX SUPPORT');
+    console.log('🚀 NEXON AI - SMART TOPIC-BASED QUESTIONS');
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     console.log(`📡 Server: http://0.0.0.0:${PORT}`);
     console.log(`   • Personality: ${personalitySystem.loaded ? '✅' : '❌'}`);
     console.log(`   • Smart Topics: ✅`);
-    console.log(`   • LaTeX Support: ✅`);
     console.log(`   • SVG Support: ✅`);
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
 });
