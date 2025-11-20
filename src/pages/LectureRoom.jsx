@@ -1,15 +1,16 @@
-// src/pages/LectureRoom.jsx - LECTURE ROOM (חדר הרצאות)
+// src/pages/LectureRoom.jsx - FINAL VERSION WITH GRADELEVEL
 import React, { useState, useEffect } from 'react';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import {
-    GraduationCap, BookOpen, Lightbulb, CheckCircle2, MessageSquare,
-    ArrowLeft, Brain, Sparkles, Star, Play, Trophy
+    BookOpen, Brain, Play, ArrowLeft, GraduationCap,
+    CheckCircle2, Clock, Target, Sparkles, Lightbulb,
+    ChevronRight, Activity
 } from 'lucide-react';
 import useAuthStore from '../store/authStore';
 import { getUserGradeId, getGradeConfig } from '../config/israeliCurriculum';
-import AILearningArea from '../components/learning/AILearningArea';
 import toast from 'react-hot-toast';
+import LearningSpace from '../components/ai/LearningSpace';
 
 const API_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
 
@@ -20,23 +21,16 @@ const LectureRoom = () => {
 
     const [missions, setMissions] = useState([]);
     const [loading, setLoading] = useState(true);
-    const [currentMode, setCurrentMode] = useState('selection'); // 'selection' or 'lecture'
-    const [selectedTopic, setSelectedTopic] = useState(null);
-    const [selectedSubtopic, setSelectedSubtopic] = useState(null);
+    const [selectedMission, setSelectedMission] = useState(null);
+    const [view, setView] = useState('missions'); // 'missions' or 'learning'
 
-    // Get grade and topics
     const currentGrade = profile?.grade || user?.grade || 'grade10';
     const currentTrack = profile?.track || user?.track || '3-units';
-    const numericGrade = parseInt(currentGrade.replace('grade', ''));
     const gradeId = getUserGradeId(currentGrade, currentTrack);
     const gradeConfig = getGradeConfig(gradeId);
-    const availableTopics = gradeConfig?.topics || [];
 
-    // Filter topics based on weak topics from onboarding
-    const weakTopics = profile?.weakTopics || [];
-    const displayTopics = weakTopics && weakTopics.length > 0
-        ? availableTopics.filter(topic => weakTopics.includes(topic.id))
-        : availableTopics;
+    // ✅ Extract numeric grade from 'grade10' -> '10'
+    const numericGrade = currentGrade.replace('grade', '');
 
     useEffect(() => {
         if (user?.uid) {
@@ -47,73 +41,96 @@ const LectureRoom = () => {
     const loadLectureMissions = async () => {
         try {
             setLoading(true);
-            const response = await fetch(`${API_URL}/api/missions/user/${user.uid}?type=lecture`);
-            const data = await response.json();
+            console.log('🔍 Loading lecture missions for user:', user.uid);
 
-            if (data.success && data.missions) {
-                setMissions(data.missions);
+            // ✅ FIXED: Using correct endpoint
+            const response = await fetch(`${API_URL}/api/admin/missions/user/${user.uid}`);
+
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
+            const data = await response.json();
+            console.log('📋 Missions response:', data);
+
+            if (data.success && data.missions && Array.isArray(data.missions)) {
+                // ✅ Filter for lecture missions only
+                const lectureMissions = data.missions.filter(m => m.type === 'lecture');
+                console.log('📚 Lecture missions:', lectureMissions);
+                setMissions(lectureMissions);
+            } else {
+                console.warn('⚠️ No missions found or invalid format');
+                setMissions([]);
             }
         } catch (error) {
             console.error('❌ Error loading lecture missions:', error);
+            toast.error('שגיאה בטעינת משימות הרצאה');
+            setMissions([]);
         } finally {
             setLoading(false);
         }
     };
 
-    const startLecture = (topic, subtopic = null) => {
-        setSelectedTopic(topic);
-        setSelectedSubtopic(subtopic);
-        setCurrentMode('lecture');
-
-        toast.success(
-            `📚 מתחיל הרצאה!\n${topic.name}${subtopic ? ` - ${subtopic.name}` : ''}`,
-            { duration: 3000, icon: '🎓' }
-        );
+    const handleStartLearning = (mission) => {
+        setSelectedMission(mission);
+        setView('learning');
+        toast.success('פותח חומר לימוד! 📚');
     };
 
-    const handleBackToSelection = () => {
-        setCurrentMode('selection');
-        setSelectedTopic(null);
-        setSelectedSubtopic(null);
+    const handleStartPractice = () => {
+        if (selectedMission) {
+            navigate('/practice-room', {
+                state: {
+                    topicId: selectedMission.topicId,
+                    subtopicId: selectedMission.subtopicId,
+                    missionId: selectedMission.id
+                }
+            });
+        }
     };
 
-    const handleLectureComplete = () => {
-        toast.success('🎉 הרצאה הושלמה! האם תרצה לעבור לתרגול?', {
-            duration: 5000,
-            icon: '✅'
-        });
+    const handleBackToMissions = () => {
+        setView('missions');
+        setSelectedMission(null);
     };
 
-    // Lecture Mode
-    if (currentMode === 'lecture') {
+    if (loading) {
         return (
-            <div className="min-h-screen bg-gradient-to-br from-blue-50 to-cyan-50 p-4 md:p-6">
-                <div className="max-w-7xl mx-auto">
-                    <motion.button
-                        onClick={handleBackToSelection}
-                        whileHover={{ scale: 1.05 }}
-                        className="mb-6 px-6 py-3 bg-white text-gray-800 rounded-xl font-bold shadow-lg flex items-center gap-2"
-                    >
-                        <ArrowLeft className="w-5 h-5" />
-                        <span>חזרה לבחירת נושא</span>
-                    </motion.button>
-
-                    <AILearningArea
-                        topic={selectedTopic}
-                        subtopic={selectedSubtopic}
-                        gradeLevel={numericGrade}
-                        userId={user?.uid}
-                        onComplete={handleLectureComplete}
-                        mode="lecture"
-                    />
-                </div>
+            <div className="min-h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-900 flex items-center justify-center">
+                <motion.div
+                    animate={{ rotate: 360 }}
+                    transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                >
+                    <Brain className="w-20 h-20 text-white" />
+                </motion.div>
             </div>
         );
     }
 
-    // Selection Mode
+    // Learning Space View
+    if (view === 'learning' && selectedMission) {
+        return (
+            <LearningSpace
+                topic={{
+                    id: selectedMission.topicId,
+                    name: selectedMission.title,
+                    icon: '📚',
+                    gradeLevel: numericGrade // ✅ PASS gradeLevel
+                }}
+                subtopic={selectedMission.subtopicId ? {
+                    id: selectedMission.subtopicId,
+                    name: selectedMission.description
+                } : null}
+                onStartPractice={handleStartPractice}
+                onBack={handleBackToMissions}
+                userId={user?.uid}
+            />
+        );
+    }
+
+    // Missions List View
     return (
-        <div className="min-h-screen bg-gradient-to-br from-blue-500 via-cyan-500 to-teal-500" dir="rtl">
+        <div className="min-h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-900" dir="rtl">
             <div className="max-w-7xl mx-auto px-4 md:px-6 py-6 md:py-12 space-y-6 md:space-y-8">
 
                 {/* Back Button */}
@@ -133,188 +150,128 @@ const LectureRoom = () => {
                     className="text-center text-white"
                 >
                     <motion.div
-                        animate={{ rotate: [0, -10, 10, 0] }}
+                        animate={{ scale: [1, 1.1, 1] }}
                         transition={{ duration: 2, repeat: Infinity }}
-                        className="text-8xl mb-6"
+                        className="text-7xl mb-4"
                     >
                         📚
                     </motion.div>
-                    <h1 className="text-6xl md:text-7xl font-black mb-4">חדר ההרצאות</h1>
+                    <h1 className="text-5xl md:text-7xl font-black mb-4">
+                        חדר ההרצאות
+                    </h1>
                     <p className="text-2xl md:text-3xl font-bold">
-                        למידת נושאים חדשים עם הסברים מפורטים ודוגמאות מלאות
+                        למד נושאים חדשים עם הסברים מפורטים
                     </p>
                 </motion.div>
 
-                {/* Section 1: Lecture Missions from Nexon */}
-                {missions && missions.length > 0 && (
-                    <motion.div
-                        initial={{ opacity: 0, y: 20 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        className="bg-white/95 backdrop-blur-lg rounded-3xl p-6 md:p-8 shadow-2xl"
-                    >
-                        <div className="flex items-center gap-3 mb-6">
-                            <div className="p-3 bg-gradient-to-br from-blue-500 to-cyan-500 rounded-2xl">
-                                <MessageSquare className="w-8 h-8 text-white" />
-                            </div>
-                            <div>
-                                <h2 className="text-3xl font-black text-gray-900">המשימות שלי מנקסון 📋</h2>
-                                <p className="text-gray-600">הנחיות מפורשות - משימות הרצאה שנקבעו עבורך</p>
-                            </div>
-                        </div>
-
-                        <div className="space-y-3">
-                            {missions.map((mission, idx) => (
-                                <motion.div
-                                    key={idx}
-                                    initial={{ opacity: 0, x: -20 }}
-                                    animate={{ opacity: 1, x: 0 }}
-                                    transition={{ delay: idx * 0.1 }}
-                                    whileHover={{ scale: 1.02, x: 5 }}
-                                    className={`flex items-start gap-4 rounded-2xl p-5 border-2 transition-all cursor-pointer ${
-                                        mission.completed
-                                            ? 'bg-blue-50 border-blue-300'
-                                            : 'bg-white border-gray-300 hover:border-blue-400 hover:shadow-lg'
-                                    }`}
-                                    onClick={() => {
-                                        if (!mission.completed) {
-                                            const topic = availableTopics.find(t => t.id === mission.topicId);
-                                            if (topic) startLecture(topic);
-                                        }
-                                    }}
-                                >
-                                    <CheckCircle2
-                                        className={`w-8 h-8 flex-shrink-0 ${
-                                            mission.completed ? 'text-blue-600' : 'text-gray-400'
-                                        }`}
-                                    />
-                                    <div className="flex-1">
-                                        <h3 className="text-xl font-black text-gray-900 mb-1">
-                                            {idx + 1}. {mission.title}
-                                        </h3>
-                                        {mission.description && (
-                                            <p className="text-gray-700 mb-2">{mission.description}</p>
-                                        )}
-                                        {mission.completed && (
-                                            <div className="flex items-center gap-2 text-blue-700 font-bold text-sm">
-                                                <Trophy className="w-4 h-4" />
-                                                <span>הושלם!</span>
-                                            </div>
-                                        )}
-                                        {!mission.completed && (
-                                            <div className="flex items-center gap-2 text-cyan-600 font-bold text-sm">
-                                                <Play className="w-4 h-4" />
-                                                <span>לחץ להתחלה</span>
-                                            </div>
-                                        )}
+                {/* Missions Grid */}
+                {missions.length > 0 ? (
+                    <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+                        {missions.map((mission, index) => (
+                            <motion.div
+                                key={mission.id}
+                                initial={{ opacity: 0, y: 20 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                transition={{ delay: index * 0.1 }}
+                                whileHover={{ scale: 1.03, y: -5 }}
+                                className="bg-white/95 backdrop-blur-lg rounded-3xl p-6 shadow-2xl cursor-pointer"
+                                onClick={() => handleStartLearning(mission)}
+                            >
+                                <div className="flex items-center justify-between mb-4">
+                                    <div className="p-3 bg-gradient-to-br from-blue-500 to-cyan-500 rounded-2xl">
+                                        <BookOpen className="w-8 h-8 text-white" />
                                     </div>
-                                </motion.div>
-                            ))}
-                        </div>
-
-                        <div className="mt-6 bg-gradient-to-r from-blue-50 to-cyan-50 rounded-xl p-4 border-2 border-blue-200">
-                            <div className="flex items-start gap-3">
-                                <Sparkles className="w-6 h-6 text-blue-600 flex-shrink-0 mt-1" />
-                                <div>
-                                    <p className="font-bold text-blue-900 mb-1">💡 טיפ מנקסון:</p>
-                                    <p className="text-sm text-blue-800">
-                                        קח את הזמן להבין כל דוגמה לעומק. אחרי ההרצאה תוכל לתרגל
-                                        את מה שלמדת בחדר התרגול!
-                                    </p>
+                                    {mission.completed && (
+                                        <CheckCircle2 className="w-6 h-6 text-green-500" />
+                                    )}
                                 </div>
-                            </div>
-                        </div>
+
+                                <h3 className="text-2xl font-black text-gray-900 mb-2">
+                                    {mission.title}
+                                </h3>
+
+                                {mission.description && (
+                                    <p className="text-gray-600 mb-4 line-clamp-2">
+                                        {mission.description}
+                                    </p>
+                                )}
+
+                                <div className="flex items-center gap-2 mb-4">
+                                    <Target className="w-5 h-5 text-blue-600" />
+                                    <span className="text-sm font-bold text-gray-700">
+                                        {mission.topicId || 'נושא כללי'}
+                                    </span>
+                                </div>
+
+                                <div className="flex items-center justify-between pt-4 border-t border-gray-200">
+                                    <div className="flex items-center gap-2 text-gray-600">
+                                        <Clock className="w-4 h-4" />
+                                        <span className="text-sm">~20 דקות</span>
+                                    </div>
+                                    <ChevronRight className="w-6 h-6 text-blue-600" />
+                                </div>
+                            </motion.div>
+                        ))}
+                    </div>
+                ) : (
+                    <motion.div
+                        initial={{ opacity: 0, scale: 0.9 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        className="bg-white/95 backdrop-blur-lg rounded-3xl p-12 shadow-2xl text-center"
+                    >
+                        <div className="text-7xl mb-6">🎯</div>
+                        <h3 className="text-3xl font-black text-gray-900 mb-4">
+                            אין משימות הרצאה פתוחות
+                        </h3>
+                        <p className="text-xl text-gray-600 mb-8">
+                            כרגע אין משימות הרצאה חדשות. בקר שוב מאוחר יותר!
+                        </p>
+                        <motion.button
+                            whileHover={{ scale: 1.05 }}
+                            whileTap={{ scale: 0.95 }}
+                            onClick={() => navigate('/practice-room')}
+                            className="px-8 py-4 bg-gradient-to-r from-green-600 to-emerald-600 text-white font-black text-xl rounded-2xl shadow-xl hover:shadow-2xl transition-all"
+                        >
+                            עבור לחדר תרגול
+                        </motion.button>
                     </motion.div>
                 )}
 
-                {/* Section 2: Manual Topic Selection */}
-                <motion.div
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.1 }}
-                    className="bg-white/95 backdrop-blur-lg rounded-3xl p-6 md:p-8 shadow-2xl"
-                >
-                    <div className="flex items-center gap-3 mb-6">
-                        <div className="p-3 bg-gradient-to-br from-purple-500 to-pink-500 rounded-2xl">
-                            <Brain className="w-8 h-8 text-white" />
-                        </div>
-                        <div>
-                            <h2 className="text-3xl font-black text-gray-900">נושאים להרצאה ידנית 🎓</h2>
-                            <p className="text-gray-600">בחר נושא ללמידה חופשית עם נקסון</p>
-                        </div>
-                    </div>
+                {/* Info Cards */}
+                <div className="grid md:grid-cols-3 gap-6 mt-12">
+                    <motion.div
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: 0.2 }}
+                        className="bg-gradient-to-br from-blue-500 to-cyan-500 rounded-2xl p-6 text-white"
+                    >
+                        <Lightbulb className="w-10 h-10 mb-3" />
+                        <h3 className="text-xl font-bold mb-2">למידה מעמיקה</h3>
+                        <p className="text-blue-100">הסברים מפורטים עם דוגמאות מעשיות</p>
+                    </motion.div>
 
-                    {displayTopics.length === 0 ? (
-                        <div className="text-center py-12">
-                            <BookOpen className="w-20 h-20 text-gray-400 mx-auto mb-4" />
-                            <p className="text-xl text-gray-600 font-bold">
-                                לא נמצאו נושאים זמינים
-                            </p>
-                        </div>
-                    ) : (
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                            {displayTopics.map((topic, idx) => (
-                                <motion.button
-                                    key={topic.id}
-                                    initial={{ opacity: 0, scale: 0.9 }}
-                                    animate={{ opacity: 1, scale: 1 }}
-                                    transition={{ delay: idx * 0.1 }}
-                                    whileHover={{ scale: 1.05, y: -5 }}
-                                    whileTap={{ scale: 0.95 }}
-                                    onClick={() => startLecture(topic)}
-                                    className="group relative bg-gradient-to-br from-white to-gray-50 rounded-2xl p-6 shadow-lg hover:shadow-2xl transition-all border-2 border-gray-200 hover:border-blue-400"
-                                >
-                                    <div className="absolute top-0 right-0 w-20 h-20 bg-gradient-to-br from-blue-400/20 to-cyan-600/20 rounded-full blur-2xl group-hover:scale-150 transition-transform" />
+                    <motion.div
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: 0.3 }}
+                        className="bg-gradient-to-br from-purple-500 to-pink-500 rounded-2xl p-6 text-white"
+                    >
+                        <Activity className="w-10 h-10 mb-3" />
+                        <h3 className="text-xl font-bold mb-2">תרגול מיידי</h3>
+                        <p className="text-purple-100">עבור ישר לתרגול אחרי כל הרצאה</p>
+                    </motion.div>
 
-                                    <div className="relative z-10">
-                                        <div className="text-6xl mb-4 text-center">
-                                            {topic.icon || '📚'}
-                                        </div>
-
-                                        <h3 className="text-2xl font-black text-gray-900 mb-2 text-center">
-                                            {topic.name}
-                                        </h3>
-
-                                        <p className="text-gray-600 text-center mb-4">
-                                            {topic.nameEn}
-                                        </p>
-
-                                        <div className="flex items-center justify-center gap-2 text-blue-600 font-bold">
-                                            <GraduationCap className="w-5 h-5" />
-                                            <span>התחל ללמוד</span>
-                                        </div>
-                                    </div>
-                                </motion.button>
-                            ))}
-                        </div>
-                    )}
-
-                    <div className="mt-6 bg-gradient-to-r from-purple-50 to-pink-50 rounded-xl p-4 border-2 border-purple-200">
-                        <div className="flex items-start gap-3">
-                            <Lightbulb className="w-6 h-6 text-purple-600 flex-shrink-0 mt-1" />
-                            <div>
-                                <p className="font-bold text-purple-900 mb-1">📚 מה תקבל בהרצאה:</p>
-                                <ul className="text-sm text-purple-800 space-y-1">
-                                    <li className="flex items-center gap-2">
-                                        <div className="w-2 h-2 bg-purple-600 rounded-full"></div>
-                                        <span>הסברים מפורטים ושלב אחר שלב</span>
-                                    </li>
-                                    <li className="flex items-center gap-2">
-                                        <div className="w-2 h-2 bg-purple-600 rounded-full"></div>
-                                        <span>דוגמאות פתורות במלואן</span>
-                                    </li>
-                                    <li className="flex items-center gap-2">
-                                        <div className="w-2 h-2 bg-purple-600 rounded-full"></div>
-                                        <span>אפשרות לשאול שאלות בכל שלב</span>
-                                    </li>
-                                    <li className="flex items-center gap-2">
-                                        <div className="w-2 h-2 bg-purple-600 rounded-full"></div>
-                                        <span>שמירת הערות אישיות במחברת</span>
-                                    </li>
-                                </ul>
-                            </div>
-                        </div>
-                    </div>
-                </motion.div>
+                    <motion.div
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: 0.4 }}
+                        className="bg-gradient-to-br from-green-500 to-emerald-500 rounded-2xl p-6 text-white"
+                    >
+                        <GraduationCap className="w-10 h-10 mb-3" />
+                        <h3 className="text-xl font-bold mb-2">למידה מותאמת</h3>
+                        <p className="text-green-100">תוכן מותאם לרמה ולמסלול שלך</p>
+                    </motion.div>
+                </div>
             </div>
         </div>
     );

@@ -1,4 +1,4 @@
-// src/components/ai/LearningSpace.jsx - מרחב למידה
+// src/components/ai/LearningSpace.jsx - FINAL FIXED VERSION
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -7,6 +7,7 @@ import {
     ArrowLeft, Activity
 } from 'lucide-react';
 import axios from 'axios';
+import toast from 'react-hot-toast';
 
 const API_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
 
@@ -26,19 +27,85 @@ const LearningSpace = ({ topic, subtopic, onStartPractice, onBack, userId }) => 
     const loadLearningContent = async () => {
         try {
             setLoading(true);
-            const response = await axios.post(`${API_URL}/api/learning/get-content`, {
-                topicId: topic?.id,
-                subtopicId: subtopic?.id,
-                topicName: topic?.name,
-                subtopicName: subtopic?.name
-                userId: userId
-            });
+
+            // ✅ Validate required data
+            if (!topic || !topic.name) {
+                console.warn('⚠️ Missing topic information');
+                toast.error('חסר מידע על הנושא');
+                setLoading(false);
+                return;
+            }
+
+            if (!userId) {
+                console.warn('⚠️ Missing userId');
+                toast.error('חסר מזהה משתמש');
+                setLoading(false);
+                return;
+            }
+
+            // ✅ Build request payload with gradeLevel
+            const requestPayload = {
+                userId: userId,
+                topicId: topic.id || topic.name,
+                topicName: topic.name,
+                gradeLevel: topic.gradeLevel || '9', // ✅ REQUIRED by server
+                subtopicId: subtopic?.id || null,
+                subtopicName: subtopic?.name || null
+            };
+
+            console.log('📤 Sending request to get learning content:', requestPayload);
+
+            const response = await axios.post(
+                `${API_URL}/api/learning/get-content`,
+                requestPayload,
+                {
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                }
+            );
+
+            console.log('📥 Learning content response:', response.data);
 
             if (response.data.success) {
                 setLearningContent(response.data.content);
+                toast.success('תוכן הלימוד נטען בהצלחה! 📚');
+            } else {
+                throw new Error(response.data.error || 'Failed to load content');
             }
         } catch (error) {
-            console.error('Error loading learning content:', error);
+            console.error('❌ Error loading learning content:', error);
+
+            // ✅ Better error handling
+            let errorMessage = 'שגיאה בטעינת חומר הלימוד';
+
+            if (error.response) {
+                console.error('Server error response:', error.response.data);
+                errorMessage = error.response.data?.error || error.response.data?.message || errorMessage;
+            } else if (error.request) {
+                console.error('No response from server');
+                errorMessage = 'אין תגובה מהשרת';
+            } else {
+                console.error('Request setup error:', error.message);
+                errorMessage = error.message;
+            }
+
+            toast.error(errorMessage);
+
+            // ✅ Set dummy content for development/testing
+            setLearningContent({
+                sections: [
+                    {
+                        title: topic?.name || 'נושא כללי',
+                        subtitle: 'תוכן לימוד זמני',
+                        story: 'מצטערים, לא הצלחנו לטעון את תוכן הלימוד. אנא נסה שוב מאוחר יותר.',
+                        explanation: `נושא זה עדיין בפיתוח. אתה יכול לעבור ישירות לתרגול.`,
+                        examples: [],
+                        keyPoints: ['נסה שוב מאוחר יותר'],
+                        quiz: null
+                    }
+                ]
+            });
         } finally {
             setLoading(false);
         }
@@ -50,7 +117,7 @@ const LearningSpace = ({ topic, subtopic, onStartPractice, onBack, userId }) => 
 
     const handleNextSection = () => {
         handleSectionComplete();
-        if (currentSection < learningContent.sections.length - 1) {
+        if (learningContent && currentSection < learningContent.sections.length - 1) {
             setCurrentSection(prev => prev + 1);
             setShowQuiz(false);
             setQuizAnswer('');
@@ -68,25 +135,41 @@ const LearningSpace = ({ topic, subtopic, onStartPractice, onBack, userId }) => 
     };
 
     const handleQuizSubmit = async () => {
+        if (!learningContent) return;
+
         try {
             const section = learningContent.sections[currentSection];
+
+            if (!section.quiz) return;
+
             const response = await axios.post(`${API_URL}/api/learning/check-quiz`, {
                 question: section.quiz.question,
                 correctAnswer: section.quiz.answer,
-                userAnswer: quizAnswer
+                userAnswer: quizAnswer,
+                userId: userId
             });
 
             setQuizFeedback(response.data);
+
             if (response.data.isCorrect) {
                 handleSectionComplete();
+                toast.success('תשובה נכונה! 🎉');
+            } else {
+                toast.error('התשובה לא נכונה, נסה שוב');
             }
         } catch (error) {
             console.error('Error checking quiz:', error);
+            toast.error('שגיאה בבדיקת התשובה');
         }
     };
 
-    const allSectionsCompleted = completedSections.size === learningContent?.sections.length;
-    const progress = learningContent ? (completedSections.size / learningContent.sections.length) * 100 : 0;
+    const allSectionsCompleted = learningContent
+        ? completedSections.size === learningContent.sections.length
+        : false;
+
+    const progress = learningContent
+        ? (completedSections.size / learningContent.sections.length) * 100
+        : 0;
 
     if (loading) {
         return (
@@ -106,11 +189,28 @@ const LearningSpace = ({ topic, subtopic, onStartPractice, onBack, userId }) => 
     if (!learningContent) {
         return (
             <div className="min-h-screen bg-gradient-to-br from-purple-50 via-pink-50 to-orange-50 flex items-center justify-center p-4" dir="rtl">
-                <div className="text-center">
-                    <p className="text-xl text-gray-600 mb-4">לא נמצא תוכן לימודי לנושא זה</p>
-                    <button onClick={onBack} className="px-6 py-3 bg-purple-600 text-white rounded-xl font-bold hover:bg-purple-700 transition-colors">
-                        חזרה
-                    </button>
+                <div className="text-center bg-white rounded-3xl p-12 shadow-2xl">
+                    <div className="text-6xl mb-6">😔</div>
+                    <h3 className="text-2xl font-black text-gray-900 mb-4">
+                        לא נמצא תוכן לימודי
+                    </h3>
+                    <p className="text-xl text-gray-600 mb-8">
+                        תוכן הלימוד לנושא זה עדיין בפיתוח
+                    </p>
+                    <div className="flex gap-4 justify-center">
+                        <button
+                            onClick={onBack}
+                            className="px-6 py-3 bg-gray-600 text-white rounded-xl font-bold hover:bg-gray-700 transition-colors"
+                        >
+                            חזרה
+                        </button>
+                        <button
+                            onClick={onStartPractice}
+                            className="px-6 py-3 bg-green-600 text-white rounded-xl font-bold hover:bg-green-700 transition-colors"
+                        >
+                            עבור לתרגול
+                        </button>
+                    </div>
                 </div>
             </div>
         );
@@ -204,7 +304,9 @@ const LearningSpace = ({ topic, subtopic, onStartPractice, onBack, userId }) => 
                                         <CheckCircle className="w-6 h-6 text-green-500" />
                                     )}
                                 </div>
-                                <p className="text-gray-600 text-lg">{section.subtitle}</p>
+                                {section.subtitle && (
+                                    <p className="text-gray-600 text-lg">{section.subtitle}</p>
+                                )}
                             </div>
                         </div>
 
@@ -219,19 +321,23 @@ const LearningSpace = ({ topic, subtopic, onStartPractice, onBack, userId }) => 
                         )}
 
                         {/* Main Explanation */}
-                        <div className="space-y-4 mb-6">
-                            <h3 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-                                <Target className="w-6 h-6 text-purple-600" />
-                                ההסבר
-                            </h3>
-                            <div className="prose prose-lg max-w-none">
-                                {section.explanation.split('\n').map((para, idx) => (
-                                    <p key={idx} className="text-gray-700 leading-relaxed mb-3">
-                                        {para}
-                                    </p>
-                                ))}
+                        {section.explanation && (
+                            <div className="space-y-4 mb-6">
+                                <h3 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+                                    <Target className="w-6 h-6 text-purple-600" />
+                                    ההסבר
+                                </h3>
+                                <div className="prose prose-lg max-w-none">
+                                    {section.explanation.split('\n').map((para, idx) => (
+                                        para.trim() && (
+                                            <p key={idx} className="text-gray-700 leading-relaxed mb-3">
+                                                {para}
+                                            </p>
+                                        )
+                                    ))}
+                                </div>
                             </div>
-                        </div>
+                        )}
 
                         {/* Examples */}
                         {section.examples && section.examples.length > 0 && (
@@ -253,20 +359,26 @@ const LearningSpace = ({ topic, subtopic, onStartPractice, onBack, userId }) => 
                                                 דוגמה {idx + 1}: {example.title}
                                             </h4>
                                             <div className="space-y-3">
-                                                <div className="bg-white rounded-xl p-4">
-                                                    <p className="text-sm text-gray-600 mb-1">שאלה:</p>
-                                                    <p className="text-lg font-bold text-gray-900">{example.problem}</p>
-                                                </div>
-                                                <div className="bg-white rounded-xl p-4">
-                                                    <p className="text-sm text-gray-600 mb-2">פתרון:</p>
-                                                    <div className="space-y-2">
-                                                        {example.solution.split('\n').map((step, stepIdx) => (
-                                                            <p key={stepIdx} className="text-gray-800">
-                                                                {step}
-                                                            </p>
-                                                        ))}
+                                                {example.problem && (
+                                                    <div className="bg-white rounded-xl p-4">
+                                                        <p className="text-sm text-gray-600 mb-1">שאלה:</p>
+                                                        <p className="text-lg font-bold text-gray-900">{example.problem}</p>
                                                     </div>
-                                                </div>
+                                                )}
+                                                {example.solution && (
+                                                    <div className="bg-white rounded-xl p-4">
+                                                        <p className="text-sm text-gray-600 mb-2">פתרון:</p>
+                                                        <div className="space-y-2">
+                                                            {example.solution.split('\n').map((step, stepIdx) => (
+                                                                step.trim() && (
+                                                                    <p key={stepIdx} className="text-gray-800">
+                                                                        {step}
+                                                                    </p>
+                                                                )
+                                                            ))}
+                                                        </div>
+                                                    </div>
+                                                )}
                                                 {example.answer && (
                                                     <div className="bg-gradient-to-r from-purple-100 to-pink-100 rounded-xl p-4">
                                                         <p className="text-sm text-gray-700 mb-1">תשובה סופית:</p>
@@ -381,7 +493,9 @@ const LearningSpace = ({ topic, subtopic, onStartPractice, onBack, userId }) => 
                     </button>
 
                     <div className="text-center">
-                        <p className="text-sm text-gray-600">סעיף {currentSection + 1} מתוך {learningContent.sections.length}</p>
+                        <p className="text-sm text-gray-600">
+                            סעיף {currentSection + 1} מתוך {learningContent.sections.length}
+                        </p>
                     </div>
 
                     {currentSection < learningContent.sections.length - 1 ? (
@@ -395,8 +509,7 @@ const LearningSpace = ({ topic, subtopic, onStartPractice, onBack, userId }) => 
                     ) : (
                         <button
                             onClick={onStartPractice}
-                            disabled={!allSectionsCompleted}
-                            className="flex items-center gap-2 px-8 py-4 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-xl font-bold hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                            className="flex items-center gap-2 px-8 py-4 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-xl font-bold hover:shadow-xl transition-all"
                         >
                             <Play className="w-6 h-6" />
                             <span>התחל תרגול!</span>

@@ -29,7 +29,8 @@ import enhancedQuestionsRouter from './routes/enhancedQuestions.js';
 import calculusValidator from './services/calculus-validator.js';
 import bagrutExamRoutes from './routes/bagrExamRoutes.js';
 import adminRoutes from './routes/adminRoutes.js';
-
+// בתחילת הקובץ, אחרי ה-imports הקיימים:
+import claudeApi from './utils/claudeApiHelper.js';
 import * as cronManager from './services/cronJobs.js';
 import israeliSourcesRoutes from './routes/israeliSourcesRoutes.js';
 import adaptiveRoutes from './routes/adaptive.js';
@@ -1114,7 +1115,6 @@ app.post('/api/ai/generate-question', async (req, res) => {
             excludedIdsCount: excludeQuestionIds?.length || 0
         });
 
-        // ==================== USER ID EXTRACTION ====================
         const userIdFromParam = userId;
         const userIdFromProfile = studentProfile.studentId || studentProfile.id;
         const finalUserId = userIdFromParam || userIdFromProfile || null;
@@ -1140,15 +1140,11 @@ app.post('/api/ai/generate-question', async (req, res) => {
             isAnonymous: sessionKey === 'anonymous'
         });
 
-        // ==================== GET EXCLUDED IDS FROM HISTORY ====================
         console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
         console.log('🔍 CHECKING QUESTION HISTORY');
         console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
-        // Get IDs from history manager
         const historyExcludedIds = questionHistoryManager.getExcludedQuestionIds(sessionKey, topicId, 30);
-
-        // Combine with IDs from request
         const excludedFromParam = Array.isArray(excludeQuestionIds) ? excludeQuestionIds : [];
         const excludedFromPrevious = previousQuestions.map(q => {
             if (typeof q === 'object' && q.id) return q.id;
@@ -1157,7 +1153,6 @@ app.post('/api/ai/generate-question', async (req, res) => {
             return null;
         }).filter(Boolean);
 
-        // ✅ Combine all excluded IDs
         const allExcludedIds = [
             ...new Set([
                 ...historyExcludedIds,
@@ -1176,7 +1171,6 @@ app.post('/api/ai/generate-question', async (req, res) => {
         }
         console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
 
-        // ==================== CHECK EXISTING HISTORY ====================
         console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
         console.log('📚 EXISTING HISTORY BEFORE GENERATION');
         console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
@@ -1199,7 +1193,6 @@ app.post('/api/ai/generate-question', async (req, res) => {
 
         console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
 
-        // ==================== CALL SMART QUESTION SERVICE ====================
         console.log('🔍 Calling smartQuestionService.getQuestion with:', {
             topicId,
             subtopicId,
@@ -1220,7 +1213,6 @@ app.post('/api/ai/generate-question', async (req, res) => {
             excludeQuestionIds: allExcludedIds
         });
 
-        // ==================== HANDLE CACHED QUESTION ====================
         if (smartResult.cached) {
             console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
             console.log('✅ SERVING CACHED QUESTION FROM DATABASE');
@@ -1229,13 +1221,12 @@ app.post('/api/ai/generate-question', async (req, res) => {
             console.log('   Question Preview:', smartResult.question.substring(0, 100) + '...');
             console.log('   Source:', smartResult.source);
 
-            // ✅ CRITICAL: Record cached question with ID to history
             console.log('\n📝 Recording cached question to history...');
             try {
                 const recordData = {
-                    id: smartResult.id,                    // ✅ PRIMARY
-                    questionId: smartResult.id,             // ✅ BACKUP 1
-                    cached_id: smartResult.id,              // ✅ BACKUP 2
+                    id: smartResult.id,
+                    questionId: smartResult.id,
+                    cached_id: smartResult.id,
                     question: smartResult.question,
                     difficulty,
                     source: smartResult.source || 'cached',
@@ -1253,7 +1244,6 @@ app.post('/api/ai/generate-question', async (req, res) => {
                 questionHistoryManager.addQuestion(sessionKey, topicId, recordData);
                 console.log('   ✅ Cached question recorded to history');
 
-                // ✅ VERIFY it was added
                 const verifyExcluded = questionHistoryManager.getExcludedQuestionIds(sessionKey, topicId, 5);
                 console.log('   ✅ Verification - Excluded IDs now:', verifyExcluded);
 
@@ -1284,12 +1274,10 @@ app.post('/api/ai/generate-question', async (req, res) => {
             });
         }
 
-        // ==================== GENERATE NEW QUESTION WITH AI ====================
         console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
         console.log('🤖 NO SUITABLE CACHED QUESTION - GENERATING WITH AI');
         console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
-        // Get recent questions for AI prompt (avoid duplication)
         const recentQuestionsFromMemory = questionHistoryManager.getRecentQuestions(sessionKey, topicId, 10);
 
         console.log('   Questions to exclude from AI generation:', {
@@ -1316,7 +1304,6 @@ app.post('/api/ai/generate-question', async (req, res) => {
 - ${personalitySystem.data.languageStyle.encouragementStyle}
 ` : 'אתה נקסון, מורה למתמטיקה ישראלי מנוסה וידידותי.';
 
-        // Combine all previous questions
         const allPreviousQuestions = [
             ...previousQuestions,
             ...(recentQuestionsFromMemory || [])
@@ -1328,7 +1315,6 @@ app.post('/api/ai/generate-question', async (req, res) => {
             total: allPreviousQuestions.length
         });
 
-        // Deduplicate
         const uniquePreviousQuestions = allPreviousQuestions.filter((q, index, self) => {
             const text = typeof q === 'string' ? q : (q.question || '');
             return index === self.findIndex(t => {
@@ -1375,38 +1361,33 @@ ${previousQuestionsText}
 
 חשוב: השתמש ב\\n לשורה חדשה, לא Enter אמיתי. החזר רק JSON, ללא טקסט נוסף.`;
 
-        console.log('🔄 Calling Claude API...');
+        console.log('🔄 Calling Claude API with smart retry...');
 
-        const response = await fetch('https://api.anthropic.com/v1/messages', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'x-api-key': process.env.ANTHROPIC_API_KEY,
-                'anthropic-version': '2023-06-01'
-            },
-            body: JSON.stringify({
-                model: 'claude-sonnet-4-5-20250929',
-                max_tokens: 3000,
+        // ✅ USE CLAUDE API HELPER
+        const result = await claudeApi.complete(
+            prompt,
+            'אתה מורה למתמטיקה ישראלי מנוסה. כל התשובות שלך חייבות להיות בעברית בלבד! אסור לך לכתוב באנגלית או בשפה אחרת. צור שאלות מקוריות ומעניינות שמתאימות לתכנית הלימודים הישראלית. וודא שהשאלה שלמה ומסתיימת במשפט שלם.',
+            {
+                maxTokens: 3000,
                 temperature: 0.7,
-                system: 'אתה מורה למתמטיקה ישראלי מנוסה. כל התשובות שלך חייבות להיות בעברית בלבד! אסור לך לכתוב באנגלית או בשפה אחרת. צור שאלות מקוריות ומעניינות שמתאימות לתכנית הלימודים הישראלית. וודא שהשאלה שלמה ומסתיימת במשפט שלם.',
-                messages: [{
-                    role: 'user',
-                    content: prompt
-                }]
-            })
-        });
+                maxRetries: 5,
+                timeout: 90000,
+                onRetry: (attempt, max, delay) => {
+                    console.log(`   🔄 Retrying (${attempt}/${max}) in ${Math.round(delay)}ms...`);
+                }
+            }
+        );
 
-        if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(`API error: ${response.status} - ${errorData.error?.message}`);
+        if (!result.success) {
+            throw new Error(result.error || 'Failed to generate question');
         }
 
-        const data = await response.json();
-        const rawText = data.content[0].text;
+        const rawText = result.text;
 
         console.log('📄 AI Response received:', {
             length: rawText.length,
-            first200: rawText.substring(0, 200)
+            first200: rawText.substring(0, 200),
+            attempts: result.attempts
         });
 
         let jsonText = rawText.trim();
@@ -1436,7 +1417,6 @@ ${previousQuestionsText}
         console.log('✅ AI Question generated successfully');
         console.log('📝 Question length:', questionData.question.length);
 
-        // ==================== CACHE THE QUESTION ====================
         let cachedId = null;
         console.log('\n💾 Attempting to cache question...');
 
@@ -1462,7 +1442,6 @@ ${previousQuestionsText}
             console.error('❌ Cache error:', cacheError.message);
         }
 
-        // ==================== RECORD AI QUESTION TO HISTORY ====================
         console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
         console.log('📝 RECORDING AI-GENERATED QUESTION TO HISTORY');
         console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
@@ -1473,9 +1452,9 @@ ${previousQuestionsText}
             console.log('   Cached ID:', cachedId || 'NOT-CACHED-YET');
 
             const recordData = {
-                id: cachedId,                    // ✅ PRIMARY
-                questionId: cachedId,            // ✅ BACKUP 1
-                cached_id: cachedId,             // ✅ BACKUP 2
+                id: cachedId,
+                questionId: cachedId,
+                cached_id: cachedId,
                 question: questionData.question,
                 difficulty,
                 source: cachedId ? 'cached_ai' : 'ai_generated',
@@ -1493,7 +1472,6 @@ ${previousQuestionsText}
             questionHistoryManager.addQuestion(sessionKey, topicId, recordData);
             console.log('   ✅ Question recorded to memory');
 
-            // ✅ VERIFY
             const verifyRecent = questionHistoryManager.getRecentQuestions(sessionKey, topicId, 1);
             console.log('   ✅ Verification:', {
                 found: !!verifyRecent && verifyRecent.length > 0,
@@ -1501,7 +1479,6 @@ ${previousQuestionsText}
                 lastQuestionId: verifyRecent?.[0]?.questionId
             });
 
-            // ✅ Record to database if we have user ID
             if (userIdInt && typeof userIdInt === 'number') {
                 try {
                     await questionHistoryManager.recordToDatabase(userIdInt, {
@@ -1588,7 +1565,6 @@ app.post('/api/ai/verify-answer', async (req, res) => {
             });
         }
 
-        // ==================== STEP 0: SPECIAL CALCULUS VALIDATION ====================
         console.log('\n🎓 Step 0: Checking for calculus question...');
 
         const calculusAnalysis = calculusValidator.analyzeCalculusQuestion(question);
@@ -1654,7 +1630,6 @@ app.post('/api/ai/verify-answer', async (req, res) => {
             console.log('   ℹ️ Not a calculus question - continuing with normal flow...');
         }
 
-        // ==================== STEP 1: TRY MATHEMATICAL CALCULATION ====================
         console.log('\n🔢 Step 1: Attempting mathematical calculation...');
 
         const mathResult = await mathCalculationService.solveQuestion(question, correctAnswer);
@@ -1677,7 +1652,6 @@ app.post('/api/ai/verify-answer', async (req, res) => {
             console.log('   Reason:', mathResult.reason);
         }
 
-        // ==================== STEP 2: AI CALCULATION (AS BACKUP) ====================
         console.log('\n🤖 Step 2: AI calculation as backup...');
 
         const calculationPrompt = `אתה מורה למתמטיקה מומחה. פתור בדיוק.
@@ -1704,28 +1678,22 @@ ${mathematicalAnswer ? `\n🔢 חישוב מתמטי מדויק נעשה (אמת
   "confidence": 0-100
 }`;
 
-        const calcResponse = await fetch('https://api.anthropic.com/v1/messages', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'x-api-key': process.env.ANTHROPIC_API_KEY,
-                'anthropic-version': '2023-06-01'
-            },
-            body: JSON.stringify({
-                model: 'claude-sonnet-4-5-20250929',
-                max_tokens: 3000,
+        // ✅ USE CLAUDE API HELPER
+        const calcResult = await claudeApi.complete(
+            calculationPrompt,
+            'אתה מחשבון מדויק במתמטיקה. שים לב מיוחד לשאלות על נגזרות - הבן את ההבדל בין מקסימום של פונקציה למקסימום של הנגזרת שלה! החזר JSON בעברית.',
+            {
+                maxTokens: 3000,
                 temperature: 0.05,
-                system: 'אתה מחשבון מדויק במתמטיקה. שים לב מיוחד לשאלות על נגזרות - הבן את ההבדל בין מקסימום של פונקציה למקסימום של הנגזרת שלה! החזר JSON בעברית.',
-                messages: [{ role: 'user', content: calculationPrompt }]
-            })
-        });
+                maxRetries: 5
+            }
+        );
 
-        if (!calcResponse.ok) {
-            throw new Error(`AI Calculation API error: ${calcResponse.status}`);
+        if (!calcResult.success) {
+            throw new Error(calcResult.error || 'AI Calculation failed');
         }
 
-        const calcData = await calcResponse.json();
-        const calcRawText = calcData.content[0].text;
+        const calcRawText = calcResult.text;
 
         let calculationResult;
         try {
@@ -1750,7 +1718,6 @@ ${mathematicalAnswer ? `\n🔢 חישוב מתמטי מדויק נעשה (אמת
         console.log('   Math:', mathematicalAnswer || 'N/A', `(conf: ${mathConfidence})`);
         console.log('   AI:', aiCalculatedAnswer, `(conf: ${aiConfidence})`);
 
-        // ==================== STEP 3: DECIDE WHICH ANSWER TO TRUST ====================
         console.log('\n🎯 Step 3: Deciding which answer to trust...');
 
         let actualCorrectAnswer = storedAnswer;
@@ -1758,7 +1725,6 @@ ${mathematicalAnswer ? `\n🔢 חישוב מתמטי מדויק נעשה (אמת
         let shouldReview = false;
         let reviewReason = '';
 
-        // Priority 1: Mathematical calculation with very high confidence
         if (mathResult.success && mathConfidence >= 95) {
             console.log('   ✅ Using MATHEMATICAL answer (high confidence)');
             actualCorrectAnswer = mathematicalAnswer;
@@ -1773,7 +1739,6 @@ ${mathematicalAnswer ? `\n🔢 חישוב מתמטי מדויק נעשה (אמת
                 reviewReason = 'math_mismatch_high_confidence';
             }
         }
-        // Priority 2: AI with very high confidence (only if no mathematical calculation)
         else if (!mathResult.success && aiConfidence >= 98) {
             const storedMatchesAi = compareMathAnswers(storedAnswer, aiCalculatedAnswer);
             if (!storedMatchesAi) {
@@ -1782,7 +1747,6 @@ ${mathematicalAnswer ? `\n🔢 חישוב מתמטי מדויק נעשה (אמת
                 reviewReason = 'ai_mismatch_very_high_confidence';
             }
         }
-        // Priority 3: Mismatch between calculations
         else if (mathResult.success && mathConfidence >= 80 && aiConfidence >= 80) {
             const mathMatchesAi = compareMathAnswers(mathematicalAnswer, aiCalculatedAnswer);
             const storedMatchesMath = compareMathAnswers(storedAnswer, mathematicalAnswer);
@@ -1797,7 +1761,6 @@ ${mathematicalAnswer ? `\n🔢 חישוב מתמטי מדויק נעשה (אמת
         console.log('   Decision:', answerSource);
         console.log('   Needs Review:', shouldReview);
 
-        // ==================== STEP 4: ADD TO REVIEW QUEUE IF NEEDED ====================
         if (shouldReview && questionId) {
             console.log('\n📝 Step 4: Adding to review queue...');
 
@@ -1815,14 +1778,14 @@ ${mathematicalAnswer ? `\n🔢 חישוב מתמטי מדויק נעשה (אמת
                         ai_confidence, math_confidence,
                         issue_type, complexity_level, priority
                     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
-                        ON CONFLICT (question_id, question_source) DO UPDATE SET
+                    ON CONFLICT (question_id, question_source) DO UPDATE SET
                         ai_calculated_answer = EXCLUDED.ai_calculated_answer,
-                                                                          math_calculated_answer = EXCLUDED.math_calculated_answer,
-                                                                          ai_confidence = EXCLUDED.ai_confidence,
-                                                                          math_confidence = EXCLUDED.math_confidence,
-                                                                          issue_type = EXCLUDED.issue_type,
-                                                                          priority = EXCLUDED.priority,
-                                                                          updated_at = CURRENT_TIMESTAMP
+                        math_calculated_answer = EXCLUDED.math_calculated_answer,
+                        ai_confidence = EXCLUDED.ai_confidence,
+                        math_confidence = EXCLUDED.math_confidence,
+                        issue_type = EXCLUDED.issue_type,
+                        priority = EXCLUDED.priority,
+                        updated_at = CURRENT_TIMESTAMP
                 `, [
                     questionId,
                     'cache',
@@ -1850,7 +1813,6 @@ ${mathematicalAnswer ? `\n🔢 חישוב מתמטי מדויק נעשה (אמת
             }
         }
 
-        // ==================== STEP 5: VERIFY USER ANSWER ====================
         console.log('\n✅ Step 5: Verifying user answer...');
 
         const verificationPrompt = `בדוק תשובת התלמיד בקפידה.
@@ -1889,28 +1851,22 @@ ${shouldReview ? '⚠️ התשובה נשלחה לבדיקת אדמין מכי�
   "calculationError": true/false
 }`;
 
-        const verifyResponse = await fetch('https://api.anthropic.com/v1/messages', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'x-api-key': process.env.ANTHROPIC_API_KEY,
-                'anthropic-version': '2023-06-01'
-            },
-            body: JSON.stringify({
-                model: 'claude-sonnet-4-5-20250929',
-                max_tokens: 2000,
+        // ✅ USE CLAUDE API HELPER
+        const verifyResult = await claudeApi.complete(
+            verificationPrompt,
+            'מורה מתמטיקה מעודד. שים לב מיוחד לשאלות על נגזרות והבן את ההבדל בין מקסימום של פונקציה למקסימום של הנגזרת שלה. JSON בעברית.',
+            {
+                maxTokens: 2000,
                 temperature: 0.3,
-                system: 'מורה מתמטיקה מעודד. שים לב מיוחד לשאלות על נגזרות והבן את ההבדל בין מקסימום של פונקציה למקסימום של הנגזרת שלה. JSON בעברית.',
-                messages: [{ role: 'user', content: verificationPrompt }]
-            })
-        });
+                maxRetries: 5
+            }
+        );
 
-        if (!verifyResponse.ok) {
-            throw new Error(`Verification API error: ${verifyResponse.status}`);
+        if (!verifyResult.success) {
+            throw new Error(verifyResult.error || 'Verification failed');
         }
 
-        const verifyData = await verifyResponse.json();
-        const verifyRawText = verifyData.content[0].text;
+        const verifyRawText = verifyResult.text;
 
         let verificationResult;
         try {
@@ -1930,7 +1886,6 @@ ${shouldReview ? '⚠️ התשובה נשלחה לבדיקת אדמין מכי�
             };
         }
 
-        // ==================== STEP 6: FORMAT RESPONSE ====================
         const isCorrect = Boolean(verificationResult.isCorrect);
         const confidence = Math.min(100, Math.max(0, parseInt(verificationResult.confidence) || 85));
         let feedback = String(verificationResult.feedback || '').trim();
@@ -1941,12 +1896,10 @@ ${shouldReview ? '⚠️ התשובה נשלחה לבדיקת אדמין מכי�
         console.log('   Confidence:', confidence);
         console.log('   Method Correct:', verificationResult.methodCorrect);
 
-        // Add system correction notice if applicable
         if (shouldReview) {
             feedback = `📝 שים לב: התשובה נשלחה לבדיקת מורה מכיוון שיש אי-התאמה בין החישובים השונים. אנחנו רוצים לוודא שהתשובה הנכונה מדויקת.\n\n` + feedback;
         }
 
-        // Track usage if we have user and question IDs
         if (questionId && userId) {
             try {
                 await smartQuestionService.trackUsage(questionId, userId, {
@@ -1966,7 +1919,6 @@ ${shouldReview ? '⚠️ התשובה נשלחה לבדיקת אדמין מכי�
         console.log('✅ Verification completed in', duration, 'ms');
         console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
 
-        // ==================== RETURN RESPONSE ====================
         return res.json({
             success: true,
             isCorrect,
@@ -1974,24 +1926,14 @@ ${shouldReview ? '⚠️ התשובה נשלחה לבדיקת אדמין מכי�
             feedback,
             explanation,
             actualCorrectAnswer,
-
-            // Calculation details
             calculatedAnswer: aiCalculatedAnswer,
             mathematicalAnswer: mathematicalAnswer,
             answerSource: answerSource,
-
-            // Confidence levels
             aiConfidence: aiConfidence,
             mathConfidence: mathConfidence,
-
-            // Manual review
             flaggedForReview: shouldReview,
             reviewReason: reviewReason,
-
-            // Working steps
             workingSteps: mathWorkingSteps.length > 0 ? mathWorkingSteps : (calculationResult.workingSteps || []),
-
-            // Metadata
             methodCorrect: verificationResult.methodCorrect || false,
             calculationError: verificationResult.calculationError || false,
             model: 'claude-sonnet-4-5-20250929',
@@ -2009,7 +1951,6 @@ ${shouldReview ? '⚠️ התשובה נשלחה לבדיקת אדמין מכי�
         });
     }
 });
-
 
 // ==================== HELPER: COMPARE MATH ANSWERS ====================
 // ==================== HELPER: IMPROVED MATH COMPARISON ====================

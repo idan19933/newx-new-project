@@ -1,6 +1,12 @@
-// server/routes/learningRoutes.js - FULL VERSION WITH REAL AI
+// server/routes/learningRoutes.js - UPDATED WITH CLAUDE API HELPER
 import express from 'express';
+import claudeApi from '../utils/claudeApiHelper.js';
+
 const router = express.Router();
+
+// ============================================================
+// UTILITY FUNCTIONS
+// ============================================================
 
 function cleanJsonText(rawText) {
     let jsonText = rawText.trim();
@@ -19,6 +25,100 @@ function cleanJsonText(rawText) {
     }
 
     return jsonText;
+}
+
+// Fallback content generator
+function getFallbackLearningContent(topicName, subtopicName, gradeLevel) {
+    console.log('📝 Generating fallback learning content');
+
+    return {
+        sections: [
+            {
+                title: topicName || 'נושא כללי',
+                subtitle: subtopicName || 'הקדמה לנושא',
+                story: `ברוכים הבאים ללימוד ${topicName || 'הנושא'}! זהו נושא חשוב במתמטיקה של כיתה ${gradeLevel}.`,
+                explanation: `${topicName || 'הנושא'} הוא נושא מרכזי במתמטיקה.
+                
+בסעיף זה נלמד את היסודות החשובים ביותר.
+
+**מושגי יסוד:**
+${topicName} כולל מספר מושגים חשובים שנצטרך להכיר.
+
+**שימושים:**
+נושא זה משמש בפתרון בעיות מתמטיות שונות.`,
+                keyPoints: [
+                    `הבנת המושג ${topicName || 'הבסיסי'}`,
+                    'דוגמאות ותרגול',
+                    'יישום בפתרון בעיות',
+                    'זיהוי שגיאות נפוצות'
+                ],
+                examples: [
+                    {
+                        title: 'דוגמה בסיסית',
+                        problem: `בעיה לדוגמה ב${topicName || 'נושא'}`,
+                        steps: [
+                            'שלב 1: הבנת הנתון',
+                            'שלב 2: בחירת השיטה המתאימה',
+                            'שלב 3: ביצוע החישובים',
+                            'שלב 4: בדיקת התשובה'
+                        ],
+                        solution: 'זהו פתרון לדוגמה. בתרגול האמיתי נקבל פתרונות מפורטים יותר.',
+                        answer: 'תשובה לדוגמה'
+                    }
+                ],
+                quiz: {
+                    question: `שאלת הבנה בסיסית ב${topicName || 'נושא'}`,
+                    hint: 'חשוב על המושגים שלמדנו',
+                    answer: 'תשובה לדוגמה'
+                }
+            },
+            {
+                title: 'תרגול והעמקה',
+                subtitle: 'בואו נתרגל את מה שלמדנו',
+                story: 'עכשיו כשהבנו את היסודות, בואו נתרגל עם דוגמאות נוספות.',
+                explanation: `תרגול הוא המפתח להצלחה במתמטיקה.
+                
+**טיפים לתרגול:**
+- התחילו מהפשוט למורכב
+- בדקו כל שלב לפני שממשיכים
+- אל תפחדו לטעות - כך לומדים!
+
+**שימו לב:**
+בתרגול אמיתי עם AI תקבלו שאלות מותאמות אישית לרמתכם.`,
+                keyPoints: [
+                    'תרגול עצמאי',
+                    'בדיקה עצמית',
+                    'זיהוי נקודות לשיפור'
+                ],
+                examples: [
+                    {
+                        title: 'דוגמה מתקדמת יותר',
+                        problem: 'בעיה מעט יותר מורכבת',
+                        steps: [
+                            'שלב 1: פירוק הבעיה לחלקים',
+                            'שלב 2: פתרון כל חלק',
+                            'שלב 3: חיבור החלקים',
+                            'שלב 4: בדיקה סופית'
+                        ],
+                        solution: 'פתרון מפורט יותר לדוגמה מורכבת.',
+                        answer: 'תשובה מפורטת'
+                    }
+                ],
+                quiz: {
+                    question: 'שאלת הבנה מתקדמת',
+                    hint: 'השתמש במה שלמדת בשני הסעיפים',
+                    answer: 'תשובה מתקדמת'
+                }
+            }
+        ],
+        metadata: {
+            isFallback: true,
+            reason: 'Claude API unavailable',
+            topic: topicName,
+            subtopic: subtopicName,
+            grade: gradeLevel
+        }
+    };
 }
 
 // ============================================================
@@ -51,18 +151,12 @@ router.post('/get-content', async (req, res) => {
             numExamples
         });
 
+        // ✅ Validate required fields
         if (!topicName || !gradeLevel) {
+            console.error('❌ Missing required fields');
             return res.status(400).json({
                 success: false,
                 error: 'Missing required fields: topicName and gradeLevel'
-            });
-        }
-
-        if (!process.env.ANTHROPIC_API_KEY) {
-            console.error('❌ ANTHROPIC_API_KEY not configured');
-            return res.status(500).json({
-                success: false,
-                error: 'API key not configured'
             });
         }
 
@@ -81,8 +175,8 @@ ${subtopicName ? `- תת-נושא: ${subtopicName}` : ''}
     {
       "title": "כותרת הסעיף",
       "subtitle": "תת-כותרת",
-      "story": "סיפור או הקדמה מעניינת לנושא",
-      "explanation": "הסבר מפורט של הנושא עם דוגמאות",
+      "story": "סיפור או הקדמה מעניינת לנושא (2-3 משפטים)",
+      "explanation": "הסבר מפורט של הנושא עם דוגמאות (5-8 משפטים)",
       "keyPoints": [
         "נקודת מפתח 1",
         "נקודת מפתח 2",
@@ -91,13 +185,13 @@ ${subtopicName ? `- תת-נושא: ${subtopicName}` : ''}
       "examples": [
         {
           "title": "דוגמה 1",
-          "problem": "השאלה",
+          "problem": "השאלה או הבעיה",
           "steps": [
-            "שלב 1: הסבר",
-            "שלב 2: חישוב",
-            "שלב 3: תשובה"
+            "שלב 1: הסבר מפורט",
+            "שלב 2: חישוב או פעולה",
+            "שלב 3: המשך הפתרון"
           ],
-          "solution": "פתרון מפורט",
+          "solution": "פתרון מפורט צעד אחר צעד",
           "answer": "התשובה הסופית"
         }
       ],
@@ -110,65 +204,59 @@ ${subtopicName ? `- תת-נושא: ${subtopicName}` : ''}
   ]
 }
 
-חשוב:
+חשוב מאוד:
 1. צור 2-3 sections
 2. כל section עם 2-3 דוגמאות פתורות במלואן
-3. הסבר צעד אחר צעד
+3. הסבר צעד אחר צעד בצורה ברורה
 4. שפה פשוטה וברורה בעברית
-5. החזר רק JSON, ללא טקסט נוסף`;
+5. החזר **רק** JSON תקין, ללא טקסט נוסף כלל
+6. אל תוסיף הערות או הסברים מחוץ ל-JSON`;
 
-        console.log('🤖 Calling Claude API...');
+        console.log('🤖 Calling Claude API with smart retry logic...');
 
-        const response = await fetch('https://api.anthropic.com/v1/messages', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'x-api-key': process.env.ANTHROPIC_API_KEY,
-                'anthropic-version': '2023-06-01'
-            },
-            body: JSON.stringify({
-                model: 'claude-sonnet-4-20250514',
-                max_tokens: 4000,
-                temperature: 0.7,
-                system: 'אתה מורה למתמטיקה מנוסה. צור תוכן לימודי איכותי בעברית. החזר רק JSON תקין.',
-                messages: [{
-                    role: 'user',
-                    content: prompt
-                }]
-            })
-        });
-
-        if (!response.ok) {
-            const errorData = await response.json().catch(() => ({}));
-            console.error('❌ Claude API Error:', response.status, errorData);
-            return res.status(500).json({
-                success: false,
-                error: `API Error: ${response.status}`,
-                details: errorData
-            });
-        }
-
-        const data = await response.json();
-        const contentText = data.content[0].text;
-
-        console.log('✅ Got response from Claude');
-        console.log('📄 Response length:', contentText.length);
-
-        const cleanedText = cleanJsonText(contentText);
-
+        // ✅ Use Claude API Helper with 5 retries
         let learningContent;
         try {
-            learningContent = JSON.parse(cleanedText);
-            console.log('✅ JSON parsed successfully');
-            console.log('📊 Sections:', learningContent.sections?.length);
-        } catch (parseError) {
-            console.error('❌ JSON Parse Error:', parseError.message);
-            console.log('📄 Failed text (first 500):', cleanedText.substring(0, 500));
-            return res.status(500).json({
-                success: false,
-                error: 'Failed to parse AI response',
-                rawResponse: cleanedText.substring(0, 500)
-            });
+            const result = await claudeApi.complete(
+                prompt,
+                'אתה מורה למתמטיקה מנוסה. צור תוכן לימודי איכותי בעברית. החזר רק JSON תקין ללא כל טקסט נוסף.',
+                {
+                    maxTokens: 4000,
+                    temperature: 0.7,
+                    maxRetries: 5,
+                    timeout: 120000, // 2 minutes
+                    onRetry: (attempt, max, delay) => {
+                        console.log(`   🔄 Retry ${attempt}/${max} after ${Math.round(delay)}ms (Claude overloaded)`);
+                    }
+                }
+            );
+
+            if (!result.success) {
+                throw new Error(result.error || 'Failed to generate content');
+            }
+
+            console.log('✅ Got response from Claude');
+            console.log('   Attempts:', result.attempts);
+            console.log('📄 Response length:', result.text.length);
+
+            const cleanedText = cleanJsonText(result.text);
+
+            try {
+                learningContent = JSON.parse(cleanedText);
+                console.log('✅ JSON parsed successfully');
+                console.log('📊 Sections:', learningContent.sections?.length);
+            } catch (parseError) {
+                console.error('❌ JSON Parse Error:', parseError.message);
+                console.log('📄 Failed text (first 500):', cleanedText.substring(0, 500));
+                throw new Error('Failed to parse AI response');
+            }
+
+        } catch (error) {
+            console.error('❌ Claude API failed after all retries:', error.message);
+
+            // ✅ Use fallback content
+            console.log('🔄 Using fallback content');
+            learningContent = getFallbackLearningContent(topicName, subtopicName, gradeLevel);
         }
 
         console.log('✅ Returning learning content');
@@ -180,12 +268,29 @@ ${subtopicName ? `- תת-נושא: ${subtopicName}` : ''}
         });
 
     } catch (error) {
-        console.error('❌ CRITICAL Error:', error);
+        console.error('❌ CRITICAL Error:', error.message);
         console.error('Stack:', error.stack);
-        res.status(500).json({
-            success: false,
-            error: error.message || 'Internal server error'
-        });
+
+        // ✅ Last resort: return fallback
+        try {
+            const { topicName, subtopicName, gradeLevel } = req.body;
+            const fallback = getFallbackLearningContent(
+                topicName || 'מתמטיקה',
+                subtopicName,
+                gradeLevel || '9'
+            );
+
+            return res.json({
+                success: true,
+                content: fallback,
+                warning: 'Using fallback content due to API error'
+            });
+        } catch (fallbackError) {
+            return res.status(500).json({
+                success: false,
+                error: error.message || 'Internal server error'
+            });
+        }
     }
 });
 
@@ -209,8 +314,17 @@ router.post('/check-quiz', async (req, res) => {
             });
         }
 
-        // Simple comparison (can be enhanced with AI)
-        const isCorrect = userAnswer.trim().toLowerCase() === correctAnswer.trim().toLowerCase();
+        // ✅ Normalize and compare answers
+        const normalizeAnswer = (ans) => {
+            return ans.toString().trim().toLowerCase()
+                .replace(/\s+/g, '')
+                .replace(/[.,;:]/g, '');
+        };
+
+        const userNormalized = normalizeAnswer(userAnswer);
+        const correctNormalized = normalizeAnswer(correctAnswer);
+
+        const isCorrect = userNormalized === correctNormalized;
 
         const feedback = isCorrect
             ? 'מעולה! התשובה שלך נכונה! 🎉'
@@ -219,7 +333,8 @@ router.post('/check-quiz', async (req, res) => {
         res.json({
             success: true,
             isCorrect,
-            feedback
+            feedback,
+            correctAnswer: isCorrect ? null : correctAnswer
         });
 
     } catch (error) {
@@ -251,13 +366,6 @@ router.post('/ask-nexon', async (req, res) => {
             });
         }
 
-        if (!process.env.ANTHROPIC_API_KEY) {
-            return res.status(500).json({
-                success: false,
-                error: 'API key not configured'
-            });
-        }
-
         const prompt = `אתה נקסון, מורה דיגיטלי ידידותי.
 
 הקשר:
@@ -269,44 +377,45 @@ ${context.sectionContent ? `תוכן הסעיף:\n${context.sectionContent.subst
 
 שאלת התלמיד: ${message}
 
-ענה בצורה ידידותית ומועילה. הסבר בפשטות. אל תשתמש בסימנים מתמטיים מורכבים.`;
+ענה בצורה ידידותית ומועילה בעברית. הסבר בפשטות. השתמש בשפה מתמטית ברורה.`;
 
-        const response = await fetch('https://api.anthropic.com/v1/messages', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'x-api-key': process.env.ANTHROPIC_API_KEY,
-                'anthropic-version': '2023-06-01'
-            },
-            body: JSON.stringify({
-                model: 'claude-sonnet-4-20250514',
-                max_tokens: 1000,
+        console.log('🤖 Calling Claude for chat...');
+
+        // ✅ Use Claude API Helper
+        const result = await claudeApi.complete(
+            prompt,
+            '',
+            {
+                maxTokens: 1000,
                 temperature: 0.7,
-                messages: [{
-                    role: 'user',
-                    content: prompt
-                }]
-            })
-        });
+                maxRetries: 5,
+                onRetry: (attempt, max) => {
+                    console.log(`   🔄 Chat retry ${attempt}/${max}`);
+                }
+            }
+        );
 
-        if (!response.ok) {
-            throw new Error(`API error: ${response.status}`);
+        if (!result.success) {
+            throw new Error(result.error);
         }
 
-        const data = await response.json();
-        const reply = data.content[0].text;
+        console.log('✅ Chat response generated');
 
         res.json({
             success: true,
-            reply
+            reply: result.text
         });
 
     } catch (error) {
         console.error('❌ Error in ask-nexon:', error);
-        console.error('❌ Error in ask-nexon:', error);
-        res.status(500).json({
-            success: false,
-            error: error.message
+
+        // ✅ Fallback response
+        const fallbackReply = 'מצטער, אני לא זמין כרגע. אבל אתה יכול להמשיך עם החומר הלימודי או לנסה שוב בעוד רגע. 🤔';
+
+        res.json({
+            success: true,
+            reply: fallbackReply,
+            warning: 'Using fallback response'
         });
     }
 });
