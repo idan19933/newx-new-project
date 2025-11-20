@@ -1,280 +1,390 @@
-// src/pages/LectureRoom.jsx - FINAL VERSION WITH GRADELEVEL
+// src/pages/PracticeRoom.jsx - PRACTICE WITH ISRAELI CURRICULUM
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useNavigate } from 'react-router-dom';
 import {
-    BookOpen, Brain, Play, ArrowLeft, GraduationCap,
-    CheckCircle2, Clock, Target, Sparkles, Lightbulb,
-    ChevronRight, Activity
+    Brain, Sparkles, Trophy, Target, ChevronRight,
+    CheckCircle, XCircle, Lightbulb, RotateCcw,
+    BookOpen, TrendingUp, Flame, Star
 } from 'lucide-react';
 import useAuthStore from '../store/authStore';
-import { getUserGradeId, getGradeConfig } from '../config/israeliCurriculum';
-import toast from 'react-hot-toast';
-import LearningSpace from '../components/ai/LearningSpace';
+import axios from 'axios';
+import ISRAELI_CURRICULUM from '../config/israeliCurriculum';
+import MathRenderer from '../components/ai/MathRenderer';
 
 const API_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
 
-const LectureRoom = () => {
-    const navigate = useNavigate();
-    const { user, studentProfile, nexonProfile } = useAuthStore();
-    const profile = studentProfile || nexonProfile;
+const PracticeRoom = () => {
+    const { user } = useAuthStore();
+    const [selectedTopic, setSelectedTopic] = useState(null);
+    const [selectedSubtopic, setSelectedSubtopic] = useState(null);
+    const [currentQuestion, setCurrentQuestion] = useState(null);
+    const [userAnswer, setUserAnswer] = useState('');
+    const [showFeedback, setShowFeedback] = useState(false);
+    const [feedback, setFeedback] = useState(null);
+    const [loading, setLoading] = useState(false);
+    const [sessionStats, setSessionStats] = useState({
+        correct: 0,
+        total: 0,
+        streak: 0
+    });
+    const [showTopicSelect, setShowTopicSelect] = useState(true);
 
-    const [missions, setMissions] = useState([]);
-    const [loading, setLoading] = useState(true);
-    const [selectedMission, setSelectedMission] = useState(null);
-    const [view, setView] = useState('missions'); // 'missions' or 'learning'
+    // Get user's grade
+    const userGrade = user?.grade || '9';
+    const gradeKey = `grade_${userGrade}`;
 
-    const currentGrade = profile?.grade || user?.grade || 'grade10';
-    const currentTrack = profile?.track || user?.track || '3-units';
-    const gradeId = getUserGradeId(currentGrade, currentTrack);
-    const gradeConfig = getGradeConfig(gradeId);
+    // Get topics for user's grade
+    const availableTopics = ISRAELI_CURRICULUM[gradeKey]?.topics || [];
 
-    // ✅ Extract numeric grade from 'grade10' -> '10'
-    const numericGrade = currentGrade.replace('grade', '');
-
-    useEffect(() => {
-        if (user?.uid) {
-            loadLectureMissions();
+    const generateQuestion = async () => {
+        if (!selectedTopic) {
+            alert('אנא בחר נושא תחילה');
+            return;
         }
-    }, [user?.uid]);
 
-    const loadLectureMissions = async () => {
+        setLoading(true);
+        setShowFeedback(false);
+        setUserAnswer('');
+
         try {
-            setLoading(true);
-            console.log('🔍 Loading lecture missions for user:', user.uid);
+            const response = await axios.post(`${API_URL}/api/ai/generate-question`, {
+                topic: {
+                    id: selectedTopic.id,
+                    name: selectedTopic.name
+                },
+                subtopic: selectedSubtopic ? {
+                    id: selectedSubtopic.id,
+                    name: selectedSubtopic.name
+                } : null,
+                difficulty: 'medium',
+                grade: userGrade,
+                userId: user?.uid,
+                gradeLevel: userGrade
+            });
 
-            // ✅ FIXED: Using correct endpoint
-            const response = await fetch(`${API_URL}/api/admin/missions/user/${user.uid}`);
-
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
-
-            const data = await response.json();
-            console.log('📋 Missions response:', data);
-
-            if (data.success && data.missions && Array.isArray(data.missions)) {
-                // ✅ Filter for lecture missions only
-                const lectureMissions = data.missions.filter(m => m.type === 'lecture');
-                console.log('📚 Lecture missions:', lectureMissions);
-                setMissions(lectureMissions);
-            } else {
-                console.warn('⚠️ No missions found or invalid format');
-                setMissions([]);
+            if (response.data.success) {
+                setCurrentQuestion(response.data);
+                setShowTopicSelect(false);
             }
         } catch (error) {
-            console.error('❌ Error loading lecture missions:', error);
-            toast.error('שגיאה בטעינת משימות הרצאה');
-            setMissions([]);
+            console.error('❌ Error generating question:', error);
+            alert('שגיאה ביצירת שאלה. נסה שוב.');
         } finally {
             setLoading(false);
         }
     };
 
-    const handleStartLearning = (mission) => {
-        setSelectedMission(mission);
-        setView('learning');
-        toast.success('פותח חומר לימוד! 📚');
-    };
+    const checkAnswer = async () => {
+        if (!userAnswer.trim()) {
+            alert('אנא הזן תשובה');
+            return;
+        }
 
-    const handleStartPractice = () => {
-        if (selectedMission) {
-            navigate('/practice-room', {
-                state: {
-                    topicId: selectedMission.topicId,
-                    subtopicId: selectedMission.subtopicId,
-                    missionId: selectedMission.id
-                }
+        setLoading(true);
+
+        try {
+            const response = await axios.post(`${API_URL}/api/ai/verify-answer`, {
+                question: currentQuestion.question,
+                userAnswer: userAnswer.trim(),
+                correctAnswer: currentQuestion.correctAnswer,
+                topic: selectedTopic?.name,
+                subtopic: selectedSubtopic?.name,
+                userId: user?.uid,
+                questionId: currentQuestion.questionId,
+                difficulty: 'medium'
             });
+
+            if (response.data.success) {
+                setFeedback(response.data);
+                setShowFeedback(true);
+
+                // Update stats
+                setSessionStats(prev => ({
+                    correct: prev.correct + (response.data.isCorrect ? 1 : 0),
+                    total: prev.total + 1,
+                    streak: response.data.isCorrect ? prev.streak + 1 : 0
+                }));
+            }
+        } catch (error) {
+            console.error('❌ Error checking answer:', error);
+            alert('שגיאה בבדיקת התשובה. נסה שוב.');
+        } finally {
+            setLoading(false);
         }
     };
 
-    const handleBackToMissions = () => {
-        setView('missions');
-        setSelectedMission(null);
+    const nextQuestion = () => {
+        generateQuestion();
     };
 
-    if (loading) {
+    const changeTopic = () => {
+        setShowTopicSelect(true);
+        setCurrentQuestion(null);
+        setSelectedTopic(null);
+        setSelectedSubtopic(null);
+        setUserAnswer('');
+        setShowFeedback(false);
+    };
+
+    if (showTopicSelect) {
         return (
-            <div className="min-h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-900 flex items-center justify-center">
-                <motion.div
-                    animate={{ rotate: 360 }}
-                    transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-                >
-                    <Brain className="w-20 h-20 text-white" />
-                </motion.div>
+            <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900/20 to-gray-900 py-12 px-4" dir="rtl">
+                <div className="max-w-6xl mx-auto">
+                    <motion.div
+                        initial={{ opacity: 0, y: -20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="text-center mb-12"
+                    >
+                        <h1 className="text-6xl font-black text-white mb-4">💪 חדר תרגול</h1>
+                        <p className="text-2xl text-gray-300">בחר נושא לתרגול</p>
+                    </motion.div>
+
+                    <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+                        {availableTopics.map((topic, index) => (
+                            <motion.div
+                                key={topic.id}
+                                initial={{ opacity: 0, y: 20 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                transition={{ delay: index * 0.05 }}
+                                whileHover={{ scale: 1.05 }}
+                                onClick={() => {
+                                    setSelectedTopic(topic);
+                                    setSelectedSubtopic(null);
+                                }}
+                                className={`bg-gray-800 rounded-2xl p-6 cursor-pointer border-2 transition-all ${
+                                    selectedTopic?.id === topic.id
+                                        ? 'border-purple-500 shadow-xl shadow-purple-500/20'
+                                        : 'border-gray-700 hover:border-gray-600'
+                                }`}
+                            >
+                                <div className="flex items-center gap-3 mb-3">
+                                    <div className="text-4xl">{topic.icon || '📚'}</div>
+                                    <h3 className="text-xl font-black text-white">{topic.name}</h3>
+                                </div>
+                                <p className="text-gray-400 text-sm">{topic.description || 'תרגול בנושא זה'}</p>
+                            </motion.div>
+                        ))}
+                    </div>
+
+                    {selectedTopic && (
+                        <motion.div
+                            initial={{ opacity: 0, height: 0 }}
+                            animate={{ opacity: 1, height: 'auto' }}
+                            className="mt-8"
+                        >
+                            <h2 className="text-3xl font-black text-white mb-6 text-center">
+                                בחר תת-נושא (אופציונלי)
+                            </h2>
+                            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
+                                {selectedTopic.subtopics?.map((subtopic, index) => (
+                                    <motion.div
+                                        key={subtopic.id}
+                                        initial={{ opacity: 0, scale: 0.9 }}
+                                        animate={{ opacity: 1, scale: 1 }}
+                                        transition={{ delay: index * 0.05 }}
+                                        whileHover={{ scale: 1.03 }}
+                                        onClick={() => setSelectedSubtopic(subtopic)}
+                                        className={`bg-gray-700 rounded-xl p-4 cursor-pointer border-2 transition-all ${
+                                            selectedSubtopic?.id === subtopic.id
+                                                ? 'border-pink-500'
+                                                : 'border-transparent hover:border-gray-600'
+                                        }`}
+                                    >
+                                        <p className="text-white font-bold text-sm">{subtopic.name}</p>
+                                    </motion.div>
+                                ))}
+                            </div>
+
+                            <div className="flex justify-center">
+                                <motion.button
+                                    whileHover={{ scale: 1.05 }}
+                                    whileTap={{ scale: 0.95 }}
+                                    onClick={generateQuestion}
+                                    disabled={loading}
+                                    className="px-12 py-4 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-xl font-black text-xl flex items-center gap-3 hover:shadow-xl disabled:opacity-50"
+                                >
+                                    {loading ? (
+                                        <>
+                                            <div className="animate-spin w-6 h-6 border-3 border-white border-t-transparent rounded-full"></div>
+                                            <span>מייצר שאלה...</span>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <Sparkles className="w-6 h-6" />
+                                            <span>התחל תרגול</span>
+                                            <ChevronRight className="w-6 h-6" />
+                                        </>
+                                    )}
+                                </motion.button>
+                            </div>
+                        </motion.div>
+                    )}
+                </div>
             </div>
         );
     }
 
-    // Learning Space View
-    if (view === 'learning' && selectedMission) {
-        return (
-            <LearningSpace
-                topic={{
-                    id: selectedMission.topicId,
-                    name: selectedMission.title,
-                    icon: '📚',
-                    gradeLevel: numericGrade // ✅ PASS gradeLevel
-                }}
-                subtopic={selectedMission.subtopicId ? {
-                    id: selectedMission.subtopicId,
-                    name: selectedMission.description
-                } : null}
-                onStartPractice={handleStartPractice}
-                onBack={handleBackToMissions}
-                userId={user?.uid}
-            />
-        );
-    }
-
-    // Missions List View
     return (
-        <div className="min-h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-900" dir="rtl">
-            <div className="max-w-7xl mx-auto px-4 md:px-6 py-6 md:py-12 space-y-6 md:space-y-8">
+        <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900/20 to-gray-900 py-12 px-4" dir="rtl">
+            <div className="max-w-5xl mx-auto">
+                {/* Header with Stats */}
+                <div className="flex items-center justify-between mb-8">
+                    <div>
+                        <h1 className="text-4xl font-black text-white mb-2">💪 תרגול</h1>
+                        <p className="text-purple-400 font-bold">
+                            {selectedTopic?.name} {selectedSubtopic && `• ${selectedSubtopic.name}`}
+                        </p>
+                    </div>
+                    <div className="flex items-center gap-4">
+                        <div className="bg-gray-800 rounded-xl px-6 py-3">
+                            <div className="flex items-center gap-2 mb-1">
+                                <Target className="w-5 h-5 text-green-400" />
+                                <span className="text-2xl font-black text-white">
+                                    {sessionStats.correct}/{sessionStats.total}
+                                </span>
+                            </div>
+                            <p className="text-gray-400 text-xs text-center">נכונות</p>
+                        </div>
+                        <div className="bg-gray-800 rounded-xl px-6 py-3">
+                            <div className="flex items-center gap-2 mb-1">
+                                <Flame className="w-5 h-5 text-orange-400" />
+                                <span className="text-2xl font-black text-white">{sessionStats.streak}</span>
+                            </div>
+                            <p className="text-gray-400 text-xs text-center">רצף</p>
+                        </div>
+                    </div>
+                </div>
 
-                {/* Back Button */}
-                <motion.button
-                    onClick={() => navigate('/learning-space')}
-                    whileHover={{ scale: 1.05 }}
-                    className="flex items-center gap-2 px-6 py-3 bg-white/20 backdrop-blur-md text-white rounded-xl font-bold hover:bg-white/30 transition-all"
-                >
-                    <ArrowLeft className="w-5 h-5" />
-                    <span>חזרה למרחב הלמידה</span>
-                </motion.button>
-
-                {/* Header */}
+                {/* Question Card */}
                 <motion.div
-                    initial={{ opacity: 0, y: -30 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="text-center text-white"
+                    initial={{ opacity: 0, scale: 0.95 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    className="bg-gray-800 rounded-3xl p-8 border-2 border-purple-500/30 mb-6"
                 >
-                    <motion.div
-                        animate={{ scale: [1, 1.1, 1] }}
-                        transition={{ duration: 2, repeat: Infinity }}
-                        className="text-7xl mb-4"
-                    >
-                        📚
-                    </motion.div>
-                    <h1 className="text-5xl md:text-7xl font-black mb-4">
-                        חדר ההרצאות
-                    </h1>
-                    <p className="text-2xl md:text-3xl font-bold">
-                        למד נושאים חדשים עם הסברים מפורטים
-                    </p>
-                </motion.div>
+                    <div className="flex items-start gap-4 mb-6">
+                        <div className="w-12 h-12 bg-gradient-to-br from-purple-600 to-pink-600 rounded-xl flex items-center justify-center flex-shrink-0">
+                            <Brain className="w-6 h-6 text-white" />
+                        </div>
+                        <div className="flex-1">
+                            <h2 className="text-2xl font-black text-white mb-4">השאלה</h2>
+                            <div className="text-xl text-gray-200 leading-relaxed">
+                                <MathRenderer content={currentQuestion?.question || ''} />
+                            </div>
+                        </div>
+                    </div>
 
-                {/* Missions Grid */}
-                {missions.length > 0 ? (
-                    <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-                        {missions.map((mission, index) => (
+                    {/* Answer Input */}
+                    {!showFeedback && (
+                        <div className="space-y-4">
+                            <label className="block text-white font-bold mb-2">התשובה שלך:</label>
+                            <input
+                                type="text"
+                                value={userAnswer}
+                                onChange={(e) => setUserAnswer(e.target.value)}
+                                onKeyPress={(e) => e.key === 'Enter' && checkAnswer()}
+                                placeholder="הזן את התשובה כאן..."
+                                className="w-full px-6 py-4 bg-gray-700 text-white rounded-xl text-lg border-2 border-gray-600 focus:border-purple-500 focus:outline-none"
+                                disabled={loading}
+                            />
+                            <button
+                                onClick={checkAnswer}
+                                disabled={loading || !userAnswer.trim()}
+                                className="w-full py-4 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-xl font-black text-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                            >
+                                {loading ? (
+                                    <>
+                                        <div className="animate-spin w-5 h-5 border-3 border-white border-t-transparent rounded-full"></div>
+                                        <span>בודק...</span>
+                                    </>
+                                ) : (
+                                    <>
+                                        <CheckCircle className="w-5 h-5" />
+                                        <span>בדוק תשובה</span>
+                                    </>
+                                )}
+                            </button>
+                        </div>
+                    )}
+
+                    {/* Feedback */}
+                    <AnimatePresence>
+                        {showFeedback && feedback && (
                             <motion.div
-                                key={mission.id}
                                 initial={{ opacity: 0, y: 20 }}
                                 animate={{ opacity: 1, y: 0 }}
-                                transition={{ delay: index * 0.1 }}
-                                whileHover={{ scale: 1.03, y: -5 }}
-                                className="bg-white/95 backdrop-blur-lg rounded-3xl p-6 shadow-2xl cursor-pointer"
-                                onClick={() => handleStartLearning(mission)}
+                                exit={{ opacity: 0 }}
+                                className={`rounded-2xl p-6 border-2 ${
+                                    feedback.isCorrect
+                                        ? 'bg-green-500/10 border-green-500'
+                                        : 'bg-red-500/10 border-red-500'
+                                }`}
                             >
-                                <div className="flex items-center justify-between mb-4">
-                                    <div className="p-3 bg-gradient-to-br from-blue-500 to-cyan-500 rounded-2xl">
-                                        <BookOpen className="w-8 h-8 text-white" />
-                                    </div>
-                                    {mission.completed && (
-                                        <CheckCircle2 className="w-6 h-6 text-green-500" />
+                                <div className="flex items-start gap-4 mb-4">
+                                    {feedback.isCorrect ? (
+                                        <CheckCircle className="w-8 h-8 text-green-400 flex-shrink-0" />
+                                    ) : (
+                                        <XCircle className="w-8 h-8 text-red-400 flex-shrink-0" />
                                     )}
+                                    <div className="flex-1">
+                                        <h3 className={`text-2xl font-black mb-2 ${
+                                            feedback.isCorrect ? 'text-green-400' : 'text-red-400'
+                                        }`}>
+                                            {feedback.isCorrect ? '🎉 נכון מאוד!' : '❌ לא בדיוק'}
+                                        </h3>
+                                        <p className="text-white text-lg leading-relaxed">
+                                            <MathRenderer content={feedback.feedback} />
+                                        </p>
+                                    </div>
                                 </div>
 
-                                <h3 className="text-2xl font-black text-gray-900 mb-2">
-                                    {mission.title}
-                                </h3>
-
-                                {mission.description && (
-                                    <p className="text-gray-600 mb-4 line-clamp-2">
-                                        {mission.description}
-                                    </p>
+                                {feedback.explanation && (
+                                    <div className="mt-4 p-4 bg-gray-700/50 rounded-xl">
+                                        <h4 className="text-white font-bold mb-2 flex items-center gap-2">
+                                            <Lightbulb className="w-5 h-5 text-yellow-400" />
+                                            הסבר:
+                                        </h4>
+                                        <div className="text-gray-300">
+                                            <MathRenderer content={feedback.explanation} />
+                                        </div>
+                                    </div>
                                 )}
 
-                                <div className="flex items-center gap-2 mb-4">
-                                    <Target className="w-5 h-5 text-blue-600" />
-                                    <span className="text-sm font-bold text-gray-700">
-                                        {mission.topicId || 'נושא כללי'}
-                                    </span>
-                                </div>
-
-                                <div className="flex items-center justify-between pt-4 border-t border-gray-200">
-                                    <div className="flex items-center gap-2 text-gray-600">
-                                        <Clock className="w-4 h-4" />
-                                        <span className="text-sm">~20 דקות</span>
-                                    </div>
-                                    <ChevronRight className="w-6 h-6 text-blue-600" />
+                                <div className="flex gap-3 mt-6">
+                                    <button
+                                        onClick={nextQuestion}
+                                        disabled={loading}
+                                        className="flex-1 py-3 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-xl font-bold hover:shadow-xl disabled:opacity-50 flex items-center justify-center gap-2"
+                                    >
+                                        <Sparkles className="w-5 h-5" />
+                                        <span>שאלה הבאה</span>
+                                    </button>
+                                    <button
+                                        onClick={changeTopic}
+                                        className="px-6 py-3 bg-gray-700 text-white rounded-xl font-bold hover:bg-gray-600 flex items-center gap-2"
+                                    >
+                                        <RotateCcw className="w-5 h-5" />
+                                        <span>שנה נושא</span>
+                                    </button>
                                 </div>
                             </motion.div>
-                        ))}
-                    </div>
-                ) : (
-                    <motion.div
-                        initial={{ opacity: 0, scale: 0.9 }}
-                        animate={{ opacity: 1, scale: 1 }}
-                        className="bg-white/95 backdrop-blur-lg rounded-3xl p-12 shadow-2xl text-center"
-                    >
-                        <div className="text-7xl mb-6">🎯</div>
-                        <h3 className="text-3xl font-black text-gray-900 mb-4">
-                            אין משימות הרצאה פתוחות
-                        </h3>
-                        <p className="text-xl text-gray-600 mb-8">
-                            כרגע אין משימות הרצאה חדשות. בקר שוב מאוחר יותר!
-                        </p>
-                        <motion.button
-                            whileHover={{ scale: 1.05 }}
-                            whileTap={{ scale: 0.95 }}
-                            onClick={() => navigate('/practice-room')}
-                            className="px-8 py-4 bg-gradient-to-r from-green-600 to-emerald-600 text-white font-black text-xl rounded-2xl shadow-xl hover:shadow-2xl transition-all"
+                        )}
+                    </AnimatePresence>
+                </motion.div>
+
+                {/* Hints Button */}
+                {currentQuestion?.hints && !showFeedback && (
+                    <div className="text-center">
+                        <button
+                            className="px-6 py-3 bg-gray-700 text-white rounded-xl font-bold hover:bg-gray-600 inline-flex items-center gap-2"
                         >
-                            עבור לחדר תרגול
-                        </motion.button>
-                    </motion.div>
+                            <Lightbulb className="w-5 h-5 text-yellow-400" />
+                            <span>רמזים ({currentQuestion.hints.length})</span>
+                        </button>
+                    </div>
                 )}
-
-                {/* Info Cards */}
-                <div className="grid md:grid-cols-3 gap-6 mt-12">
-                    <motion.div
-                        initial={{ opacity: 0, y: 20 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ delay: 0.2 }}
-                        className="bg-gradient-to-br from-blue-500 to-cyan-500 rounded-2xl p-6 text-white"
-                    >
-                        <Lightbulb className="w-10 h-10 mb-3" />
-                        <h3 className="text-xl font-bold mb-2">למידה מעמיקה</h3>
-                        <p className="text-blue-100">הסברים מפורטים עם דוגמאות מעשיות</p>
-                    </motion.div>
-
-                    <motion.div
-                        initial={{ opacity: 0, y: 20 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ delay: 0.3 }}
-                        className="bg-gradient-to-br from-purple-500 to-pink-500 rounded-2xl p-6 text-white"
-                    >
-                        <Activity className="w-10 h-10 mb-3" />
-                        <h3 className="text-xl font-bold mb-2">תרגול מיידי</h3>
-                        <p className="text-purple-100">עבור ישר לתרגול אחרי כל הרצאה</p>
-                    </motion.div>
-
-                    <motion.div
-                        initial={{ opacity: 0, y: 20 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ delay: 0.4 }}
-                        className="bg-gradient-to-br from-green-500 to-emerald-500 rounded-2xl p-6 text-white"
-                    >
-                        <GraduationCap className="w-10 h-10 mb-3" />
-                        <h3 className="text-xl font-bold mb-2">למידה מותאמת</h3>
-                        <p className="text-green-100">תוכן מותאם לרמה ולמסלול שלך</p>
-                    </motion.div>
-                </div>
             </div>
         </div>
     );
 };
 
-export default LectureRoom;
+export default PracticeRoom;
