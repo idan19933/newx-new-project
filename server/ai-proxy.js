@@ -1957,18 +1957,13 @@ ${shouldReview ? '⚠️ התשובה נשלחה לבדיקת אדמין מכי�
 function compareMathAnswers(answer1, answer2) {
     if (!answer1 || !answer2) return false;
 
-    // Clean both answers
     const clean = (str) => {
         return String(str)
             .trim()
             .toLowerCase()
-            // Remove Hebrew text
             .replace(/[א-ת]/g, '')
-            // Remove currency symbols
             .replace(/[₪$€£¥]/g, '')
-            // Remove units (km, m, cm, etc)
             .replace(/\b(ש"ח|שח|שקל|שקלים|מטר|ק"מ|ס"מ|יח'|יחידות|km|m|cm|units?)\b/gi, '')
-            // Remove extra spaces
             .replace(/\s+/g, ' ')
             .trim();
     };
@@ -1976,19 +1971,48 @@ function compareMathAnswers(answer1, answer2) {
     const a1 = clean(answer1);
     const a2 = clean(answer2);
 
-    console.log('   🔍 Comparing answers:');
-    console.log('      Original 1:', answer1);
-    console.log('      Cleaned 1:', a1);
-    console.log('      Original 2:', answer2);
-    console.log('      Cleaned 2:', a2);
+    if (a1 === a2) return true;
 
-    // Direct match after cleaning
-    if (a1 === a2) {
-        console.log('   ✅ Direct match!');
-        return true;
+    // ✅ NEW: תמיכה בשברים מצומצמים
+    const fractionPattern = /(\d+)\s*\/\s*(\d+)/;
+    const frac1Match = a1.match(fractionPattern);
+    const frac2Match = a2.match(fractionPattern);
+
+    if (frac1Match && frac2Match) {
+        const num1 = parseFloat(frac1Match[1]);
+        const den1 = parseFloat(frac1Match[2]);
+        const num2 = parseFloat(frac2Match[1]);
+        const den2 = parseFloat(frac2Match[2]);
+
+        // השווה ערכים עשרוניים (15/24 = 0.625, 5/8 = 0.625)
+        const val1 = num1 / den1;
+        const val2 = num2 / den2;
+
+        console.log(`   🔢 Comparing fractions: ${num1}/${den1} = ${val1} vs ${num2}/${den2} = ${val2}`);
+
+        if (Math.abs(val1 - val2) < 0.001) {
+            console.log('   ✅ Fractions are equal!');
+            return true;
+        }
     }
 
-    // Extract all numbers from both
+    // אם אחד שבר והשני עשרוני
+    if (frac1Match && !frac2Match) {
+        const val1 = parseFloat(frac1Match[1]) / parseFloat(frac1Match[2]);
+        const val2 = parseFloat(a2);
+        if (!isNaN(val2) && Math.abs(val1 - val2) < 0.001) {
+            return true;
+        }
+    }
+
+    if (frac2Match && !frac1Match) {
+        const val1 = parseFloat(a1);
+        const val2 = parseFloat(frac2Match[1]) / parseFloat(frac2Match[2]);
+        if (!isNaN(val1) && Math.abs(val1 - val2) < 0.001) {
+            return true;
+        }
+    }
+
     const extractNumbers = (str) => {
         const nums = str.match(/-?\d+\.?\d*/g);
         return nums ? nums.map(n => parseFloat(n)).filter(n => !isNaN(n)) : [];
@@ -1997,79 +2021,17 @@ function compareMathAnswers(answer1, answer2) {
     const nums1 = extractNumbers(a1);
     const nums2 = extractNumbers(a2);
 
-    console.log('      Numbers 1:', nums1);
-    console.log('      Numbers 2:', nums2);
-
-    // If same number of values, compare each
     if (nums1.length > 0 && nums1.length === nums2.length) {
         const allMatch = nums1.every((n1, i) => {
             const n2 = nums2[i];
             const diff = Math.abs(n1 - n2);
             const avg = (Math.abs(n1) + Math.abs(n2)) / 2;
-            const isClose = diff < 0.1 || (avg > 0 && diff / avg < 0.01);
-
-            console.log(`      Compare: ${n1} vs ${n2} → ${isClose ? '✅' : '❌'} (diff: ${diff})`);
-            return isClose;
+            return diff < 0.1 || (avg > 0 && diff / avg < 0.01);
         });
 
-        if (allMatch) {
-            console.log('   ✅ All numbers match!');
-            return true;
-        }
+        if (allMatch) return true;
     }
 
-    // Handle π (pi) expressions
-    if (a1.includes('π') || a2.includes('π')) {
-        const piValue = 3.141592653589793;
-
-        const extractPi = (str) => {
-            // Match patterns like: 8π, 8*π, 8×π, 8·π
-            const match = str.match(/(\d+\.?\d*)\s*[*×·]?\s*π/i) || str.match(/(\d+\.?\d*)π/i);
-            return match ? parseFloat(match[1]) * piValue : null;
-        };
-
-        const pi1 = extractPi(a1);
-        const pi2 = extractPi(a2);
-
-        // Extract regular numbers
-        const num1 = parseFloat(a1.replace(/[^\d.-]/g, ''));
-        const num2 = parseFloat(a2.replace(/[^\d.-]/g, ''));
-
-        console.log('      Pi values:', { pi1, pi2, num1, num2 });
-
-        // Compare pi expressions
-        if (pi1 !== null && pi2 !== null && Math.abs(pi1 - pi2) < 0.01) {
-            console.log('   ✅ Pi expressions match!');
-            return true;
-        }
-
-        // Compare pi to decimal
-        if (pi1 !== null && !isNaN(num2) && Math.abs(pi1 - num2) < 0.1) {
-            console.log('   ✅ Pi matches decimal!');
-            return true;
-        }
-        if (pi2 !== null && !isNaN(num1) && Math.abs(pi2 - num1) < 0.1) {
-            console.log('   ✅ Decimal matches pi!');
-            return true;
-        }
-    }
-
-    // Handle fractions: 1/2 = 0.5
-    const fractionPattern = /(\d+)\s*\/\s*(\d+)/;
-    const frac1 = a1.match(fractionPattern);
-    const frac2 = a2.match(fractionPattern);
-
-    if (frac1 || frac2) {
-        const val1 = frac1 ? parseFloat(frac1[1]) / parseFloat(frac1[2]) : parseFloat(a1);
-        const val2 = frac2 ? parseFloat(frac2[1]) / parseFloat(frac2[2]) : parseFloat(a2);
-
-        if (!isNaN(val1) && !isNaN(val2) && Math.abs(val1 - val2) < 0.01) {
-            console.log('   ✅ Fraction match!');
-            return true;
-        }
-    }
-
-    console.log('   ❌ No match found');
     return false;
 }
 
@@ -2328,53 +2290,39 @@ app.post('/api/ai/chat', async (req, res) => {
 function formatMathematicalContent(text) {
     let formatted = text;
 
-    // ❌ DON'T USE HTML TAGS - they don't render properly in the frontend
-    // Remove any HTML/LaTeX wrapper tags
+    // ✅ הסר כל HTML tags
+    formatted = formatted.replace(/<[^>]*>/g, '');
+
+    // ✅ הסר LaTeX wrappers
     formatted = formatted
         .replace(/\$\$/g, '')
         .replace(/\\\[/g, '')
         .replace(/\\\]/g, '')
-        .replace(/\\begin{equation}/g, '')
-        .replace(/\\end{equation}/g, '')
-        .replace(/<[^>]*>/g, '');  // ✅ REMOVE ALL HTML TAGS
+        .replace(/\\begin\{[^}]+\}/g, '')
+        .replace(/\\end\{[^}]+\}/g, '');
 
-    // Clean up multiple newlines
-    formatted = formatted.replace(/\n{3,}/g, '\n\n');
-
-    // Add spaces around operators (keeping Hebrew text intact)
+    // ✅ המר LaTeX symbols לUnicode
     formatted = formatted
-        .replace(/([a-zA-Z0-9\u0590-\u05FF])([+\-*\/=])([a-zA-Z0-9\u0590-\u05FF])/g, '$1 $2 $3');
-
-    // Format powers using ^
-    formatted = formatted
-        .replace(/\^{([^}]+)}/g, '^$1')
-        .replace(/\^(\d+)/g, '^$1');
-
-    // Format subscripts using _
-    formatted = formatted
-        .replace(/_{([^}]+)}/g, '_$1')
-        .replace(/_(\d+)/g, '_$1');
-
-    // Convert LaTeX symbols to Unicode
-    formatted = formatted
-        .replace(/\\sqrt{([^}]*)}/g, '√($1)')
-        .replace(/\\sqrt\[([^\]]*)\]{([^}]*)}/g, '$1√($2)')
-        .replace(/\\frac{([^}]*)}{([^}]*)}/g, '($1)/($2)')
-        .replace(/\\partial/g, '∂')
+        .replace(/\\sqrt\{([^}]*)\}/g, '√($1)')
+        .replace(/\\frac\{([^}]*)\}\{([^}]*)\}/g, '($1)/($2)')
         .replace(/\\times/g, '×')
         .replace(/\\cdot/g, '·')
+        .replace(/\\div/g, '÷')
         .replace(/\\pm/g, '±')
         .replace(/\\geq/g, '≥')
         .replace(/\\leq/g, '≤')
         .replace(/\\neq/g, '≠')
         .replace(/\\approx/g, '≈')
         .replace(/\\infty/g, '∞')
-        .replace(/\\pi/g, 'π')
-        .replace(/\\theta/g, 'θ')
-        .replace(/\\alpha/g, 'α')
-        .replace(/\\beta/g, 'β');
+        .replace(/\\pi/g, 'π');
 
-    return formatted;
+    // ✅ נקה multiple newlines
+    formatted = formatted.replace(/\n{3,}/g, '\n\n');
+
+    // ✅ תקן spacing סביב operators
+    formatted = formatted.replace(/([0-9א-ת])([+\-×·÷=])([0-9א-ת])/g, '$1 $2 $3');
+
+    return formatted.trim();
 }
 
 // ==================== IMAGE ANALYSIS FOR HANDWRITTEN WORK ====================

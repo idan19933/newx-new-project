@@ -77,17 +77,17 @@ const LearningSpaceHub = () => {
             }
         },
         {
-            id: 'exam',
-            title: '🎓 מבחנים',
-            subtitle: 'התכונן למבחנים אמיתיים',
-            description: 'פתור מבחני בגרות אמיתיים ומבחנים מסכמים',
-            icon: GraduationCap,
-            color: 'from-orange-600 to-red-600',
-            path: '/bagrut-exams',
-            features: ['מבחני בגרות', 'סימולציית מבחן', 'ציונים ומשוב'],
+            id: 'notebook',
+            title: '📓 המחברת שלי',
+            subtitle: 'סיכומים והערות אישיות',
+            description: 'צפה בסיכומי שיעורים, תרגולים והערות שרשמת במהלך הלמידה',
+            icon: BookOpen,
+            color: 'from-emerald-600 to-teal-600',
+            path: '/notebook',
+            features: ['סיכומי שיעורים', 'היסטוריית תרגולים', 'הערות אישיות'],
             stats: {
-                completed: stats?.examsCompleted || 0,
-                avgScore: stats?.averageExamScore || 0
+                notes: stats?.totalNotes || 0,
+                summaries: stats?.completedLessons || 0
             }
         }
     ];
@@ -268,15 +268,15 @@ const LearningSpaceHub = () => {
                                         </div>
                                     </div>
                                 )}
-                                {room.id === 'exam' && (
+                                {room.id === 'notebook' && (
                                     <div className="grid grid-cols-2 gap-4">
                                         <div className="text-center">
-                                            <p className="text-2xl font-black text-white">{room.stats.completed}</p>
-                                            <p className="text-gray-400 text-xs">מבחנים</p>
+                                            <p className="text-2xl font-black text-white">{room.stats.notes}</p>
+                                            <p className="text-gray-400 text-xs">הערות</p>
                                         </div>
                                         <div className="text-center">
-                                            <p className="text-2xl font-black text-blue-400">{room.stats.avgScore}</p>
-                                            <p className="text-gray-400 text-xs">ציון ממוצע</p>
+                                            <p className="text-2xl font-black text-emerald-400">{room.stats.summaries}</p>
+                                            <p className="text-gray-400 text-xs">סיכומים</p>
                                         </div>
                                     </div>
                                 )}
@@ -303,7 +303,7 @@ const LearningSpaceHub = () => {
                         <div>
                             <h3 className="text-xl font-black text-white mb-2">💡 טיפ ללמידה יעילה</h3>
                             <p className="text-gray-300">
-                                התחל עם חדר ההרצאה כדי ללמוד נושא חדש, המשך לחדר התרגול כדי לתרגל, ובסוף בדוק את עצמך במבחן!
+                                התחל עם חדר ההרצאה כדי ללמוד נושא חדש, המשך לחדר התרגול כדי לתרגל, ובסוף סקור את המחברת שלך!
                                 למידה עקבית של 20-30 דקות ביום עדיפה על מפגש ארוך אחד בשבוע.
                             </p>
                         </div>
