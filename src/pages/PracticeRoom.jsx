@@ -1,4 +1,4 @@
-// src/pages/PracticeRoom.jsx - PRACTICE WITH ISRAELI CURRICULUM
+// src/pages/PracticeRoom.jsx - PRACTICE WITH ISRAELI CURRICULUM + NOTEBOOK SAVING
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import useAuthStore from '../store/authStore';
 import axios from 'axios';
+import toast from 'react-hot-toast';
 import ISRAELI_CURRICULUM from '../config/israeliCurriculum';
 import MathRenderer from '../components/ai/MathRenderer';
 
@@ -35,6 +36,51 @@ const PracticeRoom = () => {
 
     // Get topics for user's grade
     const availableTopics = ISRAELI_CURRICULUM[gradeKey]?.topics || [];
+
+    // ✅ פונקציה לשמירה במחברת
+    const saveToNotebook = async (questionData, answerData) => {
+        try {
+            console.log('💾 Attempting to save to notebook...');
+            console.log('   User:', user);
+            console.log('   User UID:', user?.uid);
+            console.log('   Topic:', selectedTopic?.name);
+
+            const notebookEntry = {
+                userId: user?.uid || user?.id,
+                topic: selectedTopic?.name || 'כללי',
+                subtopic: selectedSubtopic?.name || null,
+                question: questionData.question,
+                studentAnswer: answerData.userAnswer,
+                correctAnswer: questionData.correctAnswer,
+                isCorrect: answerData.isCorrect,
+                difficulty: 'medium',
+                hintsUsed: 0,
+                attempts: 1,
+                timeSpent: 0
+            };
+
+            console.log('   📦 Payload:', notebookEntry);
+
+            const response = await axios.post(`${API_URL}/api/notebook/save`, notebookEntry);
+
+            console.log('   📥 Response:', response.data);
+
+            if (response.data.success) {
+                console.log('✅ SAVED TO NOTEBOOK! Entry ID:', response.data.entry.id);
+                toast.success('💾 נשמר במחברת!', {
+                    duration: 2000,
+                    position: 'bottom-left'
+                });
+            } else {
+                console.error('❌ Save failed:', response.data.message);
+            }
+        } catch (error) {
+            console.error('❌ Error saving to notebook:', error);
+            console.error('   Response data:', error.response?.data);
+            console.error('   Error message:', error.message);
+            // Don't show error to user - saving is background operation
+        }
+    };
 
     const generateQuestion = async () => {
         if (!selectedTopic) {
@@ -83,6 +129,8 @@ const PracticeRoom = () => {
         setLoading(true);
 
         try {
+            console.log('🔍 Checking answer...');
+
             const response = await axios.post(`${API_URL}/api/ai/verify-answer`, {
                 question: currentQuestion.question,
                 userAnswer: userAnswer.trim(),
@@ -94,6 +142,8 @@ const PracticeRoom = () => {
                 difficulty: 'medium'
             });
 
+            console.log('✅ Answer verified:', response.data);
+
             if (response.data.success) {
                 setFeedback(response.data);
                 setShowFeedback(true);
@@ -104,6 +154,20 @@ const PracticeRoom = () => {
                     total: prev.total + 1,
                     streak: response.data.isCorrect ? prev.streak + 1 : 0
                 }));
+
+                // ✅ שמירה במחברת
+                console.log('📝 Now saving to notebook...');
+                await saveToNotebook(
+                    {
+                        question: currentQuestion.question,
+                        correctAnswer: currentQuestion.correctAnswer
+                    },
+                    {
+                        userAnswer: userAnswer.trim(),
+                        isCorrect: response.data.isCorrect
+                    }
+                );
+                console.log('✅ Notebook save completed');
             }
         } catch (error) {
             console.error('❌ Error checking answer:', error);

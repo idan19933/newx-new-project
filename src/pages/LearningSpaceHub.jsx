@@ -1,11 +1,10 @@
-// src/pages/LearningSpaceHub.jsx - 3 LEARNING ROOMS
+// src/pages/LearningSpaceHub.jsx - NEW PROTOTYPE DESIGN
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
-    BookOpen, Dumbbell, GraduationCap,
-    Trophy, Target, Flame, Star, Clock,
-    ChevronRight, Sparkles, Brain, Zap
+    BookOpen, Dumbbell, Target, CheckCircle, Circle,
+    TrendingUp, Zap, Brain, MessageSquare
 } from 'lucide-react';
 import useAuthStore from '../store/authStore';
 import axios from 'axios';
@@ -14,9 +13,10 @@ const API_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
 
 const LearningSpaceHub = () => {
     const navigate = useNavigate();
-    const { user } = useAuthStore();
+    const { user, nexonProfile } = useAuthStore();
     const [stats, setStats] = useState(null);
     const [missions, setMissions] = useState([]);
+    const [adminMessage, setAdminMessage] = useState('');
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
@@ -29,17 +29,32 @@ const LearningSpaceHub = () => {
         try {
             setLoading(true);
 
-            // Load user stats
-            const statsRes = await axios.get(`${API_URL}/api/curriculum/stats/overall/${user.uid}`);
-            if (statsRes.data) {
-                setStats(statsRes.data);
+            // Load notebook stats
+            const notebookRes = await axios.get(`${API_URL}/api/notebook/stats?userId=${user.uid}`);
+            if (notebookRes.data.success) {
+                setStats(notebookRes.data.stats);
             }
 
-            // Load assigned missions
-            const missionsRes = await axios.get(`${API_URL}/api/admin/missions/user/${user.uid}`);
-            if (missionsRes.data.success) {
-                setMissions(missionsRes.data.missions || []);
+            // Load missions (if available)
+            try {
+                const missionsRes = await axios.get(`${API_URL}/api/admin/missions/user/${user.uid}`);
+                if (missionsRes.data.success) {
+                    setMissions(missionsRes.data.missions || []);
+                }
+            } catch (e) {
+                console.log('No missions found');
             }
+
+            // Load admin message (if exists)
+            try {
+                const msgRes = await axios.get(`${API_URL}/api/admin/message/${user.uid}`);
+                if (msgRes.data.success) {
+                    setAdminMessage(msgRes.data.message);
+                }
+            } catch (e) {
+                console.log('No admin message');
+            }
+
         } catch (error) {
             console.error('❌ Error loading learning space:', error);
         } finally {
@@ -47,268 +62,192 @@ const LearningSpaceHub = () => {
         }
     };
 
-    const learningRooms = [
-        {
-            id: 'lecture',
-            title: '📚 חדר הרצאה',
-            subtitle: 'למד נושאים חדשים עם הסברים מפורטים',
-            description: 'צפה בהסברים אינטראקטיביים ולמד נושאים חדשים עם דוגמאות ותרגילים',
-            icon: BookOpen,
-            color: 'from-blue-600 to-cyan-600',
-            path: '/lecture-room',
-            features: ['הסברים מפורטים', 'דוגמאות עם פתרונות', 'שאלות בדיקה'],
-            stats: {
-                completed: stats?.lecturesCompleted || 0,
-                total: stats?.totalLectures || 10
-            }
-        },
-        {
-            id: 'practice',
-            title: '💪 חדר תרגול',
-            subtitle: 'תרגל ושפר את הכישורים שלך',
-            description: 'פתור שאלות מותאמות אישית לרמתך ושפר את הביצועים',
-            icon: Dumbbell,
-            color: 'from-purple-600 to-pink-600',
-            path: '/practice-room',
-            features: ['שאלות מותאמות אישית', 'משוב מיידי', 'מעקב אחר התקדמות'],
-            stats: {
-                completed: stats?.questionsAnswered || 0,
-                accuracy: stats?.accuracy || 0
-            }
-        },
-        {
-            id: 'notebook',
-            title: '📓 המחברת שלי',
-            subtitle: 'סיכומים והערות אישיות',
-            description: 'צפה בסיכומי שיעורים, תרגולים והערות שרשמת במהלך הלמידה',
-            icon: BookOpen,
-            color: 'from-emerald-600 to-teal-600',
-            path: '/notebook',
-            features: ['סיכומי שיעורים', 'היסטוריית תרגולים', 'הערות אישיות'],
-            stats: {
-                notes: stats?.totalNotes || 0,
-                summaries: stats?.completedLessons || 0
-            }
-        }
-    ];
+    const userName = user?.displayName || user?.name || nexonProfile?.name || 'תלמיד';
 
     if (loading) {
         return (
-            <div className="min-h-screen bg-gradient-to-br from-gray-900 to-gray-800 flex items-center justify-center">
+            <div className="min-h-screen bg-gray-100 flex items-center justify-center">
                 <div className="animate-spin w-16 h-16 border-4 border-purple-500 border-t-transparent rounded-full"></div>
             </div>
         );
     }
 
     return (
-        <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900/20 to-gray-900 py-12 px-4" dir="rtl">
-            <div className="max-w-7xl mx-auto">
-                {/* Header */}
-                <motion.div
-                    initial={{ opacity: 0, y: -20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="text-center mb-12"
-                >
-                    <h1 className="text-6xl font-black text-white mb-4 flex items-center justify-center gap-4">
-                        <Sparkles className="w-12 h-12 text-yellow-400" />
-                        מרחב הלמידה
-                        <Sparkles className="w-12 h-12 text-yellow-400" />
-                    </h1>
-                    <p className="text-2xl text-gray-300">
-                        בחר את חדר הלמידה המתאים לך והתחל ללמוד! 🚀
-                    </p>
-                </motion.div>
+        <div className="min-h-screen bg-gray-100 py-8 px-4" dir="rtl">
+            <div className="max-w-4xl mx-auto">
+                {/* Header with Nexon Logo */}
+                <div className="bg-gray-700 text-white py-4 px-6 rounded-t-2xl">
+                    <h1 className="text-3xl font-black text-center">נקסון</h1>
+                </div>
 
-                {/* Stats Bar */}
-                <motion.div
-                    initial={{ opacity: 0, scale: 0.95 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    className="bg-gray-800/50 backdrop-blur-sm rounded-2xl p-6 mb-8 border-2 border-purple-500/30"
-                >
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
-                        <div className="text-center">
-                            <div className="flex items-center justify-center gap-2 mb-2">
-                                <Trophy className="w-5 h-5 text-yellow-400" />
-                                <span className="text-3xl font-black text-white">{stats?.totalPoints || 0}</span>
-                            </div>
-                            <p className="text-gray-400 text-sm">נקודות כוללות</p>
-                        </div>
-                        <div className="text-center">
-                            <div className="flex items-center justify-center gap-2 mb-2">
-                                <Flame className="w-5 h-5 text-orange-400" />
-                                <span className="text-3xl font-black text-white">{stats?.streak || 0}</span>
-                            </div>
-                            <p className="text-gray-400 text-sm">רצף ימים</p>
-                        </div>
-                        <div className="text-center">
-                            <div className="flex items-center justify-center gap-2 mb-2">
-                                <Star className="w-5 h-5 text-purple-400" />
-                                <span className="text-3xl font-black text-white">{stats?.level || 1}</span>
-                            </div>
-                            <p className="text-gray-400 text-sm">רמה</p>
-                        </div>
-                        <div className="text-center">
-                            <div className="flex items-center justify-center gap-2 mb-2">
-                                <Target className="w-5 h-5 text-green-400" />
-                                <span className="text-3xl font-black text-white">{stats?.accuracy || 0}%</span>
-                            </div>
-                            <p className="text-gray-400 text-sm">דיוק</p>
-                        </div>
-                    </div>
-                </motion.div>
-
-                {/* Active Missions */}
-                {missions.length > 0 && (
+                {/* Main Content Box */}
+                <div className="bg-white rounded-b-2xl shadow-xl p-8 mb-8">
+                    {/* Section 1: Stats from Nexon */}
                     <motion.div
                         initial={{ opacity: 0, y: 20 }}
                         animate={{ opacity: 1, y: 0 }}
-                        className="mb-8"
+                        className="bg-gray-600 text-white rounded-xl p-6 mb-8"
                     >
-                        <h2 className="text-3xl font-black text-white mb-4 flex items-center gap-3">
-                            <Target className="w-8 h-8 text-yellow-400" />
-                            המשימות שלך
+                        <h2 className="text-xl font-bold mb-4 border-b border-gray-500 pb-3">
+                            סטטיסטיקות למידה:
                         </h2>
-                        <div className="grid md:grid-cols-2 gap-4">
-                            {missions.slice(0, 4).map((mission, index) => (
-                                <motion.div
-                                    key={mission.id}
-                                    initial={{ opacity: 0, x: -20 }}
-                                    animate={{ opacity: 1, x: 0 }}
-                                    transition={{ delay: index * 0.1 }}
-                                    className="bg-gray-800 rounded-xl p-4 border-2 border-purple-500/30 hover:border-purple-500 transition-colors"
-                                >
-                                    <div className="flex items-center justify-between mb-2">
-                                        <h3 className="text-white font-bold">{mission.title}</h3>
-                                        <span className={`px-3 py-1 rounded-full text-xs font-bold ${
-                                            mission.status === 'completed'
-                                                ? 'bg-green-500/20 text-green-400'
-                                                : 'bg-yellow-500/20 text-yellow-400'
-                                        }`}>
-                                            {mission.status === 'completed' ? 'הושלם ✓' : 'פעיל'}
-                                        </span>
-                                    </div>
-                                    <p className="text-gray-400 text-sm mb-3">{mission.description}</p>
-                                    <div className="flex items-center justify-between">
-                                        <div className="flex items-center gap-2 text-purple-400 text-sm">
-                                            <Clock className="w-4 h-4" />
-                                            <span>{mission.deadline || 'ללא מועד'}</span>
-                                        </div>
-                                        <div className="text-yellow-400 font-bold text-sm">
-                                            +{mission.points || 0} נקודות
-                                        </div>
-                                    </div>
-                                </motion.div>
-                            ))}
+
+                        {/* Admin Message / Nexon Feedback */}
+                        {adminMessage ? (
+                            <div className="bg-gray-700 rounded-lg p-4 mb-4">
+                                <p className="text-sm leading-relaxed">{adminMessage}</p>
+                            </div>
+                        ) : (
+                            <div className="bg-gray-700 rounded-lg p-4 mb-4">
+                                <p className="text-sm leading-relaxed">
+                                    משוב נקודתי מאת נקסון על מאפיינים אלו בלבד
+                                </p>
+                            </div>
+                        )}
+
+                        {/* Stats Display */}
+                        <div className="bg-gray-500 rounded-lg p-4">
+                            <p className="text-sm mb-2 font-bold">המשימות שלי:</p>
+                            <div className="grid grid-cols-2 gap-4 text-sm">
+                                <div className="flex items-center gap-2">
+                                    <div className="w-3 h-3 bg-green-400 rounded-full"></div>
+                                    <span>רמת קושי: {stats?.difficulty || 'בינוני'}</span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <div className="w-3 h-3 bg-green-400 rounded-full"></div>
+                                    <span>רצף שאלות: {stats?.streak || 0}</span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <div className="w-3 h-3 bg-green-400 rounded-full"></div>
+                                    <span>דיוק: {stats?.accuracy || 0}%</span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <div className="w-3 h-3 bg-green-400 rounded-full"></div>
+                                    <span>סה"כ שאלות: {stats?.totalEntries || 0}</span>
+                                </div>
+                            </div>
                         </div>
                     </motion.div>
-                )}
 
-                {/* Learning Rooms */}
-                <div className="grid md:grid-cols-3 gap-8">
-                    {learningRooms.map((room, index) => (
-                        <motion.div
-                            key={room.id}
-                            initial={{ opacity: 0, y: 30 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            transition={{ delay: index * 0.15 }}
-                            whileHover={{ scale: 1.05, y: -10 }}
-                            onClick={() => navigate(room.path)}
-                            className="relative bg-gray-800 rounded-3xl p-8 cursor-pointer border-2 border-gray-700 hover:border-purple-500 transition-all group overflow-hidden"
-                        >
-                            {/* Gradient Background */}
-                            <div className={`absolute inset-0 bg-gradient-to-br ${room.color} opacity-0 group-hover:opacity-10 transition-opacity`}></div>
-
-                            {/* Icon */}
-                            <div className={`w-20 h-20 bg-gradient-to-br ${room.color} rounded-2xl flex items-center justify-center mb-6 mx-auto transform group-hover:scale-110 transition-transform`}>
-                                <room.icon className="w-10 h-10 text-white" />
-                            </div>
-
-                            {/* Title */}
-                            <h3 className="text-3xl font-black text-white text-center mb-2">
-                                {room.title}
-                            </h3>
-                            <p className="text-purple-400 text-center font-bold mb-4">
-                                {room.subtitle}
-                            </p>
-
-                            {/* Description */}
-                            <p className="text-gray-400 text-center text-sm mb-6">
-                                {room.description}
-                            </p>
-
-                            {/* Features */}
-                            <div className="space-y-2 mb-6">
-                                {room.features.map((feature, i) => (
-                                    <div key={i} className="flex items-center gap-2 text-gray-300 text-sm">
-                                        <div className="w-1.5 h-1.5 rounded-full bg-purple-500"></div>
-                                        <span>{feature}</span>
-                                    </div>
-                                ))}
-                            </div>
-
-                            {/* Stats */}
-                            <div className="bg-gray-700/50 rounded-xl p-4 mb-6">
-                                {room.id === 'lecture' && (
-                                    <div className="text-center">
-                                        <p className="text-2xl font-black text-white">
-                                            {room.stats.completed}/{room.stats.total}
-                                        </p>
-                                        <p className="text-gray-400 text-sm">שיעורים הושלמו</p>
-                                    </div>
-                                )}
-                                {room.id === 'practice' && (
-                                    <div className="grid grid-cols-2 gap-4">
-                                        <div className="text-center">
-                                            <p className="text-2xl font-black text-white">{room.stats.completed}</p>
-                                            <p className="text-gray-400 text-xs">שאלות נפתרו</p>
-                                        </div>
-                                        <div className="text-center">
-                                            <p className="text-2xl font-black text-green-400">{room.stats.accuracy}%</p>
-                                            <p className="text-gray-400 text-xs">דיוק</p>
-                                        </div>
-                                    </div>
-                                )}
-                                {room.id === 'notebook' && (
-                                    <div className="grid grid-cols-2 gap-4">
-                                        <div className="text-center">
-                                            <p className="text-2xl font-black text-white">{room.stats.notes}</p>
-                                            <p className="text-gray-400 text-xs">הערות</p>
-                                        </div>
-                                        <div className="text-center">
-                                            <p className="text-2xl font-black text-emerald-400">{room.stats.summaries}</p>
-                                            <p className="text-gray-400 text-xs">סיכומים</p>
-                                        </div>
-                                    </div>
-                                )}
-                            </div>
-
-                            {/* Enter Button */}
-                            <button className={`w-full py-4 bg-gradient-to-r ${room.color} text-white rounded-xl font-black text-lg flex items-center justify-center gap-2 group-hover:shadow-lg transition-shadow`}>
-                                <span>כנס לחדר</span>
-                                <ChevronRight className="w-6 h-6" />
-                            </button>
-                        </motion.div>
-                    ))}
-                </div>
-
-                {/* Quick Tips */}
-                <motion.div
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    transition={{ delay: 0.6 }}
-                    className="mt-12 bg-gradient-to-r from-purple-600/20 to-pink-600/20 rounded-2xl p-6 border-2 border-purple-500/30"
-                >
-                    <div className="flex items-start gap-4">
-                        <Brain className="w-8 h-8 text-purple-400 flex-shrink-0" />
-                        <div>
-                            <h3 className="text-xl font-black text-white mb-2">💡 טיפ ללמידה יעילה</h3>
-                            <p className="text-gray-300">
-                                התחל עם חדר ההרצאה כדי ללמוד נושא חדש, המשך לחדר התרגול כדי לתרגל, ובסוף סקור את המחברת שלך!
-                                למידה עקבית של 20-30 דקות ביום עדיפה על מפגש ארוך אחד בשבוע.
-                            </p>
+                    {/* Section 2: My Missions */}
+                    <motion.div
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: 0.1 }}
+                        className="mb-8"
+                    >
+                        <div className="bg-gray-500 text-white rounded-lg p-4 mb-4">
+                            <h3 className="font-bold text-center">המשימות שלי:</h3>
                         </div>
-                    </div>
-                </motion.div>
+
+                        <div className="space-y-3">
+                            {missions.length > 0 ? (
+                                missions.map((mission, index) => (
+                                    <motion.div
+                                        key={mission.id}
+                                        initial={{ opacity: 0, x: -20 }}
+                                        animate={{ opacity: 1, x: 0 }}
+                                        transition={{ delay: 0.1 + index * 0.05 }}
+                                        className="flex items-center gap-3 text-gray-800"
+                                    >
+                                        {mission.status === 'completed' ? (
+                                            <CheckCircle className="w-6 h-6 text-green-500 flex-shrink-0" />
+                                        ) : (
+                                            <Circle className="w-6 h-6 text-blue-400 flex-shrink-0" />
+                                        )}
+                                        <div className="flex-1">
+                                            <div className="flex items-center gap-2">
+                                                <span className="font-bold">{index + 1}.</span>
+                                                <span className={mission.status === 'completed' ? 'line-through text-gray-500' : ''}>
+                                                    {mission.title}
+                                                </span>
+                                            </div>
+                                            {mission.description && (
+                                                <p className="text-sm text-gray-600 mr-8">{mission.description}</p>
+                                            )}
+                                        </div>
+                                    </motion.div>
+                                ))
+                            ) : (
+                                <>
+                                    <div className="flex items-center gap-3 text-gray-800">
+                                        <CheckCircle className="w-6 h-6 text-green-500" />
+                                        <span><strong>1.</strong> תרגול בחוקי חזקות</span>
+                                    </div>
+                                    <div className="flex items-center gap-3 text-gray-800">
+                                        <CheckCircle className="w-6 h-6 text-green-500" />
+                                        <span><strong>2.</strong> שיעור בנושא חוג הפיזור</span>
+                                    </div>
+                                    <div className="flex items-center gap-3 text-gray-800">
+                                        <Circle className="w-6 h-6 text-blue-400" />
+                                        <span><strong>3.</strong> מעבר על סיכומי מחברת של משימות 1 ו 2</span>
+                                    </div>
+                                </>
+                            )}
+                        </div>
+                    </motion.div>
+
+                    {/* Section 3: Learning Areas */}
+                    <motion.div
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: 0.2 }}
+                    >
+                        <div className="bg-gray-500 text-white rounded-lg p-4 mb-4">
+                            <h3 className="font-bold text-center">אזורי למידה</h3>
+                        </div>
+
+                        <div className="grid grid-cols-3 gap-4">
+                            {/* Notebook */}
+                            <motion.button
+                                whileHover={{ scale: 1.05 }}
+                                whileTap={{ scale: 0.95 }}
+                                onClick={() => navigate('/notebook')}
+                                className="bg-gray-500 hover:bg-gray-600 text-white rounded-2xl p-8 transition-colors flex flex-col items-center justify-center gap-3 min-h-[180px]"
+                            >
+                                <BookOpen className="w-12 h-12" />
+                                <span className="font-bold text-lg text-center">המחברת שלי</span>
+                            </motion.button>
+
+                            {/* Lecture Room */}
+                            <motion.button
+                                whileHover={{ scale: 1.05 }}
+                                whileTap={{ scale: 0.95 }}
+                                onClick={() => navigate('/lecture-room')}
+                                className="bg-gray-500 hover:bg-gray-600 text-white rounded-2xl p-8 transition-colors flex flex-col items-center justify-center gap-3 min-h-[180px]"
+                            >
+                                <Brain className="w-12 h-12" />
+                                <span className="font-bold text-lg text-center">חדר הרצאות</span>
+                            </motion.button>
+
+                            {/* Practice Room */}
+                            <motion.button
+                                whileHover={{ scale: 1.05 }}
+                                whileTap={{ scale: 0.95 }}
+                                onClick={() => navigate('/practice-room')}
+                                className="bg-gray-500 hover:bg-gray-600 text-white rounded-2xl p-8 transition-colors flex flex-col items-center justify-center gap-3 min-h-[180px]"
+                            >
+                                <Dumbbell className="w-12 h-12" />
+                                <span className="font-bold text-lg text-center">חדר תרגול</span>
+                            </motion.button>
+                        </div>
+                    </motion.div>
+
+                    {/* Optional: Link to relevant page */}
+                    <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        transition={{ delay: 0.4 }}
+                        className="mt-8 text-center"
+                    >
+                        <button
+                            onClick={() => navigate('/dashboard')}
+                            className="text-purple-600 hover:text-purple-700 font-bold text-sm underline"
+                        >
+                            לחיצה על אזור מעבירה לעמוד הרלוונטי
+                        </button>
+                    </motion.div>
+                </div>
             </div>
         </div>
     );
