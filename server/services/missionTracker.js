@@ -1,10 +1,7 @@
-// server/services/missionTracker.js - UPDATED FOR student_missions TABLE
+// server/services/missionTracker.js - FINAL VERSION
 import pool from '../config/database.js';
 
 class MissionTracker {
-    /**
-     * Create a new mission for a user
-     */
     async createMission({ userId, firebaseUid, title, description, missionType, config, points, deadline, createdBy }) {
         try {
             console.log('📝 Creating new mission:', { userId, title, missionType });
@@ -19,15 +16,8 @@ class MissionTracker {
             `;
 
             const result = await pool.query(query, [
-                userId,
-                firebaseUid,
-                title,
-                description,
-                missionType,
-                JSON.stringify(config),
-                points || 0,
-                deadline,
-                createdBy
+                userId, firebaseUid, title, description, missionType,
+                JSON.stringify(config), points || 0, deadline, createdBy
             ]);
 
             const mission = result.rows[0];
@@ -61,9 +51,7 @@ class MissionTracker {
             `;
 
             await pool.query(query, [
-                missionId,
-                userId,
-                requiredCount,
+                missionId, userId, requiredCount,
                 JSON.stringify({ initialized: true, startedAt: new Date().toISOString() })
             ]);
 
@@ -86,35 +74,25 @@ class MissionTracker {
 
             if (checkResult.rows.length === 0) {
                 countsForMission = true;
-
-                const insertQuery = `
+                await pool.query(`
                     INSERT INTO practice_question_attempts (
                         mission_id, user_id, question_id, question_text,
                         is_correct, attempts_count, counts_for_mission
-                    )
-                    VALUES ($1, $2, $3, $4, $5, 1, TRUE)
-                `;
-
-                await pool.query(insertQuery, [
-                    missionId, userId, questionId, questionText, isCorrect
-                ]);
-
+                    ) VALUES ($1, $2, $3, $4, $5, 1, TRUE)
+                `, [missionId, userId, questionId, questionText, isCorrect]);
             } else {
                 countsForMission = false;
-
-                const updateQuery = `
+                await pool.query(`
                     UPDATE practice_question_attempts
                     SET attempts_count = attempts_count + 1,
                         last_attempt_at = CURRENT_TIMESTAMP,
                         is_correct = $1
                     WHERE mission_id = $2 AND user_id = $3 AND question_id = $4
-                `;
-
-                await pool.query(updateQuery, [isCorrect, missionId, userId, questionId]);
+                `, [isCorrect, missionId, userId, questionId]);
             }
 
             if (countsForMission) {
-                await this.updatePracticeProgress(missionId, userId, isCorrect);
+                await this.updatePracticeProgress(missionId, userId);
             }
 
             await this.checkCompletion(missionId, userId);
@@ -127,42 +105,29 @@ class MissionTracker {
         }
     }
 
-    async updatePracticeProgress(missionId, userId, isCorrect) {
+    async updatePracticeProgress(missionId, userId) {
         try {
-            const countQuery = `
+            const countResult = await pool.query(`
                 SELECT COUNT(*) as unique_count,
                        SUM(CASE WHEN is_correct THEN 1 ELSE 0 END) as correct_count
                 FROM practice_question_attempts
                 WHERE mission_id = $1 AND user_id = $2 AND counts_for_mission = TRUE
-            `;
+            `, [missionId, userId]);
 
-            const countResult = await pool.query(countQuery, [missionId, userId]);
             const uniqueCount = parseInt(countResult.rows[0].unique_count);
             const correctCount = parseInt(countResult.rows[0].correct_count);
             const accuracy = uniqueCount > 0 ? (correctCount / uniqueCount) * 100 : 0;
 
-            const updateQuery = `
+            await pool.query(`
                 UPDATE student_mission_progress
                 SET current_count = $1,
                     accuracy = $2,
                     last_activity = CURRENT_TIMESTAMP,
-                    progress_data = jsonb_set(
-                            progress_data,
-                            '{uniqueQuestions}',
-                            $3::jsonb
-                                    )
+                    progress_data = jsonb_set(progress_data, '{uniqueQuestions}', $3::jsonb)
                 WHERE mission_id = $4 AND user_id = $5
-            `;
+            `, [uniqueCount, accuracy.toFixed(2), JSON.stringify(uniqueCount), missionId, userId]);
 
-            await pool.query(updateQuery, [
-                uniqueCount,
-                accuracy.toFixed(2),
-                JSON.stringify(uniqueCount),
-                missionId,
-                userId
-            ]);
-
-            console.log(`✅ Progress updated: ${uniqueCount} unique questions, ${accuracy.toFixed(1)}% accuracy`);
+            console.log(`✅ Progress: ${uniqueCount} questions, ${accuracy.toFixed(1)}% accuracy`);
 
         } catch (error) {
             console.error('❌ Error updating practice progress:', error);
@@ -173,20 +138,17 @@ class MissionTracker {
         try {
             console.log('📚 Tracking lecture section:', { missionId, userId, lectureId, sectionId });
 
-            const query = `
+            await pool.query(`
                 INSERT INTO lecture_section_progress (
                     mission_id, user_id, lecture_id, section_id,
                     is_completed, time_spent, completed_at
-                )
-                VALUES ($1, $2, $3, $4, TRUE, $5, CURRENT_TIMESTAMP)
-                    ON CONFLICT (mission_id, user_id, lecture_id, section_id)
+                ) VALUES ($1, $2, $3, $4, TRUE, $5, CURRENT_TIMESTAMP)
+                ON CONFLICT (mission_id, user_id, lecture_id, section_id)
                 DO UPDATE SET
                     is_completed = TRUE,
-                                           time_spent = lecture_section_progress.time_spent + $5,
-                                           completed_at = CURRENT_TIMESTAMP
-            `;
-
-            await pool.query(query, [missionId, userId, lectureId, sectionId, timeSpent || 0]);
+                    time_spent = lecture_section_progress.time_spent + $5,
+                    completed_at = CURRENT_TIMESTAMP
+            `, [missionId, userId, lectureId, sectionId, timeSpent || 0]);
 
             await this.updateLectureProgress(missionId, userId);
             await this.checkCompletion(missionId, userId);
@@ -201,37 +163,24 @@ class MissionTracker {
 
     async updateLectureProgress(missionId, userId) {
         try {
-            const countQuery = `
-                SELECT COUNT(*) as completed_count,
-                       SUM(time_spent) as total_time
+            const result = await pool.query(`
+                SELECT COUNT(*) as completed_count, SUM(time_spent) as total_time
                 FROM lecture_section_progress
                 WHERE mission_id = $1 AND user_id = $2 AND is_completed = TRUE
-            `;
+            `, [missionId, userId]);
 
-            const result = await pool.query(countQuery, [missionId, userId]);
             const completedCount = parseInt(result.rows[0].completed_count);
             const totalTime = parseInt(result.rows[0].total_time) || 0;
 
-            const updateQuery = `
+            await pool.query(`
                 UPDATE student_mission_progress
                 SET current_count = $1,
                     last_activity = CURRENT_TIMESTAMP,
-                    progress_data = jsonb_set(
-                            progress_data,
-                            '{totalTimeSpent}',
-                            $2::jsonb
-                                    )
+                    progress_data = jsonb_set(progress_data, '{totalTimeSpent}', $2::jsonb)
                 WHERE mission_id = $3 AND user_id = $4
-            `;
+            `, [completedCount, JSON.stringify(totalTime), missionId, userId]);
 
-            await pool.query(updateQuery, [
-                completedCount,
-                JSON.stringify(totalTime),
-                missionId,
-                userId
-            ]);
-
-            console.log(`✅ Lecture progress updated: ${completedCount} sections completed`);
+            console.log(`✅ Lecture: ${completedCount} sections completed`);
 
         } catch (error) {
             console.error('❌ Error updating lecture progress:', error);
@@ -240,7 +189,8 @@ class MissionTracker {
 
     async checkCompletion(missionId, userId) {
         try {
-            const query = 'SELECT check_mission_completion($1, $2) as is_complete';
+            // Use the correct function name
+            const query = 'SELECT check_student_mission_completion($1, $2) as is_complete';
             const result = await pool.query(query, [missionId, userId]);
             const isComplete = result.rows[0].is_complete;
 
@@ -259,9 +209,8 @@ class MissionTracker {
 
     async awardPoints(missionId, userId) {
         try {
-            const missionQuery = 'SELECT points FROM student_missions WHERE id = $1';
-            const missionResult = await pool.query(missionQuery, [missionId]);
-            const points = missionResult.rows[0]?.points || 0;
+            const result = await pool.query('SELECT points FROM student_missions WHERE id = $1', [missionId]);
+            const points = result.rows[0]?.points || 0;
 
             if (points > 0) {
                 console.log(`🏆 Awarding ${points} points to user ${userId}`);
@@ -274,33 +223,25 @@ class MissionTracker {
 
     async getUserMissions(userId) {
         try {
-            const query = `
-                SELECT
+            const result = await pool.query(`
+                SELECT 
                     m.*,
-                    mp.current_count,
-                    mp.required_count,
-                    mp.accuracy,
-                    mp.last_activity,
-                    mp.progress_data,
-                    CASE
-                        WHEN mp.required_count > 0 THEN
+                    mp.current_count, mp.required_count, mp.accuracy,
+                    mp.last_activity, mp.progress_data,
+                    CASE 
+                        WHEN mp.required_count > 0 THEN 
                             (mp.current_count::FLOAT / mp.required_count::FLOAT * 100)
-                        ELSE 0
-                        END as progress_percentage
+                        ELSE 0 
+                    END as progress_percentage
                 FROM student_missions m
-                         LEFT JOIN student_mission_progress mp ON m.id = mp.mission_id AND mp.user_id = $1
+                LEFT JOIN student_mission_progress mp ON m.id = mp.mission_id AND mp.user_id = $1
                 WHERE m.user_id = $1
-                ORDER BY
-                    CASE m.status
-                        WHEN 'active' THEN 1
-                        WHEN 'completed' THEN 2
-                        ELSE 3
-                        END,
+                ORDER BY 
+                    CASE m.status WHEN 'active' THEN 1 WHEN 'completed' THEN 2 ELSE 3 END,
                     m.deadline ASC NULLS LAST,
                     m.created_at DESC
-            `;
+            `, [userId]);
 
-            const result = await pool.query(query, [userId]);
             return { success: true, missions: result.rows };
 
         } catch (error) {
@@ -311,49 +252,38 @@ class MissionTracker {
 
     async getMissionDetails(missionId, userId) {
         try {
-            const missionQuery = `
-                SELECT
-                    m.*,
-                    mp.current_count,
-                    mp.required_count,
-                    mp.accuracy,
-                    mp.progress_data
+            const result = await pool.query(`
+                SELECT m.*, mp.current_count, mp.required_count, mp.accuracy, mp.progress_data
                 FROM student_missions m
-                         LEFT JOIN student_mission_progress mp ON m.id = mp.mission_id AND mp.user_id = $1
+                LEFT JOIN student_mission_progress mp ON m.id = mp.mission_id AND mp.user_id = $1
                 WHERE m.id = $2
-            `;
+            `, [userId, missionId]);
 
-            const missionResult = await pool.query(missionQuery, [userId, missionId]);
-            if (missionResult.rows.length === 0) {
+            if (result.rows.length === 0) {
                 return { success: false, error: 'Mission not found' };
             }
 
-            const mission = missionResult.rows[0];
+            const mission = result.rows[0];
 
             if (mission.mission_type === 'practice') {
-                const attemptsQuery = `
+                const attempts = await pool.query(`
                     SELECT question_id, question_text, is_correct, attempts_count,
                            counts_for_mission, first_attempt_at, last_attempt_at
                     FROM practice_question_attempts
                     WHERE mission_id = $1 AND user_id = $2
                     ORDER BY first_attempt_at DESC
-                `;
-
-                const attemptsResult = await pool.query(attemptsQuery, [missionId, userId]);
-                mission.attempts = attemptsResult.rows;
+                `, [missionId, userId]);
+                mission.attempts = attempts.rows;
             }
 
             if (mission.mission_type === 'lecture') {
-                const sectionsQuery = `
-                    SELECT section_id, is_completed, time_spent,
-                           started_at, completed_at
+                const sections = await pool.query(`
+                    SELECT section_id, is_completed, time_spent, started_at, completed_at
                     FROM lecture_section_progress
                     WHERE mission_id = $1 AND user_id = $2
                     ORDER BY started_at ASC
-                `;
-
-                const sectionsResult = await pool.query(sectionsQuery, [missionId, userId]);
-                mission.sections = sectionsResult.rows;
+                `, [missionId, userId]);
+                mission.sections = sections.rows;
             }
 
             return { success: true, mission };
