@@ -1,4 +1,4 @@
-// server/services/missionTracker.js - SMART MISSION TRACKING
+// server/services/missionTracker.js - UPDATED FOR student_missions TABLE
 import pool from '../config/database.js';
 
 class MissionTracker {
@@ -10,12 +10,12 @@ class MissionTracker {
             console.log('📝 Creating new mission:', { userId, title, missionType });
 
             const query = `
-                INSERT INTO missions (
-                    user_id, firebase_uid, title, description, 
+                INSERT INTO student_missions (
+                    user_id, firebase_uid, title, description,
                     mission_type, config, points, deadline, created_by
                 )
                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-                RETURNING *
+                    RETURNING *
             `;
 
             const result = await pool.query(query, [
@@ -31,8 +31,6 @@ class MissionTracker {
             ]);
 
             const mission = result.rows[0];
-
-            // Initialize progress tracking
             await this.initializeProgress(mission.id, userId, missionType, config);
 
             console.log('✅ Mission created:', mission.id);
@@ -44,9 +42,6 @@ class MissionTracker {
         }
     }
 
-    /**
-     * Initialize progress tracking for a mission
-     */
     async initializeProgress(missionId, userId, missionType, config) {
         try {
             let requiredCount = 0;
@@ -58,11 +53,11 @@ class MissionTracker {
             }
 
             const query = `
-                INSERT INTO mission_progress (
+                INSERT INTO student_mission_progress (
                     mission_id, user_id, current_count, required_count, progress_data
                 )
                 VALUES ($1, $2, 0, $3, $4)
-                ON CONFLICT (mission_id, user_id) DO NOTHING
+                    ON CONFLICT (mission_id, user_id) DO NOTHING
             `;
 
             await pool.query(query, [
@@ -77,14 +72,10 @@ class MissionTracker {
         }
     }
 
-    /**
-     * Track practice question attempt (with deduplication)
-     */
     async trackPracticeAttempt({ missionId, userId, questionId, questionText, isCorrect }) {
         try {
             console.log('📊 Tracking practice attempt:', { missionId, userId, questionId, isCorrect });
 
-            // Check if question was already attempted
             const checkQuery = `
                 SELECT * FROM practice_question_attempts
                 WHERE mission_id = $1 AND user_id = $2 AND question_id = $3
@@ -94,7 +85,6 @@ class MissionTracker {
             let countsForMission = false;
 
             if (checkResult.rows.length === 0) {
-                // First attempt - counts for mission
                 countsForMission = true;
 
                 const insertQuery = `
@@ -110,7 +100,6 @@ class MissionTracker {
                 ]);
 
             } else {
-                // Repeat attempt - doesn't count
                 countsForMission = false;
 
                 const updateQuery = `
@@ -124,12 +113,10 @@ class MissionTracker {
                 await pool.query(updateQuery, [isCorrect, missionId, userId, questionId]);
             }
 
-            // Update progress if this counts
             if (countsForMission) {
                 await this.updatePracticeProgress(missionId, userId, isCorrect);
             }
 
-            // Check if mission is complete
             await this.checkCompletion(missionId, userId);
 
             return { success: true, countsForMission };
@@ -140,12 +127,8 @@ class MissionTracker {
         }
     }
 
-    /**
-     * Update practice progress
-     */
     async updatePracticeProgress(missionId, userId, isCorrect) {
         try {
-            // Get unique questions count
             const countQuery = `
                 SELECT COUNT(*) as unique_count,
                        SUM(CASE WHEN is_correct THEN 1 ELSE 0 END) as correct_count
@@ -158,17 +141,16 @@ class MissionTracker {
             const correctCount = parseInt(countResult.rows[0].correct_count);
             const accuracy = uniqueCount > 0 ? (correctCount / uniqueCount) * 100 : 0;
 
-            // Update progress
             const updateQuery = `
-                UPDATE mission_progress
+                UPDATE student_mission_progress
                 SET current_count = $1,
                     accuracy = $2,
                     last_activity = CURRENT_TIMESTAMP,
                     progress_data = jsonb_set(
-                        progress_data,
-                        '{uniqueQuestions}',
-                        $3::jsonb
-                    )
+                            progress_data,
+                            '{uniqueQuestions}',
+                            $3::jsonb
+                                    )
                 WHERE mission_id = $4 AND user_id = $5
             `;
 
@@ -187,9 +169,6 @@ class MissionTracker {
         }
     }
 
-    /**
-     * Track lecture section completion
-     */
     async trackLectureSection({ missionId, userId, lectureId, sectionId, timeSpent }) {
         try {
             console.log('📚 Tracking lecture section:', { missionId, userId, lectureId, sectionId });
@@ -200,19 +179,16 @@ class MissionTracker {
                     is_completed, time_spent, completed_at
                 )
                 VALUES ($1, $2, $3, $4, TRUE, $5, CURRENT_TIMESTAMP)
-                ON CONFLICT (mission_id, user_id, lecture_id, section_id)
+                    ON CONFLICT (mission_id, user_id, lecture_id, section_id)
                 DO UPDATE SET
                     is_completed = TRUE,
-                    time_spent = lecture_section_progress.time_spent + $5,
-                    completed_at = CURRENT_TIMESTAMP
+                                           time_spent = lecture_section_progress.time_spent + $5,
+                                           completed_at = CURRENT_TIMESTAMP
             `;
 
             await pool.query(query, [missionId, userId, lectureId, sectionId, timeSpent || 0]);
 
-            // Update mission progress
             await this.updateLectureProgress(missionId, userId);
-
-            // Check if mission is complete
             await this.checkCompletion(missionId, userId);
 
             return { success: true };
@@ -223,9 +199,6 @@ class MissionTracker {
         }
     }
 
-    /**
-     * Update lecture progress
-     */
     async updateLectureProgress(missionId, userId) {
         try {
             const countQuery = `
@@ -240,14 +213,14 @@ class MissionTracker {
             const totalTime = parseInt(result.rows[0].total_time) || 0;
 
             const updateQuery = `
-                UPDATE mission_progress
+                UPDATE student_mission_progress
                 SET current_count = $1,
                     last_activity = CURRENT_TIMESTAMP,
                     progress_data = jsonb_set(
-                        progress_data,
-                        '{totalTimeSpent}',
-                        $2::jsonb
-                    )
+                            progress_data,
+                            '{totalTimeSpent}',
+                            $2::jsonb
+                                    )
                 WHERE mission_id = $3 AND user_id = $4
             `;
 
@@ -265,9 +238,6 @@ class MissionTracker {
         }
     }
 
-    /**
-     * Check if mission is complete
-     */
     async checkCompletion(missionId, userId) {
         try {
             const query = 'SELECT check_mission_completion($1, $2) as is_complete';
@@ -276,8 +246,6 @@ class MissionTracker {
 
             if (isComplete) {
                 console.log(`🎉 Mission ${missionId} completed by user ${userId}!`);
-
-                // Award points
                 await this.awardPoints(missionId, userId);
             }
 
@@ -289,18 +257,13 @@ class MissionTracker {
         }
     }
 
-    /**
-     * Award points for completed mission
-     */
     async awardPoints(missionId, userId) {
         try {
-            const missionQuery = 'SELECT points FROM missions WHERE id = $1';
+            const missionQuery = 'SELECT points FROM student_missions WHERE id = $1';
             const missionResult = await pool.query(missionQuery, [missionId]);
             const points = missionResult.rows[0]?.points || 0;
 
             if (points > 0) {
-                // Add points to user (if you have a points system)
-                // You can implement this based on your user schema
                 console.log(`🏆 Awarding ${points} points to user ${userId}`);
             }
 
@@ -309,33 +272,30 @@ class MissionTracker {
         }
     }
 
-    /**
-     * Get user missions with progress
-     */
     async getUserMissions(userId) {
         try {
             const query = `
-                SELECT 
+                SELECT
                     m.*,
                     mp.current_count,
                     mp.required_count,
                     mp.accuracy,
                     mp.last_activity,
                     mp.progress_data,
-                    CASE 
-                        WHEN mp.required_count > 0 THEN 
+                    CASE
+                        WHEN mp.required_count > 0 THEN
                             (mp.current_count::FLOAT / mp.required_count::FLOAT * 100)
-                        ELSE 0 
-                    END as progress_percentage
-                FROM missions m
-                LEFT JOIN mission_progress mp ON m.id = mp.mission_id AND mp.user_id = $1
+                        ELSE 0
+                        END as progress_percentage
+                FROM student_missions m
+                         LEFT JOIN student_mission_progress mp ON m.id = mp.mission_id AND mp.user_id = $1
                 WHERE m.user_id = $1
-                ORDER BY 
+                ORDER BY
                     CASE m.status
                         WHEN 'active' THEN 1
                         WHEN 'completed' THEN 2
                         ELSE 3
-                    END,
+                        END,
                     m.deadline ASC NULLS LAST,
                     m.created_at DESC
             `;
@@ -349,20 +309,17 @@ class MissionTracker {
         }
     }
 
-    /**
-     * Get mission details with full progress
-     */
     async getMissionDetails(missionId, userId) {
         try {
             const missionQuery = `
-                SELECT 
+                SELECT
                     m.*,
                     mp.current_count,
                     mp.required_count,
                     mp.accuracy,
                     mp.progress_data
-                FROM missions m
-                LEFT JOIN mission_progress mp ON m.id = mp.mission_id AND mp.user_id = $1
+                FROM student_missions m
+                         LEFT JOIN student_mission_progress mp ON m.id = mp.mission_id AND mp.user_id = $1
                 WHERE m.id = $2
             `;
 
@@ -373,7 +330,6 @@ class MissionTracker {
 
             const mission = missionResult.rows[0];
 
-            // Get practice attempts if practice mission
             if (mission.mission_type === 'practice') {
                 const attemptsQuery = `
                     SELECT question_id, question_text, is_correct, attempts_count,
@@ -387,7 +343,6 @@ class MissionTracker {
                 mission.attempts = attemptsResult.rows;
             }
 
-            // Get lecture progress if lecture mission
             if (mission.mission_type === 'lecture') {
                 const sectionsQuery = `
                     SELECT section_id, is_completed, time_spent,

@@ -1,4 +1,4 @@
-// server/routes/missionsRoutes.js - SMART MISSIONS API
+// server/routes/missionsRoutes.js - UPDATED FOR student_missions TABLE
 import express from 'express';
 import missionTracker from '../services/missionTracker.js';
 import pool from '../config/database.js';
@@ -15,8 +15,8 @@ router.post('/create', async (req, res) => {
             firebaseUid,
             title,
             description,
-            missionType, // 'practice' | 'lecture' | 'notebook_review' | 'custom'
-            config,      // Mission-specific configuration
+            missionType,
+            config,
             points,
             deadline,
             createdBy
@@ -175,14 +175,14 @@ router.post('/track/lecture', async (req, res) => {
 router.get('/admin/all', async (req, res) => {
     try {
         const query = `
-            SELECT 
+            SELECT
                 m.*,
                 u.name as user_name,
                 u.email as user_email,
                 COUNT(DISTINCT mp.id) as total_progress_entries
-            FROM missions m
-            LEFT JOIN users u ON m.user_id = u.id
-            LEFT JOIN mission_progress mp ON m.id = mp.mission_id
+            FROM student_missions m
+                     LEFT JOIN users u ON m.user_id = u.id
+                     LEFT JOIN student_mission_progress mp ON m.id = mp.mission_id
             GROUP BY m.id, u.name, u.email
             ORDER BY m.created_at DESC
         `;
@@ -207,14 +207,14 @@ router.get('/admin/all', async (req, res) => {
 router.get('/admin/stats', async (req, res) => {
     try {
         const statsQuery = `
-            SELECT 
+            SELECT
                 COUNT(*) FILTER (WHERE status = 'active') as active_missions,
                 COUNT(*) FILTER (WHERE status = 'completed') as completed_missions,
                 COUNT(*) FILTER (WHERE status = 'expired') as expired_missions,
                 COUNT(DISTINCT user_id) as users_with_missions,
                 AVG(mp.accuracy) as avg_accuracy
-            FROM missions m
-            LEFT JOIN mission_progress mp ON m.id = mp.mission_id
+            FROM student_missions m
+                     LEFT JOIN student_mission_progress mp ON m.id = mp.mission_id
         `;
 
         const result = await pool.query(statsQuery);
@@ -263,10 +263,10 @@ router.put('/update/:missionId', async (req, res) => {
         values.push(missionId);
 
         const query = `
-            UPDATE missions
+            UPDATE student_missions
             SET ${updates.join(', ')}, updated_at = CURRENT_TIMESTAMP
             WHERE id = $${paramCount}
-            RETURNING *
+                RETURNING *
         `;
 
         const result = await pool.query(query, values);
@@ -290,7 +290,7 @@ router.delete('/delete/:missionId', async (req, res) => {
     try {
         const { missionId } = req.params;
 
-        const query = 'DELETE FROM missions WHERE id = $1 RETURNING *';
+        const query = 'DELETE FROM student_missions WHERE id = $1 RETURNING *';
         const result = await pool.query(query, [missionId]);
 
         if (result.rows.length === 0) {
