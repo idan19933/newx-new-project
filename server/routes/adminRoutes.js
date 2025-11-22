@@ -1,4 +1,4 @@
-// server/routes/adminRoutes.js - CORRECTED FOR PRODUCTION WITH DUAL ID SUPPORT
+// server/routes/adminRoutes.js - FULLY CORRECTED FOR student_missions
 import express from 'express';
 import multer from 'multer';
 import path from 'path';
@@ -251,24 +251,15 @@ router.delete('/upload/:id', async (req, res) => {
 
 // ==================== STUDENT MANAGEMENT ENDPOINTS ====================
 
-/**
- * 📊 GET /api/admin/dashboard-stats
- */
 router.get('/dashboard-stats', async (req, res) => {
     try {
         const usersResult = await pool.query('SELECT COUNT(*) FROM prototype_students');
         const totalUsers = parseInt(usersResult.rows[0].count);
 
         const activeUsersResult = await pool.query(`
-            SELECT COUNT(DISTINCT
-                         CASE
-                             WHEN user_id ~ '^[0-9]+$' THEN user_id::integer
-                         ELSE NULL
-                         END
-                   )
+            SELECT COUNT(DISTINCT CASE WHEN user_id ~ '^[0-9]+$' THEN user_id::integer ELSE NULL END)
             FROM student_question_history
-            WHERE created_at > NOW() - INTERVAL '7 days'
-              AND user_id IS NOT NULL
+            WHERE created_at > NOW() - INTERVAL '7 days' AND user_id IS NOT NULL
         `);
         const activeUsers = parseInt(activeUsersResult.rows[0].count);
 
@@ -279,8 +270,8 @@ router.get('/dashboard-stats', async (req, res) => {
         const totalExams = parseInt(examsResult.rows[0].count);
 
         const missionsResult = await pool.query(`
-            SELECT COUNT(*) as total, COUNT(CASE WHEN completed = true THEN 1 END) as completed
-            FROM missions
+            SELECT COUNT(*) as total, COUNT(CASE WHEN status = 'completed' THEN 1 END) as completed
+            FROM student_missions
         `);
         const totalMissions = parseInt(missionsResult.rows[0]?.total || 0);
         const completedMissions = parseInt(missionsResult.rows[0]?.completed || 0);
@@ -295,9 +286,6 @@ router.get('/dashboard-stats', async (req, res) => {
     }
 });
 
-/**
- * 👥 GET /api/admin/users
- */
 router.get('/users', async (req, res) => {
     try {
         const { limit = 100 } = req.query;
@@ -322,29 +310,16 @@ router.get('/users', async (req, res) => {
             FROM prototype_students ps
                      LEFT JOIN users u ON ps.firebase_uid = u.firebase_uid OR ps.email = u.email
                      LEFT JOIN (
-                SELECT
-                    CASE
-                        WHEN user_id ~ '^[0-9]+$' THEN user_id::integer 
-                        ELSE NULL 
-                    END as user_id, 
-                    COUNT(*) as total
-                FROM student_question_history
-                WHERE user_id IS NOT NULL
-                GROUP BY user_id
+                SELECT CASE WHEN user_id ~ '^[0-9]+$' THEN user_id::integer ELSE NULL END as user_id, COUNT(*) as total
+                FROM student_question_history WHERE user_id IS NOT NULL GROUP BY user_id
             ) sqh_count ON ps.id = sqh_count.user_id
                      LEFT JOIN (
-                SELECT user_id, COUNT(*) as count
-                FROM missions
-                WHERE completed = true
-                GROUP BY user_id
+                SELECT user_id, COUNT(*) as count FROM student_missions WHERE status = 'completed' GROUP BY user_id
             ) m_completed ON ps.id = m_completed.user_id
                      LEFT JOIN (
-                SELECT user_id, COUNT(*) as count
-                FROM missions
-                GROUP BY user_id
+                SELECT user_id, COUNT(*) as count FROM student_missions GROUP BY user_id
             ) m_total ON ps.id = m_total.user_id
-            ORDER BY ps.created_at DESC
-                LIMIT $1
+            ORDER BY ps.created_at DESC LIMIT $1
         `;
 
         const result = await pool.query(query, [limit]);
@@ -355,16 +330,12 @@ router.get('/users', async (req, res) => {
     }
 });
 
-/**
- * 👤 GET /api/admin/users/:userId
- */
 router.get('/users/:userId', async (req, res) => {
     try {
         const { userId } = req.params;
         const result = await pool.query(`
             SELECT
-                ps.id,
-                ps.firebase_uid as "firebaseUid",
+                ps.id, ps.firebase_uid as "firebaseUid",
                 COALESCE(ps.name, u.display_name) as "displayName",
                 COALESCE(ps.name, u.display_name) as name,
                 COALESCE(ps.email, u.email) as email,
@@ -372,7 +343,7 @@ router.get('/users/:userId', async (req, res) => {
                 COALESCE(ps.grade, u.grade) as track,
                 ps.created_at as "createdAt"
             FROM prototype_students ps
-                     LEFT JOIN users u ON ps.firebase_uid = u.firebase_uid OR ps.email = u.email
+            LEFT JOIN users u ON ps.firebase_uid = u.firebase_uid OR ps.email = u.email
             WHERE ps.id = $1
         `, [userId]);
         if (result.rows.length === 0) return res.status(404).json({ success: false, error: 'User not found' });
@@ -383,9 +354,6 @@ router.get('/users/:userId', async (req, res) => {
     }
 });
 
-/**
- * ✏️ PUT /api/admin/users/:userId
- */
 router.put('/users/:userId', async (req, res) => {
     try {
         const { userId } = req.params;
@@ -393,16 +361,10 @@ router.put('/users/:userId', async (req, res) => {
 
         const result = await pool.query(`
             UPDATE prototype_students
-            SET
-                name = COALESCE($1, name),
-                email = COALESCE($2, email),
-                grade = COALESCE($3, grade),
-                updated_at = CURRENT_TIMESTAMP
+            SET name = COALESCE($1, name), email = COALESCE($2, email),
+                grade = COALESCE($3, grade), updated_at = CURRENT_TIMESTAMP
             WHERE id = $4
-                RETURNING id, firebase_uid as "firebaseUid", 
-                      name as "displayName", 
-                      name, 
-                      email, grade, created_at as "createdAt"
+            RETURNING id, firebase_uid as "firebaseUid", name as "displayName", name, email, grade, created_at as "createdAt"
         `, [displayName, email, grade, userId]);
 
         if (result.rows.length === 0) {
@@ -416,9 +378,6 @@ router.put('/users/:userId', async (req, res) => {
     }
 });
 
-/**
- * 💬 GET /api/admin/user-message/:userId - HANDLES BOTH DB ID AND FIREBASE UID
- */
 router.get('/user-message/:userId', async (req, res) => {
     try {
         const { userId } = req.params;
@@ -427,24 +386,14 @@ router.get('/user-message/:userId', async (req, res) => {
         if (/^\d+$/.test(userId)) {
             dbUserId = parseInt(userId);
         } else {
-            const userResult = await pool.query(
-                'SELECT id FROM prototype_students WHERE firebase_uid = $1',
-                [userId]
-            );
-
+            const userResult = await pool.query('SELECT id FROM prototype_students WHERE firebase_uid = $1', [userId]);
             if (userResult.rows.length === 0) {
                 return res.status(404).json({ success: false, error: 'User not found' });
             }
-
             dbUserId = userResult.rows[0].id;
         }
 
-        const result = await pool.query(
-            `SELECT message, created_at as "createdAt", updated_at as "updatedAt" 
-             FROM admin_messages 
-             WHERE user_id = $1`,
-            [dbUserId]
-        );
+        const result = await pool.query(`SELECT message, created_at as "createdAt", updated_at as "updatedAt" FROM admin_messages WHERE user_id = $1`, [dbUserId]);
 
         if (result.rows.length === 0) {
             return res.json({ success: true, message: null });
@@ -457,9 +406,6 @@ router.get('/user-message/:userId', async (req, res) => {
     }
 });
 
-/**
- * 💬 POST /api/admin/user-message/:userId - HANDLES BOTH DB ID AND FIREBASE UID
- */
 router.post('/user-message/:userId', async (req, res) => {
     try {
         const { userId } = req.params;
@@ -474,26 +420,20 @@ router.post('/user-message/:userId', async (req, res) => {
         if (/^\d+$/.test(userId)) {
             dbUserId = parseInt(userId);
         } else {
-            const userResult = await pool.query(
-                'SELECT id FROM prototype_students WHERE firebase_uid = $1',
-                [userId]
-            );
-
+            const userResult = await pool.query('SELECT id FROM prototype_students WHERE firebase_uid = $1', [userId]);
             if (userResult.rows.length === 0) {
                 return res.status(404).json({ success: false, error: 'User not found' });
             }
-
             dbUserId = userResult.rows[0].id;
         }
 
-        const result = await pool.query(
-            `INSERT INTO admin_messages (user_id, message)
-             VALUES ($1, $2)
-                 ON CONFLICT (user_id) 
-             DO UPDATE SET message = EXCLUDED.message, updated_at = CURRENT_TIMESTAMP
-                                     RETURNING *`,
-            [dbUserId, message.trim()]
-        );
+        const result = await pool.query(`
+            INSERT INTO admin_messages (user_id, message)
+            VALUES ($1, $2)
+            ON CONFLICT (user_id) 
+            DO UPDATE SET message = EXCLUDED.message, updated_at = CURRENT_TIMESTAMP
+            RETURNING *
+        `, [dbUserId, message.trim()]);
 
         res.json({ success: true, message: result.rows[0] });
     } catch (error) {
@@ -502,9 +442,6 @@ router.post('/user-message/:userId', async (req, res) => {
     }
 });
 
-/**
- * 🎯 GET /api/admin/missions/user/:userId - HANDLES BOTH USER_ID AND FIREBASE_UID
- */
 router.get('/missions/user/:userId', async (req, res) => {
     try {
         const { userId } = req.params;
@@ -513,20 +450,14 @@ router.get('/missions/user/:userId', async (req, res) => {
         let query, params;
 
         if (/^\d+$/.test(userId)) {
-            // It's a database ID
-            query = `SELECT id, title, description, topic_id as "topicId", type, completed, created_at as "createdAt", completed_at as "completedAt" FROM missions WHERE user_id = $1`;
+            query = `SELECT id, title, description, config->>'topicId' as "topicId", mission_type as type, status, created_at as "createdAt", completed_at as "completedAt" FROM student_missions WHERE user_id = $1`;
             params = [parseInt(userId)];
         } else {
-            // It's a Firebase UID
-            const userResult = await pool.query(
-                'SELECT id FROM prototype_students WHERE firebase_uid = $1',
-                [userId]
-            );
+            const userResult = await pool.query('SELECT id FROM prototype_students WHERE firebase_uid = $1', [userId]);
 
             if (userResult.rows.length > 0) {
                 const dbUserId = userResult.rows[0].id;
-                // Query by BOTH firebase_uid and user_id to catch all missions
-                query = `SELECT id, title, description, topic_id as "topicId", type, completed, created_at as "createdAt", completed_at as "completedAt" FROM missions WHERE firebase_uid = $1 OR user_id = $2`;
+                query = `SELECT id, title, description, config->>'topicId' as "topicId", mission_type as type, status, created_at as "createdAt", completed_at as "completedAt" FROM student_missions WHERE firebase_uid = $1 OR user_id = $2`;
                 params = [userId, dbUserId];
             } else {
                 return res.json({ success: true, missions: [] });
@@ -534,10 +465,10 @@ router.get('/missions/user/:userId', async (req, res) => {
         }
 
         if (type) {
-            query += ` AND type = $${params.length + 1}`;
+            query += ` AND mission_type = $${params.length + 1}`;
             params.push(type);
         }
-        query += ` ORDER BY completed ASC, created_at DESC`;
+        query += ` ORDER BY CASE status WHEN 'active' THEN 1 WHEN 'completed' THEN 2 ELSE 3 END, created_at DESC`;
 
         const result = await pool.query(query, params);
         res.json({ success: true, missions: result.rows });
@@ -547,9 +478,6 @@ router.get('/missions/user/:userId', async (req, res) => {
     }
 });
 
-/**
- * 🎯 POST /api/admin/missions/create
- */
 router.post('/missions/create', async (req, res) => {
     try {
         const { userId, title, description, type, topicId } = req.body;
@@ -558,26 +486,10 @@ router.post('/missions/create', async (req, res) => {
         const userResult = await pool.query('SELECT firebase_uid FROM prototype_students WHERE id = $1', [userId]);
         const firebaseUid = userResult.rows[0]?.firebase_uid;
 
-        const columnCheck = await pool.query(`
-            SELECT column_name
-            FROM information_schema.columns
-            WHERE table_name = 'missions' AND column_name = 'firebase_uid'
-        `);
-
-        let result;
-        if (columnCheck.rows.length > 0 && firebaseUid) {
-            result = await pool.query(`
-                INSERT INTO missions (user_id, firebase_uid, title, description, type, topic_id)
-                VALUES ($1, $2, $3, $4, $5, $6)
-                    RETURNING *
-            `, [userId, firebaseUid, title, description || null, type || 'practice', topicId || null]);
-        } else {
-            result = await pool.query(`
-                INSERT INTO missions (user_id, title, description, type, topic_id)
-                VALUES ($1, $2, $3, $4, $5)
-                    RETURNING *
-            `, [userId, title, description || null, type || 'practice', topicId || null]);
-        }
+        const result = await pool.query(`
+            INSERT INTO student_missions (user_id, firebase_uid, title, description, mission_type, config)
+            VALUES ($1, $2, $3, $4, $5, $6) RETURNING *
+        `, [userId, firebaseUid, title, description || null, type || 'practice', JSON.stringify({ topicId: topicId || null })]);
 
         res.json({ success: true, mission: result.rows[0] });
     } catch (error) {
@@ -586,14 +498,18 @@ router.post('/missions/create', async (req, res) => {
     }
 });
 
-/**
- * 🎯 POST /api/admin/missions/:missionId/toggle
- */
 router.post('/missions/:missionId/toggle', async (req, res) => {
     try {
         const { missionId } = req.params;
         const { completed } = req.body;
-        const result = await pool.query(`UPDATE missions SET completed = $1, completed_at = CASE WHEN $1 = true THEN CURRENT_TIMESTAMP ELSE NULL END WHERE id = $2 RETURNING *`, [completed, missionId]);
+
+        const newStatus = completed ? 'completed' : 'active';
+        const result = await pool.query(`
+            UPDATE student_missions 
+            SET status = $1, completed_at = CASE WHEN $1 = 'completed' THEN CURRENT_TIMESTAMP ELSE NULL END 
+            WHERE id = $2 RETURNING *
+        `, [newStatus, missionId]);
+
         if (result.rows.length === 0) return res.status(404).json({ success: false, error: 'Mission not found' });
         res.json({ success: true, mission: result.rows[0] });
     } catch (error) {
@@ -602,13 +518,15 @@ router.post('/missions/:missionId/toggle', async (req, res) => {
     }
 });
 
-/**
- * 🎯 POST /api/admin/missions/complete/:missionId
- */
 router.post('/missions/complete/:missionId', async (req, res) => {
     try {
         const { missionId } = req.params;
-        const result = await pool.query(`UPDATE missions SET completed = true, completed_at = CURRENT_TIMESTAMP WHERE id = $1 RETURNING *`, [missionId]);
+        const result = await pool.query(`
+            UPDATE student_missions 
+            SET status = 'completed', completed_at = CURRENT_TIMESTAMP 
+            WHERE id = $1 RETURNING *
+        `, [missionId]);
+
         if (result.rows.length === 0) return res.status(404).json({ success: false, error: 'Mission not found' });
         res.json({ success: true, mission: result.rows[0] });
     } catch (error) {
@@ -617,13 +535,11 @@ router.post('/missions/complete/:missionId', async (req, res) => {
     }
 });
 
-/**
- * 🗑️ DELETE /api/admin/missions/:missionId
- */
 router.delete('/missions/:missionId', async (req, res) => {
     try {
         const { missionId } = req.params;
-        const result = await pool.query('DELETE FROM missions WHERE id = $1 RETURNING *', [missionId]);
+        const result = await pool.query('DELETE FROM student_missions WHERE id = $1 RETURNING *', [missionId]);
+
         if (result.rows.length === 0) return res.status(404).json({ success: false, error: 'Mission not found' });
         res.json({ success: true, deleted: result.rows[0] });
     } catch (error) {
@@ -632,32 +548,20 @@ router.delete('/missions/:missionId', async (req, res) => {
     }
 });
 
-/**
- * 📊 GET /api/admin/profile/stats/:userId
- */
 router.get('/profile/stats/:userId', async (req, res) => {
     try {
         const { userId } = req.params;
 
         const questionStatsResult = await pool.query(`
-            SELECT
-                COUNT(*) as questions_answered,
-                0 as correct_answers,
-                0 as streak,
-                0 as practice_time
+            SELECT COUNT(*) as questions_answered, 0 as correct_answers, 0 as streak, 0 as practice_time
             FROM student_question_history
-            WHERE CASE
-                      WHEN user_id ~ '^[0-9]+$' THEN user_id::integer = $1
-                ELSE false
-            END
+            WHERE CASE WHEN user_id ~ '^[0-9]+$' THEN user_id::integer = $1 ELSE false END
         `, [userId]);
 
         const missionStatsResult = await pool.query(`
-            SELECT
-                COUNT(*) as total_missions,
-                COUNT(CASE WHEN completed = true THEN 1 END) as completed_missions
-            FROM missions
-            WHERE user_id = $1
+            SELECT COUNT(*) as total_missions,
+                   COUNT(CASE WHEN status = 'completed' THEN 1 END) as completed_missions
+            FROM student_missions WHERE user_id = $1
         `, [userId]);
 
         const stats = {
@@ -676,9 +580,6 @@ router.get('/profile/stats/:userId', async (req, res) => {
     }
 });
 
-/**
- * 📚 GET /api/admin/curriculum/topics
- */
 router.get('/curriculum/topics', async (req, res) => {
     const topics = [
         { id: 'algebra', name: 'אלגברה' },
@@ -691,9 +592,6 @@ router.get('/curriculum/topics', async (req, res) => {
     res.json({ success: true, topics });
 });
 
-/**
- * 📚 GET /api/admin/topics
- */
 router.get('/topics', async (req, res) => {
     const topics = [
         { id: 'algebra', name: 'אלגברה' },
@@ -706,9 +604,6 @@ router.get('/topics', async (req, res) => {
     res.json({ success: true, topics });
 });
 
-/**
- * 🎯 GET /api/admin/my-missions - UPDATED TO QUERY BOTH WAYS
- */
 router.get('/my-missions', async (req, res) => {
     try {
         const { firebaseUid, userId } = req.query;
@@ -720,10 +615,7 @@ router.get('/my-missions', async (req, res) => {
         let query, params;
 
         if (firebaseUid) {
-            const userResult = await pool.query(
-                'SELECT id FROM prototype_students WHERE firebase_uid = $1',
-                [firebaseUid]
-            );
+            const userResult = await pool.query('SELECT id FROM prototype_students WHERE firebase_uid = $1', [firebaseUid]);
 
             if (userResult.rows.length === 0) {
                 return res.json({ success: true, missions: [] });
@@ -731,36 +623,23 @@ router.get('/my-missions', async (req, res) => {
 
             const dbUserId = userResult.rows[0].id;
 
-            // Query by BOTH firebase_uid AND user_id to catch all missions
             query = `
-                SELECT
-                    m.id,
-                    m.title,
-                    m.description,
-                    m.topic_id as "topicId",
-                    m.type,
-                    m.completed,
-                    m.created_at as "createdAt",
-                    m.completed_at as "completedAt"
-                FROM missions m
+                SELECT m.id, m.title, m.description, m.config->>'topicId' as "topicId", 
+                       m.mission_type as "type", m.status,
+                       m.created_at as "createdAt", m.completed_at as "completedAt"
+                FROM student_missions m
                 WHERE m.firebase_uid = $1 OR m.user_id = $2
-                ORDER BY m.completed ASC, m.created_at DESC
+                ORDER BY CASE m.status WHEN 'active' THEN 1 WHEN 'completed' THEN 2 ELSE 3 END, m.created_at DESC
             `;
             params = [firebaseUid, dbUserId];
         } else {
             query = `
-                SELECT
-                    m.id,
-                    m.title,
-                    m.description,
-                    m.topic_id as "topicId",
-                    m.type,
-                    m.completed,
-                    m.created_at as "createdAt",
-                    m.completed_at as "completedAt"
-                FROM missions m
+                SELECT m.id, m.title, m.description, m.config->>'topicId' as "topicId",
+                       m.mission_type as "type", m.status,
+                       m.created_at as "createdAt", m.completed_at as "completedAt"
+                FROM student_missions m
                 WHERE m.user_id = $1
-                ORDER BY m.completed ASC, m.created_at DESC
+                ORDER BY CASE m.status WHEN 'active' THEN 1 WHEN 'completed' THEN 2 ELSE 3 END, m.created_at DESC
             `;
             params = [userId];
         }
@@ -773,13 +652,9 @@ router.get('/my-missions', async (req, res) => {
     }
 });
 
-/**
- * 🔍 GET /api/admin/debug-users
- */
 router.get('/debug-users', async (req, res) => {
     try {
         const users = await pool.query(`SELECT * FROM users ORDER BY id LIMIT 10`);
-
         const columns = await pool.query(`
             SELECT column_name, data_type, is_nullable
             FROM information_schema.columns
@@ -799,6 +674,6 @@ router.get('/debug-users', async (req, res) => {
     }
 });
 
-console.log('✅ Admin routes (exams + student management) CORRECTED AND LOADED');
+console.log('✅ Admin routes (FULLY CORRECTED FOR student_missions)');
 
 export default router;
