@@ -1,16 +1,17 @@
-// src/pages/AdminDashboard.jsx - ENHANCED ADMIN DASHBOARD WITH STUDENT MANAGEMENT
+// src/pages/AdminDashboard.jsx - ENHANCED WITH MISSIONS MANAGEMENT
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import axios from 'axios';
 import {
     Users, BookOpen, Bell, Code, MessageSquare, Upload,
     Brain, TrendingUp, Award, Target, Clock, Flame,
     ChevronRight, User, Eye, Settings, BarChart3,
-    GraduationCap, FileText, Zap, Star, Activity
+    GraduationCap, FileText, Zap, Star, Activity, Plus, X
 } from 'lucide-react';
 import useAuthStore from '../store/authStore';
 import toast from 'react-hot-toast';
+import MissionCreator from '../components/admin/MissionCreator';
 
 const API_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
 
@@ -24,10 +25,13 @@ const AdminDashboard = () => {
         totalQuestions: 0,
         totalExams: 0,
         totalMissions: 0,
-        completedMissions: 0
+        completedMissions: 0,
+        activeMissions: 0
     });
     const [loading, setLoading] = useState(true);
     const [recentUsers, setRecentUsers] = useState([]);
+    const [showMissionCreator, setShowMissionCreator] = useState(false);
+    const [selectedUser, setSelectedUser] = useState(null);
 
     useEffect(() => {
         loadDashboardStats();
@@ -40,7 +44,23 @@ const AdminDashboard = () => {
             // Load overall stats
             const statsResponse = await axios.get(`${API_URL}/api/admin/dashboard-stats`);
             if (statsResponse.data.success) {
-                setStats(statsResponse.data.stats);
+                setStats(prev => ({ ...prev, ...statsResponse.data.stats }));
+            }
+
+            // Load mission stats
+            try {
+                const missionStatsResponse = await axios.get(`${API_URL}/api/missions/admin/stats`);
+                if (missionStatsResponse.data.success) {
+                    setStats(prev => ({
+                        ...prev,
+                        activeMissions: missionStatsResponse.data.stats.active_missions || 0,
+                        completedMissions: missionStatsResponse.data.stats.completed_missions || 0,
+                        totalMissions: (missionStatsResponse.data.stats.active_missions || 0) +
+                            (missionStatsResponse.data.stats.completed_missions || 0)
+                    }));
+                }
+            } catch (e) {
+                console.log('Mission stats not available yet');
             }
 
             // Load recent users
@@ -55,6 +75,11 @@ const AdminDashboard = () => {
         }
     };
 
+    const openMissionCreator = (userId, userName) => {
+        setSelectedUser({ id: userId, name: userName });
+        setShowMissionCreator(true);
+    };
+
     const adminSections = [
         {
             title: 'ניהול תלמידים',
@@ -63,6 +88,15 @@ const AdminDashboard = () => {
             color: 'from-purple-600 to-pink-600',
             path: '/admin/users',
             badge: stats.totalUsers
+        },
+        {
+            title: 'ניהול משימות',
+            description: 'צור משימות חכמות עם מעקב אחר התקדמות ומניעת כפילויות',
+            icon: Target,
+            color: 'from-orange-600 to-red-600',
+            path: '/admin/missions',
+            badge: stats.activeMissions,
+            isNew: true
         },
         {
             title: 'העלאת מבחנים',
@@ -79,13 +113,6 @@ const AdminDashboard = () => {
             icon: BookOpen,
             color: 'from-green-600 to-emerald-600',
             path: '/admin/course/mathematics/curriculum'
-        },
-        {
-            title: 'ניהול יעדים',
-            description: 'הגדר יעדי למידה ומעקב אחר התקדמות',
-            icon: Target,
-            color: 'from-orange-600 to-red-600',
-            path: '/admin/goals'
         },
         {
             title: 'קודי הרשמה',
@@ -174,6 +201,24 @@ const AdminDashboard = () => {
                         initial={{ opacity: 0, scale: 0.9 }}
                         animate={{ opacity: 1, scale: 1 }}
                         transition={{ delay: 0.1 }}
+                        className="bg-gradient-to-br from-orange-600 to-red-600 rounded-2xl p-6 shadow-xl"
+                    >
+                        <div className="flex items-center justify-between mb-4">
+                            <Target className="w-12 h-12 text-white" />
+                            <div className="text-right">
+                                <p className="text-5xl font-black text-white">{stats.activeMissions}</p>
+                                <p className="text-white/90 font-bold">משימות פעילות</p>
+                            </div>
+                        </div>
+                        <div className="text-white/80 text-sm">
+                            {stats.completedMissions} הושלמו
+                        </div>
+                    </motion.div>
+
+                    <motion.div
+                        initial={{ opacity: 0, scale: 0.9 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        transition={{ delay: 0.2 }}
                         className="bg-gradient-to-br from-blue-600 to-cyan-600 rounded-2xl p-6 shadow-xl"
                     >
                         <div className="flex items-center justify-between mb-4">
@@ -191,7 +236,7 @@ const AdminDashboard = () => {
                     <motion.div
                         initial={{ opacity: 0, scale: 0.9 }}
                         animate={{ opacity: 1, scale: 1 }}
-                        transition={{ delay: 0.2 }}
+                        transition={{ delay: 0.3 }}
                         className="bg-gradient-to-br from-green-600 to-emerald-600 rounded-2xl p-6 shadow-xl"
                     >
                         <div className="flex items-center justify-between mb-4">
@@ -203,28 +248,6 @@ const AdminDashboard = () => {
                         </div>
                         <div className="text-white/80 text-sm">
                             מבחנים שהועלו למערכת
-                        </div>
-                    </motion.div>
-
-                    <motion.div
-                        initial={{ opacity: 0, scale: 0.9 }}
-                        animate={{ opacity: 1, scale: 1 }}
-                        transition={{ delay: 0.3 }}
-                        className="bg-gradient-to-br from-orange-600 to-red-600 rounded-2xl p-6 shadow-xl"
-                    >
-                        <div className="flex items-center justify-between mb-4">
-                            <Target className="w-12 h-12 text-white" />
-                            <div className="text-right">
-                                <p className="text-5xl font-black text-white">
-                                    {stats.completedMissions}/{stats.totalMissions}
-                                </p>
-                                <p className="text-white/90 font-bold">משימות</p>
-                            </div>
-                        </div>
-                        <div className="text-white/80 text-sm">
-                            {stats.totalMissions > 0
-                                ? Math.round((stats.completedMissions / stats.totalMissions) * 100)
-                                : 0}% הושלמו
                         </div>
                     </motion.div>
                 </div>
@@ -255,6 +278,12 @@ const AdminDashboard = () => {
                                     {section.badge !== undefined && (
                                         <div className="absolute top-4 left-4 w-10 h-10 bg-white/10 backdrop-blur-sm rounded-full flex items-center justify-center">
                                             <span className="text-white font-black text-sm">{section.badge}</span>
+                                        </div>
+                                    )}
+
+                                    {section.isNew && (
+                                        <div className="absolute top-4 left-4 px-3 py-1 bg-green-500 rounded-full">
+                                            <span className="text-white font-black text-xs">חדש!</span>
                                         </div>
                                     )}
 
@@ -298,21 +327,37 @@ const AdminDashboard = () => {
                                             initial={{ opacity: 0, x: -20 }}
                                             animate={{ opacity: 1, x: 0 }}
                                             transition={{ delay: index * 0.1 }}
-                                            onClick={() => navigate(`/admin/user/${student.id}`)}
-                                            className="flex items-center gap-4 p-3 bg-gray-700/50 rounded-xl hover:bg-gray-700 cursor-pointer transition-colors"
+                                            className="bg-gray-700/50 rounded-xl p-3"
                                         >
-                                            <div className="w-12 h-12 bg-gradient-to-br from-purple-600 to-pink-600 rounded-full flex items-center justify-center flex-shrink-0">
-                                                <User className="w-6 h-6 text-white" />
+                                            <div className="flex items-center gap-4 mb-3">
+                                                <div className="w-12 h-12 bg-gradient-to-br from-purple-600 to-pink-600 rounded-full flex items-center justify-center flex-shrink-0">
+                                                    <User className="w-6 h-6 text-white" />
+                                                </div>
+                                                <div className="flex-1 min-w-0">
+                                                    <h4 className="text-white font-bold truncate">
+                                                        {student.name || student.displayName}
+                                                    </h4>
+                                                    <p className="text-xs text-gray-400 truncate">
+                                                        {student.email}
+                                                    </p>
+                                                </div>
                                             </div>
-                                            <div className="flex-1 min-w-0">
-                                                <h4 className="text-white font-bold truncate">
-                                                    {student.name || student.displayName}
-                                                </h4>
-                                                <p className="text-xs text-gray-400 truncate">
-                                                    {student.email}
-                                                </p>
+                                            <div className="flex gap-2">
+                                                <button
+                                                    onClick={() => navigate(`/admin/user/${student.id}`)}
+                                                    className="flex-1 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-sm font-bold flex items-center justify-center gap-2"
+                                                >
+                                                    <Eye className="w-4 h-4" />
+                                                    צפה
+                                                </button>
+                                                <button
+                                                    onClick={() => openMissionCreator(student.id, student.name || student.displayName)}
+                                                    className="flex-1 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-lg text-sm font-bold flex items-center justify-center gap-2"
+                                                >
+                                                    <Plus className="w-4 h-4" />
+                                                    משימה
+                                                </button>
                                             </div>
-                                            <Eye className="w-5 h-5 text-gray-400 flex-shrink-0" />
                                         </motion.div>
                                     ))}
 
@@ -394,6 +439,24 @@ const AdminDashboard = () => {
                     </div>
                 </motion.div>
             </div>
+
+            {/* Mission Creator Modal */}
+            <AnimatePresence>
+                {showMissionCreator && selectedUser && (
+                    <MissionCreator
+                        userId={selectedUser.id}
+                        userName={selectedUser.name}
+                        onClose={() => {
+                            setShowMissionCreator(false);
+                            setSelectedUser(null);
+                        }}
+                        onCreated={() => {
+                            loadDashboardStats();
+                            toast.success('✅ משימה נוצרה בהצלחה!');
+                        }}
+                    />
+                )}
+            </AnimatePresence>
         </div>
     );
 };

@@ -1,4 +1,4 @@
-// src/App.jsx - COMPLETE WITH ADMIN STUDENT MANAGEMENT
+// src/App.jsx - COMPLETE WITH MISSIONS ROUTE
 import React, { useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, useNavigate, useLocation } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
@@ -42,9 +42,12 @@ import AdminAddQuestion from './pages/AdminAddQuestion';
 import AdminDashboard from './pages/AdminDashboard';
 import AdminExamView from './pages/AdminExamView';
 
-// Admin - Student Management ✨ NEW!
+// Admin - Student Management ✨
 import AdminUsersList from './pages/AdminUsersList';
 import AdminUserDetail from './pages/AdminUserDetail';
+
+// Admin - Missions Management 🎯 NEW!
+import AdminMissions from './pages/AdminMissions';
 
 // Admin - Other
 import AdminGoals from './pages/AdminGoals';
@@ -244,7 +247,21 @@ function App() {
                     />
 
                     {/* ============================================ */}
-                    {/* ADMIN ROUTES - STUDENT MANAGEMENT ✨ NEW!    */}
+                    {/* ADMIN ROUTES - MISSIONS MANAGEMENT 🎯 NEW!  */}
+                    {/* ============================================ */}
+
+                    {/* Missions Management */}
+                    <Route
+                        path="admin/missions"
+                        element={
+                            <AdminRoute>
+                                <AdminMissions />
+                            </AdminRoute>
+                        }
+                    />
+
+                    {/* ============================================ */}
+                    {/* ADMIN ROUTES - STUDENT MANAGEMENT ✨         */}
                     {/* ============================================ */}
 
                     {/* Students List */}

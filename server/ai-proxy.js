@@ -28,6 +28,8 @@ import adaptiveDifficultyRoutes from './routes/adaptiveDifficultyRoutes.js';
 import enhancedQuestionsRouter from './routes/enhancedQuestions.js';
 import calculusValidator from './services/calculus-validator.js';
 import bagrutExamRoutes from './routes/bagrExamRoutes.js';
+import missionsRoutes from './routes/missionsRoutes.js';
+
 import adminRoutes from './routes/adminRoutes.js';
 // בתחילת הקובץ, אחרי ה-imports הקיימים:
 import claudeApi from './utils/claudeApiHelper.js';
@@ -92,6 +94,7 @@ app.use('/api/questions', enhancedQuestionsRouter);
 app.use('/api/israeli-sources', israeliSourcesRoutes);
 app.use('/api/adaptive', adaptiveRoutes);
 app.use('/api/bagrut', bagrutExamRoutes);
+app.use('/api/missions', missionsRoutes);
 app.use('/api/admin/bagrut', adminBagrutRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/ai', aiAnalysisRoutes);
